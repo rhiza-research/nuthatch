@@ -5,7 +5,7 @@ import tomllib
 
 dynamic_parameters = {}
 
-def cacheable_config_parameter(parameter_name, location='base', backend=None):
+def cacheable_config_parameter(parameter_name, location='root', backend=None):
     def decorator(function):
         if location not in dynamic_parameters:
             dynamic_parameters[location] = {}
@@ -21,7 +21,7 @@ def cacheable_config_parameter(parameter_name, location='base', backend=None):
 def is_fs_root(p):
      return os.path.splitdrive(str(p))[1] == os.sep
 
-def get_config(location='base', backend_class=CacheableBackend):
+def get_config(location='root', backend_class=CacheableBackend):
 
     #Find pyproject.toml or cacheable.ini
     current_directory = Path.cwd()
@@ -40,6 +40,12 @@ def get_config(location='base', backend_class=CacheableBackend):
 
     requested_parameters = backend_class.config_parameters
     backend_name = backend_class.backend_name
+
+    # If it's root allow the base parameters to be used and root to be set
+    if location == 'root':
+        location_params = config['tool']['cacheable']
+        if location in config['tool']['cacheable']:
+            location_params.update(config['tool']['cacheable'][location])
 
     location_params = config['tool']['cacheable'][location]
 

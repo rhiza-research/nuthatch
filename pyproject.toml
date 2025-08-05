@@ -31,7 +31,7 @@ allow-direct-references = true
 [tool.hatch.build.targets.wheel]
 packages = ["src/cacheable"]
 
-[tool.cacheable.base]
+[tool.cacheable]
 filesystem = "gs://sheerwater-datalake/cache"
 host = "postgres.sheerwater.rhizresearch.org"
 port = 5432
@@ -39,7 +39,7 @@ database = "postgres"
 driver = "postgres"
 raster_store = "gs://terracotta-files"
 
-[tool.cacheable.base.filesystem_options]
+[tool.cacheable.filesystem_options]
 token = "google_default"
 cache_timeout = 0
 

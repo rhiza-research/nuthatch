@@ -4,6 +4,7 @@ import inspect
 from functools import wraps
 from inspect import signature, Parameter
 from backends import get_backend
+from metadata import CacheMetadata
 from config import get_config
 import logging
 import hashlib
@@ -52,56 +53,20 @@ def check_if_nested_fn():
     return False
 
 
-def sync_local_remote(backend, cache_fs, local_fs,
-                      cache_path=None, local_cache_path=None,
-                      verify_path=None, null_path=None):
+def sync_local_remote(backend, local_backend)
     """Sync a local cache mirror to a remote cache.
 
     Args:
-        backend (str): The backend to use for the cache
-        cache_fs (fsspec.core.url_to_fs): The filesystem of the cache
-        local_fs (fsspec.core.url_to_fs): The filesystem of the local mirror
-        cache_path (str): The path to the cache
-        local_cache_path (str): The path to the local cache
-        verify_path (str): The path to the verify file
-        null_path (str): The path to the null file
+        backend (CacheableBackend): The backend to use for the cache
+        local_backend (CacheableBackend): The backend to use for the local cache
     """
-    if local_cache_path == cache_path:
-        return  # don't sync if the read and the remote filesystems are the same
 
-    # Syncing is only possible if the remote cache exists and is valid
-    assert backend in SUPPORTS_LOCAL_CACHING
-    assert cache_exists(backend, cache_path, verify_path)
+    # If there is a local
+    if not local_backend:
+        return
 
-    local_verify_path = get_local_cache(verify_path)
-    local_null_path = get_local_cache(null_path)
-
-    # Remove the local null cache if it doesn't exist on remote
-    if not cache_fs.exists(null_path) and local_fs.exists(local_null_path):
-        local_fs.rm(local_null_path, recursive=True)
-
-    # If the cache exists locally and is valid, we're synced - return!
-    if cache_exists(backend, local_cache_path, local_verify_path):
-        # If we have a local cache, check and make sure the verify timestamp is the same
-        local_verify_ts = local_fs.open(local_verify_path, 'r').read()
-        remote_verify_ts = cache_fs.open(verify_path, 'r').read()
-        if local_verify_ts == remote_verify_ts:
-            return
-
-    # If the verify timestamp is different, or it doesn't exist, delete the local cache
-    # and sync the remote cache to local
-    if cache_path and cache_fs.exists(cache_path):
-        if local_fs.exists(local_cache_path):
-            local_fs.rm(local_cache_path, recursive=True)
-        cache_fs.get(cache_path, local_cache_path, recursive=True)
-    if verify_path and cache_fs.exists(verify_path):
-        if local_fs.exists(local_verify_path):
-            local_fs.rm(local_verify_path)
-        cache_fs.get(verify_path, local_verify_path)
-    if null_path and cache_fs.exists(null_path):
-        if local_fs.exists(local_null_path):
-            local_fs.rm(local_null_path)
-        cache_fs.get(null_path, local_null_path)
+    assert backend.exists()
+    backend.sync(local_backend)
 
 
 def get_cache_args(kwargs, cache_kwargs):
@@ -207,10 +172,10 @@ def get_cache_key(func, cache_arg_values):
 
 
 
-def get_backend_types(metadata_backend, backend, storage_backend):
+def get_backend_types(metadata, backend, storage_backend):
     prior_backend_type = None
-    if metadata_backend.cache_exists():
-        prior_backend_type = metadata_backend.get_backend()
+    if metadata.exists():
+        prior_backend_type = metadata.get_backend()
 
     read_backend_type = backend
     write_backend_type = storage_backend
@@ -229,10 +194,12 @@ def get_backend_types(metadata_backend, backend, storage_backend):
 def cacheable(cache=True,
               cache_args,
               cache_disable_if=None,
-              backend=None,
-              storage_backend=None,
-              cache_local=False,
               engine=None,
+              backend=None,
+              backend_kwargs=None,
+              storage_backend=None,
+              storage_backend_kwargs=None,
+              cache_local=False,
               primary_keys=None):
     """Decorator for caching function results.
 
@@ -258,14 +225,16 @@ def cacheable(cache=True,
     """
     # Valid configuration kwargs for the cacheable decorator
     cache_kwargs = {
+        "cache": None,
+        "backend": None,
+        "backend_kwargs": None,
+        "cache_local": False,
+        "storage_backend": None,
+        "storage_backend_kwargs": None,
         "filepath_only": False,
         "recompute": False,
-        "cache": None,
         "force_overwrite": None,
         "retry_null_cache": False,
-        "backend": None,
-        "storage_backend": None,
-        "cache_local": False,
         "upsert": False,
         "fail_if_no_cache": False,
     }
@@ -277,26 +246,32 @@ def cacheable(cache=True,
         @wraps(func)
         def cacheable_wrapper(*args, **kwargs):
             # Proper variable scope for the decorator args
-            data_type = nonlocals['data_type']
             cache_args = nonlocals['cache_args']
             cache = nonlocals['cache']
             cache_disable_if = nonlocals['cache_disable_if']
             backend = nonlocals['backend']
+            backend_kwargs = nonlocals['backend_kwargs']
             storage_backend = nonlocals['storage_backend']
+            storage_backend_kwargs = nonlocals['storage_backend_kwargs']
             cache_local = nonlocals['cache_local']
             primary_keys = nonlocals['primary_keys']
 
             # Calculate the appropriate cache key
-            filepath_only, recompute, passed_cache, \
-                force_overwrite, retry_null_cache, passed_backend, \
-                storage_backend, passed_cache_local, \
-                upsert, \
-                fail_if_no_cache = get_cache_args(kwargs, cache_kwargs)
+            passed_cache, passed_backend, passed_backend_kwargs, \
+            passed_cache_local, storage_backend, storage_backend_kwargs, \
+            filepath_only, recompute, \
+            force_overwrite, retry_null_cache, upsert, \
+            fail_if_no_cache = get_cache_args(kwargs, cache_kwargs)
 
             if passed_cache is not None:
                 cache = passed_cache
             if passed_backend is not None:
                 backend = passed_backend
+            if passed_backend_kwargs is not None:
+                if backend_kwargs is None:
+                    backend_kwargs = passed_backend_kwargs
+                else:
+                    backend_kwargs = backend_kwargs.update(passed_backend_kwargs)
             if passed_cache_local is not None:
                 cache_local = passed_cache_local
 
@@ -336,14 +311,14 @@ def cacheable(cache=True,
             compute_result = True
 
             # Instantiate a metadata backend - metadata is just a backend like all others but with some extra methods
-            metadata_backend = MetadataBackend(cache_config, cache_key, cache_arg_values, backend_kwargs)
+            metadata = CacheMetadata(get_config(location='root', backend_class=CacheMetadata), cache_key)
 
             # Check to see if there is already a cached null that is valid
-            if metadata_backend.cache_exists():
-                if metadata_backend.null():
+            if metadata.exists():
+                if metadata_backend.is_null():
                     if retry_null_cache:
                         # Remove the null and move on because we don't know the backend and need to recompute
-                        metadata_backend.delete_null())
+                        metadata.delete_null())
                     elif recompute:
                         # Just move on, let the user decide whether to oeverwrite the null cache later
                         pass
@@ -356,21 +331,24 @@ def cacheable(cache=True,
                         # we will recompute and not cache the values
 
             # Set up the backends if we have the information
-            read_backend_type, write_backend_type = get_backend_types(metadata_backend, backend, storage_backend)
+            read_backend_type, write_backend_type = get_backend_types(metadata, backend, storage_backend)
 
             # Make core versions of the backends if we can
             if read_backend_type:
                 read_backend_class = get_backends[read_backend_type]
-                read_backend = backend_class(get_config(location='base', backend_class=read_backend_class),
+                read_backend = backend_class(get_config(location='root', backend_class=read_backend_class),
                                              cache_key, cache_arg_values, backend_kwargs)
 
                 local_config = get_config(location='local', backend_class=read_backend_class)
-                if local_config and local:
-                    local_read_backend = backend_class(local_config, cache_key, cache_arg_values, backend_kwargs)
+                if local:
+                    if local_config
+                        local_read_backend = backend_class(local_config, cache_key, cache_arg_values, backend_kwargs)
+                    else:
+                        raise RuntimeError("Local backend not configured. Configure local backend for mirrong.")
 
             if write_backend_type:
                 write_backend_class = get_backends[write_backend_type]
-                write_backend = backend_class(get_config(location='base', backend_class=write_backend_class),
+                write_backend = backend_class(get_config(location='root', backend_class=write_backend_class),
                                               cache_key, cache_arg_values, backend_kwargs)
 
                 local_write_config = get_config(location='local', backend_class=write_backend_class)
@@ -429,7 +407,7 @@ def cacheable(cache=True,
             if cache and (compute_result or read_backend_type != write_backend_type):
                 if ds is None:
                     if not upsert:
-                        metadata_backend.write_null()
+                        metadata.write_null()
                         write_backend.write_null()
                         sync_local_remote(write_backend, local_write_backend)
                     else:

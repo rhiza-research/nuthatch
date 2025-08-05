@@ -18,8 +18,7 @@ class BasicBackend(VerifyableFileBackend):
         with self.fs.open(self.path, 'wb') as f:
             pickle.dump(data, f)
 
-        self.fs.open(self.verify_path, 'w').write(
-                datetime.datetime.now(datetime.timezone.utc).isoformat())
+        self.write_verify()
 
 
     def read(self, engine=None):

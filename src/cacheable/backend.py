@@ -61,7 +61,11 @@ class CacheableBackend(ABC):
         pass
 
     @abstractmethod
-    def get_file_path():
+    def get_file_path(self):
+        pass
+
+    @abstractmethod
+    def sync(self, CacheableBackend):
         pass
 
 
@@ -95,6 +99,8 @@ class FileBackend(CacheableBackend):
     def get_file_path(self):
         return self.path
 
+    def sync(self, local_backend):
+        raise NotImplementedError("File syncing not implemented for file backend.")
 
 class VerifyableFileBackend(FileBackend):
     """Base class for all filesystem backends with self-implemented psuedo-consistency."""
@@ -109,6 +115,30 @@ class VerifyableFileBackend(FileBackend):
         self.fs.rm(self.verify_path)
         self.fs.rm(self.path)
 
+    def write_verify(self):
+        self.fs.open(self.verify_path, 'w').write(
+                     datetime.datetime.now(datetime.timezone.utc).isoformat())
+
+    def sync(self, local_backend):
+
+        if local_backend.exists()
+            verify_ts = self.fs.open(self.verify_path, 'r').read()
+            local_verify_ts = local_backend.fs.open(local_backend.verify_path, 'r').read()
+
+            # If the verify files are the same, return
+            if local_verify_ts == verify_ts:
+                return
+
+        if backend.exists():
+            if local_backend.exists():
+                local_backend.delete()
+                local_backend.delete_null()
+            self.fs.get(self.path, local_backend.path, recursive=True)
+            self.fs.get(self.verify_path, local_backend.verify_path)
+
+        if self.fs.exists(self.null_path):
+            self.fs.get(self.null_path, local_backend.null_path)
+
 
 class DatabaseBackend(CacheableBackend):
     """Base class for all backends that rely on a filesystem."""
@@ -119,3 +149,6 @@ class DatabaseBackend(CacheableBackend):
 
     def get_file_path(self):
         raise NotImplementedError("File path returns not supported for database-like backends.")
+
+    def sync(self, local_backend):
+        raise NotImplementedError("File syncing not implemented for database.")
