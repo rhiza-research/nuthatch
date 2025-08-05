@@ -1,4 +1,4 @@
-from cacheable.backends import DatabaseBackend
+from cacheable.backend import DatabaseBackend, register_backend
 import hashlib
 import sqlalchemy
 import uuid
@@ -7,6 +7,7 @@ def hashed_table_name(table_name):
     """Return a qualified postgres table name."""
     return hashlib.md5(table_name.encode()).hexdigest()
 
+@register_backend
 class SQLBackend(DatabaseBackend):
 
     backend_name = "sql"
@@ -122,8 +123,8 @@ class SQLBackend(DatabaseBackend):
             except sqlalchemy.exc.InterfaceError:
                 raise RuntimeError("Error connecting to database.")
 
-    def read(self, engine):
-        if engine == 'pandas' or engine == pd.DataFrame:
+    def read(self, engine=None):
+        if engine == 'pandas' or engine == pd.DataFrame or engine is None:
             try:
                 df = pd.read_sql_query(f'select * from "{self.table_name}"', con=self.engine)
                 return df

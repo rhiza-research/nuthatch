@@ -21,7 +21,7 @@ def cacheable_config_parameter(parameter_name, location='base', backend=None):
 def is_fs_root(p):
      return os.path.splitdrive(str(p))[1] == os.sep
 
-def get_config(location='base', backendType=CacheableBackend):
+def get_config(location='base', backend_class=CacheableBackend):
 
     #Find pyproject.toml or cacheable.ini
     current_directory = Path.cwd()

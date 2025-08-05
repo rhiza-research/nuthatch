@@ -1,7 +1,8 @@
-from cacheable.backends import VerifyableFileBackend
+from cacheable.backend import VerifyableFileBackend, register_backend
 import datetime
 import pickle
 
+@register_backend
 class BasicBackend(VerifyableFileBackend):
 
     backend_name = "basic"
@@ -21,8 +22,8 @@ class BasicBackend(VerifyableFileBackend):
                 datetime.datetime.now(datetime.timezone.utc).isoformat())
 
 
-    def read(self, engine):
+    def read(self, engine=None):
         # Check to make sure the verify exists
-        if self.fs.exists(self.verify_path)
+        if self.fs.exists(self.verify_path):
             with self.fs.open(self.path, 'rb') as f:
                 return pickle.load(f)

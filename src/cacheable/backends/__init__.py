@@ -1,2 +1,3 @@
-from .backend import VerifyableFileBackend, FileBackend, CacheableBackend, DatabaseBackend
 from .sql import SQLBackend
+from .delta import DeltaBackend
+from .basic import BasicBackend

@@ -3,6 +3,8 @@ import os
 import inspect
 from functools import wraps
 from inspect import signature, Parameter
+from backends import get_backend
+from config import get_config
 import logging
 import hashlib
 
@@ -358,18 +360,22 @@ def cacheable(cache=True,
 
             # Make core versions of the backends if we can
             if read_backend_type:
-                read_backend_class = backend_class_map[read_backend_type]
-                read_backend = backend_class(cache_key, backend_fs, cache_arg_values, backend_kwargs)
+                read_backend_class = get_backends[read_backend_type]
+                read_backend = backend_class(get_config(location='base', backend_class=read_backend_class),
+                                             cache_key, cache_arg_values, backend_kwargs)
 
-                if local_mirror_fs:
-                    local_read_backend = backend_class(cache_key, local_mirror_fs, cache_arg_values, backend_kwargs)
+                local_config = get_config(location='local', backend_class=read_backend_class)
+                if local_config and local:
+                    local_read_backend = backend_class(local_config, cache_key, cache_arg_values, backend_kwargs)
 
             if write_backend_type:
-                write_backend_class = backend_class_map[write_backend_type]
-                write_backend = backend_class(cache_key, backend_fs, cache_arg_values, backend_kwargs)
+                write_backend_class = get_backends[write_backend_type]
+                write_backend = backend_class(get_config(location='base', backend_class=write_backend_class),
+                                              cache_key, cache_arg_values, backend_kwargs)
 
-                if local_mirror_fs:
-                    local_write_backend = backend_class(cache_key, local_mirror_fs, cache_arg_values, backend_kwargs)
+                local_write_config = get_config(location='local', backend_class=write_backend_class)
+                if local_write_config and local:
+                    local_write_backend = backend_class(local_write_config, cache_key, cache_arg_values, backend_kwargs)
 
 
             # Read the cache from the appropriate location if it exists
@@ -378,7 +384,7 @@ def cacheable(cache=True,
                     # Sync the cache from the remote to the local if necessary
                     sync_local_remote(read_backend, local_read_backend)
 
-                    if local_mirror_backend:
+                    if local_read_backend:
                         print(f"Found cache for {backend.get_cache_path()}")
                         if filepath_only:
                             return local_read_backend.get_cache_path()

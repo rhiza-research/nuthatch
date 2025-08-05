@@ -2,6 +2,15 @@ from abc import ABC, abstractmethod
 from pathlib import Path
 import fsspec
 
+registered_backends = {}
+
+def register_backend(backendClass):
+    registered_backends[backendClass.backend_name] = backendClass
+    return backendClass
+
+def get_backends():
+    return registered_backends
+
 class CacheableBackend(ABC):
     config_parameters = []
 

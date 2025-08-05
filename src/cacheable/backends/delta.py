@@ -1,9 +1,10 @@
-from cacheable.backends import FileBackend
+from cacheable.backend import FileBackend, register_backend
 from deltalake import DeltaTable, write_deltalake
 import dask.dataframe as dd
 import pandas as pd
 import dask_deltatable as ddt
 
+@register_backend
 class DeltaBackend(FileBackend):
 
     backend_name = "delta"
@@ -22,7 +23,7 @@ class DeltaBackend(FileBackend):
                       on the dataframe prior to storage. This will fail if the dataframe
                       does not fit in memory. Use `backend=parquet` to handle parallel writing of dask dataframes.""")
             data = data.compute()
-        elif isinstance(data pd.DataFrame):
+        elif isinstance(data, pd.DataFrame):
             pass
         else:
             raise RuntimeError("Delta backend only supports dask and pandas engines.")
@@ -30,8 +31,8 @@ class DeltaBackend(FileBackend):
         write_deltalake(self.path, data, mode='overwrite', schema_mode='overwrite')
 
 
-    def read(self, engine):
-        if engine == 'pandas' or engine == pd.DataFrame:
+    def read(self, engine=None):
+        if engine == 'pandas' or engine == pd.DataFrame or engine is None:
             return DeltaTable(self.path).to_pandas()
         elif engine == 'dask' or engine == dd.DataFrame:
             return ddt.read_deltalake(self.path)

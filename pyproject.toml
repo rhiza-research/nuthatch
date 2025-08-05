@@ -10,7 +10,9 @@ dependencies = [
     "fsspec",
     "sqlalchemy",
     "pandas",
-    "dask[dataframe]"
+    "dask[dataframe]",
+    "deltalake",
+    "dask-deltatable"
 ]
 readme = "README.md"
 requires-python = ">= 3.12"
