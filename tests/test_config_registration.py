@@ -1,5 +1,6 @@
 from cacheable.config import get_config, cacheable_config_parameter
 from cacheable.backends import SQLBackend
+from cacheable.backends import DeltaBackend
 
 def test_get_config():
     print(get_config(location='base', backend_class=SQLBackend))
@@ -23,6 +24,7 @@ def test_config_backend_reg():
         return 'test_password'
 
     print(get_config(location='base', backend_class=SQLBackend))
+    print(get_config(location='base', backend_class=DeltaBackend))
 
 
 

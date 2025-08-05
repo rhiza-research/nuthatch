@@ -1,4 +1,4 @@
-from cacheable.backends import CacheableBackend
+from cacheable.backend import CacheableBackend
 from pathlib import Path
 import os
 import tomllib
@@ -38,8 +38,8 @@ def get_config(location='base', backend_class=CacheableBackend):
     with open(config_file, "rb") as f:
         config = tomllib.load(f)
 
-    requested_parameters = backendType.config_parameters
-    backend_name = backendType.backend_name
+    requested_parameters = backend_class.config_parameters
+    backend_name = backend_class.backend_name
 
     location_params = config['tool']['cacheable'][location]
 
