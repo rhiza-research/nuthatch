@@ -5,7 +5,7 @@ import tomllib
 
 dynamic_parameters = {}
 
-def set_config_parameter(parameter_name, location='base', backend=None):
+def cacheable_config_parameter(parameter_name, location='base', backend=None):
     def decorator(function):
         if location not in dynamic_parameters:
             dynamic_parameters[location] = {}

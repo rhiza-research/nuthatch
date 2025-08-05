@@ -1,4 +1,4 @@
-from cacheable.config import get_config, set_config_parameter
+from cacheable.config import get_config, cacheable_config_parameter
 from cacheable.backends import SQLBackend
 
 def test_get_config():
@@ -6,7 +6,7 @@ def test_get_config():
 
 def test_config_reg():
 
-    @set_config_parameter('username', location='base')
+    @cacheable_config_parameter('username', location='base')
     def username():
         return 'test_username'
 
@@ -14,11 +14,11 @@ def test_config_reg():
 
 def test_config_backend_reg():
 
-    @set_config_parameter('username', location='base', backend='sql')
+    @cacheable_config_parameter('username', location='base', backend='sql')
     def username():
         return 'test_username'
 
-    @set_config_parameter('password', location='base', backend='sql')
+    @cacheable_config_parameter('password', location='base', backend='sql')
     def password():
         return 'test_password'
 
