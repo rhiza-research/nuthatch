@@ -87,7 +87,7 @@ class FileBackend(CacheableBackend):
         return self.path
 
 
-class VerifyableFileBackend(FilesystemBackend):
+class VerifyableFileBackend(FileBackend):
     """Base class for all filesystem backends with self-implemented psuedo-consistency."""
     def __init__(self, cacheable_config, cache_key, args, backend_kwargs, extension):
         super().__init__(cacheable_config, cache_key, args, backend_kwargs)

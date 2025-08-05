@@ -9,30 +9,10 @@ import hashlib
 
 logger = logging.getLogger(__name__)
 
-CHUNK_SIZE_UPPER_LIMIT_MB = 300
-CHUNK_SIZE_LOWER_LIMIT_MB = 30
-
 # Global variables for caching configuration
 global_recompute = None
 global_force_overwrite = None
 global_retry_null_cache = None
-
-# Remote dir for all caches, except for postgres and terracotta
-CACHE_ROOT_DIR = "gs://sheerwater-datalake/caches/"
-CACHE_STORAGE_OPTIONS = {
-    'token': 'google_default',
-    'cache_timeout': 0
-}
-POSTGRES_IP = "postgres.sheerwater.rhizaresearch.org"
-# Local dir for all caches, except for postgres and terracotta
-LOCAL_CACHE_ROOT_DIR = os.path.expanduser("~/.cache/sheerwater/caches/")
-LOCAL_CACHE_STORAGE_OPTIONS = {}
-
-# Check if these are defined as environment variables
-if 'SHEERWATER_CACHE_ROOT_DIR' in os.environ:
-    CACHE_ROOT_DIR = os.environ['SHEERWATER_CACHE_ROOT_DIR']
-if 'SHEERWATER_LOCAL_CACHE_ROOT_DIR' in os.environ:
-    LOCAL_CACHE_ROOT_DIR = os.environ['SHEERWATER_LOCAL_CACHE_ROOT_DIR']
 
 
 def set_global_cache_variables(recompute=None, force_overwrite=None,
@@ -68,42 +48,6 @@ def check_if_nested_fn():
             return True
     # No cachable function upstream of this one
     return False
-
-
-def get_temp_cache(cache_path):
-    """Get the local cache path based on the file system.
-
-    Args:
-        cache_path (str): Path to cache file
-
-    Returns:
-        str: Local cache path
-    """
-    if cache_path is None:
-        return None
-    if not cache_path.startswith(CACHE_ROOT_DIR):
-        raise ValueError("Cache path must start with CACHE_ROOT_DIR")
-
-    cache_key = cache_path.split(CACHE_ROOT_DIR)[1]
-    return os.path.join(CACHE_ROOT_DIR, 'temp', cache_key)
-
-
-def get_local_cache(cache_path):
-    """Get the local cache path based on the file system.
-
-    Args:
-        cache_path (str): Path to cache file
-
-    Returns:
-        str: Local cache path
-    """
-    if cache_path is None:
-        return None
-    if not cache_path.startswith(CACHE_ROOT_DIR):
-        raise ValueError("Cache path must start with CACHE_ROOT_DIR")
-
-    cache_key = cache_path.split(CACHE_ROOT_DIR)[1]
-    return os.path.join(LOCAL_CACHE_ROOT_DIR, cache_key)
 
 
 def sync_local_remote(backend, cache_fs, local_fs,
@@ -239,6 +183,7 @@ def extract_cache_arg_values(cache_args, params, kwargs):
 
     return cache_arg_values
 
+
 def get_cache_key(func, cache_arg_values):
     imkeys = list(cache_arg_values.keys())
     imkeys.sort()
@@ -257,6 +202,7 @@ def get_cache_key(func, cache_arg_values):
             flat_values.append(str(val))
 
     return func.__name__ + '/' + '_'.join(flat_values)
+
 
 
 def get_backend_types(metadata_backend, backend, storage_backend):

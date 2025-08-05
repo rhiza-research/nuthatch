@@ -5,7 +5,13 @@ description = "Add your description here"
 authors = [
     { name = "Joshua Adkins", email = "josh@rhizaresearch.org" }
 ]
-dependencies = []
+dependencies = [
+    "pytest",
+    "fsspec",
+    "sqlalchemy",
+    "pandas",
+    "dask[dataframe]"
+]
 readme = "README.md"
 requires-python = ">= 3.12"
 
@@ -23,22 +29,17 @@ allow-direct-references = true
 [tool.hatch.build.targets.wheel]
 packages = ["src/cacheable"]
 
-[tool.cacheable]
-cache_filesystem = "gs://sheerwater-datalake/cache"
-local_filesystem = "~/.cache/sheerwater"
+[tool.cacheable.base]
+filesystem = "gs://sheerwater-datalake/cache"
+host = "postgres.sheerwater.rhizresearch.org"
+port = 5432
+database = "postgres"
+driver = "postgres"
+raster_store = "gs://terracotta-files"
 
-enable_mirror_filesystems = false
-mirror_filesystems = ["s3://mirro1", "gs://mirror2"]
+[tool.cacheable.base.filesystem_options]
+token = "google_default"
+cache_timeout = 0
 
-sql_uri = "valid_jdbc_uri"
-sql_user = "username" # can also be set by decorating callback functions
-sql_password = "password" # can also be set by decorating callback functions
-sql_write_user = "write_username" #can also be set by decorating
-sql_write_user = "write_password" # can also be set by decorating
-
-terracotta_db_uri = "valid_jdbc_uri"
-terracotta_db_user = "username"
-terracotta_db_user = "password"
-terracotta_raster_store = "gs://terracotta-files"
-
-
+[tool.cacheable.local]
+filesystem = "~/.cache/sheerwater"

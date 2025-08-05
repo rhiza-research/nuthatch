@@ -1,4 +1,27 @@
 from sheerwater_benchmarking.utils.backends import CacheableBackend
+CHUNK_SIZE_UPPER_LIMIT_MB = 300
+CHUNK_SIZE_LOWER_LIMIT_MB = 30
+
+def get_temp_cache(cache_path):
+    """Get the local cache path based on the file system.
+
+    Args:
+        cache_path (str): Path to cache file
+
+    Returns:
+        str: Local cache path
+    """
+    if cache_path is None:
+        return None
+    if not cache_path.startswith(CACHE_ROOT_DIR):
+        raise ValueError("Cache path must start with CACHE_ROOT_DIR")
+
+    cache_key = cache_path.split(CACHE_ROOT_DIR)[1]
+    return os.path.join(CACHE_ROOT_DIR, 'temp', cache_key)
+
+
+
+
 
 def write_to_zarr(ds, cache_path, verify_path):
     """Write to zarr with a temp write and move to make it more atomic.

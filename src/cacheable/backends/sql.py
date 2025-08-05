@@ -7,8 +7,10 @@ def hashed_table_name(table_name):
     """Return a qualified postgres table name."""
     return hashlib.md5(table_name.encode()).hexdigest()
 
-class SQLBackend(CacheableBackend):
-    short_name = "sql"
+class SQLBackend(DatabaseBackend):
+
+    backend_name = "sql"
+
     def __init__(self, cacheable_config, cache_key, args, backend_kwargs):
         super().__init__(cacheable_config, cache_key, args, backend_kwargs)
 

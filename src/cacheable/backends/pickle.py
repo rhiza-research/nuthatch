@@ -4,6 +4,8 @@ import pickle
 
 class BasicBackend(VerifyableFileBackend):
 
+    backend_name = "basic"
+
     def __init__(self, cacheable_config, cache_key, args, backend_kwargs):
         super().__init__(cacheable_config, cache_key, args, backend_kwargs, 'pkl')
 
