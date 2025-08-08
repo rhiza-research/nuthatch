@@ -172,7 +172,7 @@ def get_cache_key(func, cache_arg_values):
 
 
 
-def get_backend_types(metadata, backend, storage_backend):
+def get_backend_types(metadata, backend, backend_kwargs, storage_backend, storage_backend_kwargs):
     prior_backend_type = None
     if metadata.exists():
         prior_backend_type = metadata.get_backend()
@@ -331,29 +331,30 @@ def cacheable(cache=True,
                         # we will recompute and not cache the values
 
             # Set up the backends if we have the information
-            read_backend_type, write_backend_type = get_backend_types(metadata, backend, storage_backend)
+            read_backend_type, read_backend_kwargs, write_backend_type, \
+                write_backend_kwargs = get_backend_types(metadata, backend, backend_kwargs, storage_backend, storage_backend_kwargs)
 
             # Make core versions of the backends if we can
             if read_backend_type:
-                read_backend_class = get_backends[read_backend_type]
+                read_backend_class = get_backend(read_backend_type)
                 read_backend = backend_class(get_config(location='root', backend_class=read_backend_class),
-                                             cache_key, cache_arg_values, backend_kwargs)
+                                             cache_key, cache_arg_values, read_backend_kwargs)
 
                 local_config = get_config(location='local', backend_class=read_backend_class)
                 if local:
                     if local_config
-                        local_read_backend = backend_class(local_config, cache_key, cache_arg_values, backend_kwargs)
+                        local_read_backend = backend_class(local_config, cache_key, cache_arg_values, read_backend_kwargs)
                     else:
                         raise RuntimeError("Local backend not configured. Configure local backend for mirrong.")
 
             if write_backend_type:
-                write_backend_class = get_backends[write_backend_type]
-                write_backend = backend_class(get_config(location='root', backend_class=write_backend_class),
-                                              cache_key, cache_arg_values, backend_kwargs)
+                write_backend_class = get_backend(write_backend_type)
+                write_backend = write_backend_class(get_config(location='root', backend_class=write_backend_class),
+                                              cache_key, cache_arg_values, write_backend_kwargs)
 
                 local_write_config = get_config(location='local', backend_class=write_backend_class)
                 if local_write_config and local:
-                    local_write_backend = backend_class(local_write_config, cache_key, cache_arg_values, backend_kwargs)
+                    local_write_backend = backend_class(local_write_config, cache_key, cache_arg_values, write_backend_kwargs)
 
 
             # Read the cache from the appropriate location if it exists
