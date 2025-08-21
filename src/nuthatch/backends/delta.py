@@ -1,4 +1,4 @@
-from cacheable.backend import FileBackend, register_backend
+from nuthatch.backend import FileBackend, register_backend
 from deltalake import DeltaTable, write_deltalake
 import dask.dataframe as dd
 import pandas as pd
@@ -9,8 +9,8 @@ class DeltaBackend(FileBackend):
 
     backend_name = "delta"
 
-    def __init__(self, cacheable_config, cache_key, args, backend_kwargs):
-        super().__init__(cacheable_config, cache_key, args, backend_kwargs, 'delta')
+    def __init__(self, cacheable_config, cache_key, namespace, args, backend_kwargs):
+        super().__init__(cacheable_config, cache_key, namespace, args, backend_kwargs, 'delta')
 
 
     def write(self, data, upsert=False, primary_keys=None):

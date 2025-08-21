@@ -11,10 +11,10 @@ def register_backend(backendClass):
 def get_backends():
     return registered_backends
 
-class CacheableBackend(ABC):
+class NuthatchBackend(ABC):
     config_parameters = []
 
-    def __init__(self, cacheable_config, cache_key, args, backend_kwargs):
+    def __init__(self, cacheable_config, cache_key, namespace, args, backend_kwargs):
         """The base class for all cacheable backends.
 
         At it's core a backend gets several key parameters:
@@ -32,6 +32,7 @@ class CacheableBackend(ABC):
         # Store base
         self.config = cacheable_config
         self.cache_key = cache_key
+        self.namespace = namespace
         self.backend_kwargs = backend_kwargs
         self.args = args
 
@@ -65,21 +66,26 @@ class CacheableBackend(ABC):
         pass
 
     @abstractmethod
-    def sync(self, CacheableBackend):
+    def sync(self, NuthatchBackend):
         pass
 
 
-class FileBackend(CacheableBackend):
+class FileBackend(NuthatchBackend):
     """Base class for all backends that rely on a filesystem."""
     config_parameters = ["filesystem", "filesystem_options"]
 
-    def __init__(self, cacheable_config, cache_key, args, backend_kwargs, extension):
+    def __init__(self, cacheable_config, cache_key, namespace, args, backend_kwargs, extension):
         super().__init__(cacheable_config, cache_key, args, backend_kwargs)
 
         base_path = Path(self.config['filesystem'])
-        self.raw_cache_path = base_path.joinpath(cache_key)
+
+        if namespace:
+            self.raw_cache_path = base_path.joinpath(namespace, cache_key)
+        else:
+            self.raw_cache_path = base_path.joinpath(cache_key)
+
+        self.temp_cache_path = basepath.joinpath('temp', cache_key)
         self.path = self.raw_cache_path + '.' + extension
-        self.null_path = self.raw_cache_path + '.null'
         self.fs = fsspec.core.url_to_fs(self.path, **self.config['filesystem_options'])[0]
 
 
@@ -89,63 +95,42 @@ class FileBackend(CacheableBackend):
     def delete(self):
         self.fs.rm(self.path)
 
-    def write_null(self):
-        self.fs.touch(self.null_path)
-
-    def delete_null(self):
-        if self.fs.exists(self.null_path):
-            self.fs.rm(self.null_path)
-
     def get_file_path(self):
         return self.path
 
     def sync(self, local_backend):
         raise NotImplementedError("File syncing not implemented for file backend.")
 
-class VerifyableFileBackend(FileBackend):
-    """Base class for all filesystem backends with self-implemented psuedo-consistency."""
-    def __init__(self, cacheable_config, cache_key, args, backend_kwargs, extension):
-        super().__init__(cacheable_config, cache_key, args, backend_kwargs)
-        self.verify_path = self.raw_cache_path + '.verify'
 
-    def exists(self):
-        return (self.fs.exists(self.path) and self.fs.exists(self.verify_path))
-
-    def delete(self):
-        self.fs.rm(self.verify_path)
-        self.fs.rm(self.path)
-
-    def write_verify(self):
-        self.fs.open(self.verify_path, 'w').write(
-                     datetime.datetime.now(datetime.timezone.utc).isoformat())
-
-    def sync(self, local_backend):
-
-        if local_backend.exists()
-            verify_ts = self.fs.open(self.verify_path, 'r').read()
-            local_verify_ts = local_backend.fs.open(local_backend.verify_path, 'r').read()
-
-            # If the verify files are the same, return
-            if local_verify_ts == verify_ts:
-                return
-
-        if backend.exists():
-            if local_backend.exists():
-                local_backend.delete()
-                local_backend.delete_null()
-            self.fs.get(self.path, local_backend.path, recursive=True)
-            self.fs.get(self.verify_path, local_backend.verify_path)
-
-        if self.fs.exists(self.null_path):
-            self.fs.get(self.null_path, local_backend.null_path)
-
-
-class DatabaseBackend(CacheableBackend):
+class DatabaseBackend(NuthatchBackend):
     """Base class for all backends that rely on a filesystem."""
     config_parameters = ["driver", "host", "port", "database", "username", "password", "write_username", "write_password"]
 
-    def __init__(self, cacheable_config, cache_key, args, backend_kwargs, extension):
-        super().__init__(cacheable_config, cache_key, args, backend_kwargs)
+    def __init__(self, cacheable_config, cache_key, namespace, args, backend_kwargs):
+        super().__init__(cacheable_config, cache_key, namespace, args, backend_kwargs)
+
+        database_url = URL.create(self.config['driver'],
+                                username = self.config['username'],
+                                password = self.config['password'],
+                                host = self.config['host'],
+                                port = self.config['port'],
+                                database = self.config['database'])
+        self.engine = sqlalchemy.create_engine(database_url)
+        self.uri = database_url.render_as_string()
+
+        if self.config['write_username'] and self.config['write_password']:
+            write_database_url = URL.create(self.config['driver'],
+                                username = self.config['write_username'],
+                                password = self.config['write_password'],
+                                host = self.config['host'],
+                                port = self.config['port'],
+                                database = self.config['database'])
+            self.write_engine = sqlalchemy.create_engine(write_database_url)
+            self.write_uri = write_database_url.render_as_string()
+        else:
+            self.write_engine = self.engine
+            self.write_uri = self.uri
+
 
     def get_file_path(self):
         raise NotImplementedError("File path returns not supported for database-like backends.")

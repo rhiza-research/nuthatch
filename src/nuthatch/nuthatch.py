@@ -57,8 +57,8 @@ def sync_local_remote(backend, local_backend)
     """Sync a local cache mirror to a remote cache.
 
     Args:
-        backend (CacheableBackend): The backend to use for the cache
-        local_backend (CacheableBackend): The backend to use for the local cache
+        backend (NuthatchBackend): The backend to use for the cache
+        local_backend (NuthatchBackend): The backend to use for the local cache
     """
 
     # If there is a local
@@ -192,6 +192,7 @@ def get_backend_types(metadata, backend, backend_kwargs, storage_backend, storag
 
 
 def cacheable(cache=True,
+              namespace=None,
               cache_args,
               cache_disable_if=None,
               engine=None,
@@ -226,6 +227,7 @@ def cacheable(cache=True,
     # Valid configuration kwargs for the cacheable decorator
     cache_kwargs = {
         "cache": None,
+        "namespace": None,
         "backend": None,
         "backend_kwargs": None,
         "cache_local": False,
@@ -248,6 +250,7 @@ def cacheable(cache=True,
             # Proper variable scope for the decorator args
             cache_args = nonlocals['cache_args']
             cache = nonlocals['cache']
+            namepsace = nonlocals['namespace']
             cache_disable_if = nonlocals['cache_disable_if']
             backend = nonlocals['backend']
             backend_kwargs = nonlocals['backend_kwargs']
@@ -257,7 +260,7 @@ def cacheable(cache=True,
             primary_keys = nonlocals['primary_keys']
 
             # Calculate the appropriate cache key
-            passed_cache, passed_backend, passed_backend_kwargs, \
+            passed_cache, passed_namespace, passed_backend, passed_backend_kwargs, \
             passed_cache_local, storage_backend, storage_backend_kwargs, \
             filepath_only, recompute, \
             force_overwrite, retry_null_cache, upsert, \
@@ -265,6 +268,8 @@ def cacheable(cache=True,
 
             if passed_cache is not None:
                 cache = passed_cache
+            if passed_namespace is not None:
+                namespace = passed_namespace
             if passed_backend is not None:
                 backend = passed_backend
             if passed_backend_kwargs is not None:
@@ -311,7 +316,7 @@ def cacheable(cache=True,
             compute_result = True
 
             # Instantiate a metadata backend - metadata is just a backend like all others but with some extra methods
-            metadata = CacheMetadata(get_config(location='root', backend_class=CacheMetadata), cache_key)
+            metadata = CacheMetadata(get_config(location='root', backend_class=CacheMetadata), cache_key, namespace)
 
             # Check to see if there is already a cached null that is valid
             if metadata.exists():
@@ -338,23 +343,23 @@ def cacheable(cache=True,
             if read_backend_type:
                 read_backend_class = get_backend(read_backend_type)
                 read_backend = backend_class(get_config(location='root', backend_class=read_backend_class),
-                                             cache_key, cache_arg_values, read_backend_kwargs)
+                                             cache_key, namespace, cache_arg_values, read_backend_kwargs)
 
                 local_config = get_config(location='local', backend_class=read_backend_class)
                 if local:
                     if local_config
-                        local_read_backend = backend_class(local_config, cache_key, cache_arg_values, read_backend_kwargs)
+                        local_read_backend = backend_class(local_config, cache_key, namespace, cache_arg_values, read_backend_kwargs)
                     else:
                         raise RuntimeError("Local backend not configured. Configure local backend for mirrong.")
 
             if write_backend_type:
                 write_backend_class = get_backend(write_backend_type)
                 write_backend = write_backend_class(get_config(location='root', backend_class=write_backend_class),
-                                              cache_key, cache_arg_values, write_backend_kwargs)
+                                              cache_key, namespace, cache_arg_values, write_backend_kwargs)
 
                 local_write_config = get_config(location='local', backend_class=write_backend_class)
                 if local_write_config and local:
-                    local_write_backend = backend_class(local_write_config, cache_key, cache_arg_values, write_backend_kwargs)
+                    local_write_backend = backend_class(local_write_config, cache_key, namespace, cache_arg_values, write_backend_kwargs)
 
 
             # Read the cache from the appropriate location if it exists

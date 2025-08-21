@@ -17,19 +17,19 @@ click==8.2.1
 cloudpickle==3.1.1
     # via dask
 dask==2025.7.0
-    # via cacheable
     # via dask-deltatable
+    # via nuthatch
 dask-deltatable==0.4.0
-    # via cacheable
+    # via nuthatch
 deltalake==1.1.3
-    # via cacheable
     # via dask-deltatable
+    # via nuthatch
 deprecated==1.2.18
     # via deltalake
 fsspec==2025.7.0
-    # via cacheable
     # via dask
     # via dask-deltatable
+    # via nuthatch
 iniconfig==2.1.0
     # via pytest
 locket==1.0.0
@@ -41,8 +41,8 @@ packaging==25.0
     # via dask
     # via pytest
 pandas==2.3.1
-    # via cacheable
     # via dask
+    # via nuthatch
 partd==1.4.2
     # via dask
 pluggy==1.6.0
@@ -53,7 +53,7 @@ pyarrow==21.0.0
 pygments==2.19.2
     # via pytest
 pytest==8.4.1
-    # via cacheable
+    # via nuthatch
 python-dateutil==2.9.0.post0
     # via pandas
 pytz==2025.2
@@ -63,7 +63,7 @@ pyyaml==6.0.2
 six==1.17.0
     # via python-dateutil
 sqlalchemy==2.0.42
-    # via cacheable
+    # via nuthatch
 toolz==1.0.0
     # via dask
     # via partd

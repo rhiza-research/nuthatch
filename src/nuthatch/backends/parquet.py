@@ -1,8 +1,7 @@
-from sheerwater_benchmarking.utils.backends import VerifyableFileBackend
+from nuthatch.beckend import FileBackend, register_backend
 import datetime
 import dask.dataframe as dd
 import pandas as pd
-
 
 
 def write_parquet_helper(df, path, partition_on=None):
@@ -17,7 +16,7 @@ def write_parquet_helper(df, path, partition_on=None):
     )
 
 
-def write_to_parquet(df, cache_path, verify_path, upsert=False, primary_keys=None):
+def write_to_parquet(df, cache_path, temp_cache_path, upsert=False, primary_keys=None):
     """Write a pandas or dask dataframe to a parquet."""
     part = None
     if hasattr(df, 'cache_partition'):
@@ -25,7 +24,7 @@ def write_to_parquet(df, cache_path, verify_path, upsert=False, primary_keys=Non
 
     fs = fsspec.core.url_to_fs(cache_path, **CACHE_STORAGE_OPTIONS)[0]
 
-    if upsert and cache_exists('parquet', cache_path, verify_path):
+    if upsert and self.fs.exists(cache_path):
         print("Found existing cache for upsert.")
         if primary_keys is None:
             raise ValueError("Upsert may only be performed with primary keys specified")
@@ -72,16 +71,11 @@ def write_to_parquet(df, cache_path, verify_path, upsert=False, primary_keys=Non
             # Coearce dtypes and make the columns the same order
 
             print("Copying cache for ``consistent'' upsert.")
-            temp_cache_path = get_temp_cache(cache_path)
-
             if fs.exists(temp_cache_path):
                 fs.rm(temp_cache_path, recursive=True)
 
             write_parquet_helper(final_df, temp_cache_path, part)
             print("Successfully appended rows to temp parquet. Overwriting existing cache.")
-
-            if fs.exists(verify_path):
-                fs.rm(verify_path)
 
             if fs.exists(cache_path):
                 fs.rm(cache_path, recursive=True)
@@ -94,9 +88,6 @@ def write_to_parquet(df, cache_path, verify_path, upsert=False, primary_keys=Non
         if fs.exists(cache_path):
             fs.rm(cache_path, recursive=True)
 
-        if fs.exists(verify_path):
-            fs.rm(verify_path)
-
         if isinstance(df, dd.DataFrame):
             write_parquet_helper(df, cache_path, part)
         elif isinstance(df, pd.DataFrame):
@@ -104,17 +95,18 @@ def write_to_parquet(df, cache_path, verify_path, upsert=False, primary_keys=Non
         else:
             raise ValueError("Can only write dask and pandas dataframes to parquet.")
 
-    fs.open(verify_path, 'w').write(datetime.datetime.now(datetime.timezone.utc).isoformat())
 
+@register_backend
+class ParquetBackend(FileBackend):
 
-class ParquetBackend(VerifyableFileBackend):
+    backend_name = 'parquet'
 
-    def __init__(self, cache_root_dir, cache_key, filesystem_like, args, backend_kwargs):
-        super().__init__(cache_root_dir, cache_key, filesystem_like, args, backend_kwargs, 'parquet')
+    def __init__(self, cacheable_config, cache_key, namespace, args, backend_kwargs):
+        super().__init__(cacheable_config, cache_key, namespace, args, backend_kwargs, 'parquet')
 
     def write(self, data, upsert=False, primary_keys=None):
         if isinstance(data, dd.DataFrame):
-            write_to_parquet(data, self.path, self.verify_path, upsert=upsert, primary_keys=primary_keys)
+            write_to_parquet(data, self.path, self.temp_cache_path, upsert=upsert, primary_keys=primary_keys)
         elif isinstance(data pd.DataFrame):
             if upsert:
                 raise RuntimeError("Parquet backend does not support upsert for pandas engine.")
@@ -124,7 +116,7 @@ class ParquetBackend(VerifyableFileBackend):
             raise RuntimeError("Delta backend only supports dask and pandas engines.")
 
     def read(self, engine):
-        if engine == 'pandas' or engine == pd.DataFrame:
+        if engine == 'pandas' or engine == pd.DataFrame or engine==None:
             return return pd.read_parquet(self.path)
         elif engine == 'dask' or engine == dd.DataFrame:
             return dd.read_parquet(self.path, engine='pyarrow', ignore_metadata_file=True)

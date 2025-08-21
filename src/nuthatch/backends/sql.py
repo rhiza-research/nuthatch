@@ -1,4 +1,4 @@
-from cacheable.backend import DatabaseBackend, register_backend
+from nuthatch.backend import DatabaseBackend, register_backend
 import hashlib
 import sqlalchemy
 import uuid
@@ -12,35 +12,21 @@ class SQLBackend(DatabaseBackend):
 
     backend_name = "sql"
 
-    def __init__(self, cacheable_config, cache_key, args, backend_kwargs):
-        super().__init__(cacheable_config, cache_key, args, backend_kwargs)
-
-        database_url = URL.create(self.config['driver'],
-                                username = self.config['username'],
-                                password = self.config['password'],
-                                host = self.config['host'],
-                                port = self.config['port'],
-                                database = self.config['database'])
-        self.engine = sqlalchemy.create_engine(database_url)
-        self.uri = database_url.render_as_string()
-
-        if self.config['write_username'] and self.config['write_password']:
-            write_database_url = URL.create(self.config['driver'],
-                                username = self.config['write_username'],
-                                password = self.config['write_password'],
-                                host = self.config['host'],
-                                port = self.config['port'],
-                                database = self.config['database'])
-            self.write_engine = sqlalchemy.create_engine(write_database_url)
-            self.write_uri = write_database_url.render_as_string()
-        else:
-            self.write_engine = self.engine
-            self.write_uri = self.uri
+    def __init__(self, cacheable_config, cache_key, namespace, args, backend_kwargs):
+        super().__init__(cacheable_config, cache_key, namespace, args, backend_kwargs)
 
         if backend_kwargs['hash_table_name']:
-            self.table_name = hashed_table_name(cache_key)
+            self.table_name = namespace + '.' + hashed_table_name(cache_key)
         else:
             self.table_name = cache_key
+
+        if namespace:
+            self.table_name = namespace + '.' + self.table_name
+
+            if not self.write_engine.dialect.has_schema(self.write_engine, namespace):
+                self.write_engine.execute(sqlalchemy.schema.CreateSchema(namespace))
+
+
 
     def write(self, data, upsert=False, primary_keys=None):
         if upsert and self.exists():
@@ -139,3 +125,10 @@ class SQLBackend(DatabaseBackend):
             return insp.has_table(self.table_name)
         except sqlalchemy.exc.InterfaceError:
             raise RuntimeError("Error connecting to database.")
+
+    def delete(self):
+        base = sqlalchemy.ext.declarative.declarative_base()
+        metadata = sqlalchemy.MetaData(self.engine, reflect=True)
+        table = metadata.tables.get(self.table_name)
+        if table is not None:
+            base.metadata.drop_all(self.engine, [table], checkfirst=True)

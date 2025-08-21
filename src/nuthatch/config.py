@@ -1,11 +1,11 @@
-from cacheable.backend import CacheableBackend
+from nuthatch.backend import NuthatchBackend
 from pathlib import Path
 import os
 import tomllib
 
 dynamic_parameters = {}
 
-def cacheable_config_parameter(parameter_name, location='root', backend=None):
+def nuthatch_config_parameter(parameter_name, location='root', backend=None):
     def decorator(function):
         if location not in dynamic_parameters:
             dynamic_parameters[location] = {}
@@ -21,9 +21,9 @@ def cacheable_config_parameter(parameter_name, location='root', backend=None):
 def is_fs_root(p):
      return os.path.splitdrive(str(p))[1] == os.sep
 
-def get_config(location='root', backend_class=CacheableBackend):
+def get_config(location='root', backend_class=NuthatchBackend):
 
-    #Find pyproject.toml or cacheable.ini
+    #Find pyproject.toml or nuthatch.ini
     current_directory = Path.cwd()
 
     config_file = None
@@ -43,14 +43,14 @@ def get_config(location='root', backend_class=CacheableBackend):
 
     # If it's root allow the base parameters to be used and root to be set
     if location == 'root':
-        location_params = config['tool']['cacheable']
-        if location in config['tool']['cacheable']:
-            location_params.update(config['tool']['cacheable'][location])
+        location_params = config['tool']['nuthatch']
+        if location in config['tool']['nuthatch']:
+            location_params.update(config['tool']['nuthatch'][location])
 
-    location_params = config['tool']['cacheable'][location]
+    location_params = config['tool']['nuthatch'][location]
 
     if backend_name in location_params:
-        backend_specific_params = config['tool']['cacheable'][location][backend_name]
+        backend_specific_params = config['tool']['nuthatch'][location][backend_name]
     else:
         backend_specific_params = {}
 
