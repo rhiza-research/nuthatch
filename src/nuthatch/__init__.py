@@ -1,2 +1,1 @@
-def hello() -> str:
-    return "Hello from cacheable!"
+from .config import config_parameter

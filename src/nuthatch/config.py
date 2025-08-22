@@ -5,7 +5,7 @@ import tomllib
 
 dynamic_parameters = {}
 
-def nuthatch_config_parameter(parameter_name, location='root', backend=None):
+def config_parameter(parameter_name, location='root', backend=None):
     def decorator(function):
         if location not in dynamic_parameters:
             dynamic_parameters[location] = {}
@@ -46,8 +46,8 @@ def get_config(location='root', backend_class=NuthatchBackend):
         location_params = config['tool']['nuthatch']
         if location in config['tool']['nuthatch']:
             location_params.update(config['tool']['nuthatch'][location])
-
-    location_params = config['tool']['nuthatch'][location]
+    else:
+        location_params = config['tool']['nuthatch'][location]
 
     if backend_name in location_params:
         backend_specific_params = config['tool']['nuthatch'][location][backend_name]
