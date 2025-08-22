@@ -61,15 +61,7 @@ class NuthatchBackend(ABC):
         pass
 
     @abstractmethod
-    def delete_null(self):
-        pass
-
-    @abstractmethod
     def exists(self):
-        pass
-
-    @abstractmethod
-    def write_null(self):
         pass
 
     @abstractmethod
@@ -109,9 +101,6 @@ class FileBackend(NuthatchBackend):
     def get_file_path(self):
         return self.path
 
-    def sync(self, local_backend):
-        raise NotImplementedError("File syncing not implemented for file backend.")
-
 
 class DatabaseBackend(NuthatchBackend):
     """Base class for all backends that rely on a filesystem."""
@@ -147,4 +136,4 @@ class DatabaseBackend(NuthatchBackend):
         raise NotImplementedError("File path returns not supported for database-like backends.")
 
     def sync(self, local_backend):
-        raise NotImplementedError("File syncing not implemented for database.")
+        raise NotImplementedError("Backend syncing not implemented for database-like backends.")

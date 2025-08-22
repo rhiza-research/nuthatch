@@ -8,9 +8,10 @@ class CacheMetadata():
     config_parameters=['filesystem', 'filesystem_options']
     backend_name = ['metadata']
 
-    def __init__(self, config, cache_key):
+    def __init__(self, config, cache_key, namespace):
         self.cache_key = cache_key
         self.config = config
+        self.namespace = namespace
         self.fs = fsspec.core.url_to_fs(self.config['filesystem'], **self.config['filesystem_options'])[0]
         self.metadata_file = Path(self.config['filesystem']).joinpath(cache_key, 'metadata.json')
 
