@@ -3,7 +3,7 @@ import os
 import inspect
 from functools import wraps
 from inspect import signature, Parameter
-from .backend import get_backend
+from .backend import get_backend, get_default_backend
 from .metadata import CacheMetadata
 from .config import get_config
 import logging
@@ -183,10 +183,8 @@ def get_cache_key(func, cache_arg_values):
 
 
 
-def get_backend_types(metadata, backend, backend_kwargs, storage_backend, storage_backend_kwargs):
-    prior_backend_type = None
-    if metadata.exists():
-        prior_backend_type = metadata.get_backend()
+def get_backend_types(prior_or_default_backend, backend, backend_kwargs, storage_backend, storage_backend_kwargs):
+    prior_backend_type = prior_or_default_backend
 
     read_backend_type = backend
     write_backend_type = storage_backend
@@ -337,30 +335,40 @@ def cacheable(cache=True,
             ds = None
             compute_result = True
 
-            # Instantiate a metadata backend - metadata is just a backend like all others but with some extra methods
+            # Instantiate a metadata class
             metadata = CacheMetadata(get_config(location='root', backend_class=CacheMetadata), cache_key, namespace)
 
-            # Check to see if there is already a cached null that is valid
-            if metadata.exists():
-                if metadata_backend.is_null():
-                    if retry_null_cache:
-                        # Remove the null and move on because we don't know the backend and need to recompute
-                        metadata.delete_null()
-                    elif recompute:
-                        # Just move on, let the user decide whether to oeverwrite the null cache later
-                        pass
-                    elif cache:
-                        # We want the null cache, return none
-                        print(f"Found null cache for {null_path}. Skipping computation.")
-                        return None
-                    else:
-                        # This implies cache is false, so we won't return the cache value
-                        # we will recompute and not cache the values
-                        pass
+            local_metadata = None
+            if local:
+                local_metadata_config = get_config(location='local', backend_class=CacheMetadata)
+                if local_metadata_config:
+                    local_metadata = CacheMetadata(local_metadata_config, cache_key, namespace)
+                else
+                    raise RuntimeError("Local backend not configured. Configure local backend for mirroring.")
+
+            if metadata.is_null():
+                if local_metadata:
+                    sync_local_remote(metadata, local_metadata)
+
+                if retry_null_cache:
+                    # Remove the null and move on because we don't know the backend and need to recompute
+                    metadata.delete_null()
+                    sync_local_remote(metadata, local_metadata)
+                elif recompute:
+                    # Just move on, let the user decide whether to oeverwrite the null cache later
+                    pass
+                elif cache:
+                    # We want the null cache, return none
+                    print(f"Found null cache for {null_path}. Skipping computation.")
+                    return None
+                else:
+                    # This implies cache is false, so we won't return the cache value
+                    # we will recompute and not cache the values
+                    pass
 
             # Set up the backends if we have the information
             read_backend_type, read_backend_kwargs, write_backend_type, \
-            write_backend_kwargs = get_backend_types(metadata, backend, backend_kwargs, storage_backend, storage_backend_kwargs)
+            write_backend_kwargs = get_backend_types(metadata.get_backend(), backend, backend_kwargs, storage_backend, storage_backend_kwargs)
 
             # Make core versions of the backends if we can
             if read_backend_type:
@@ -387,7 +395,7 @@ def cacheable(cache=True,
 
             # Read the cache from the appropriate location if it exists
             if not recompute and not upsert and cache and read_backend:
-                if read_backend.exists():
+                if metadata.exists(read_backend_type) and read_backend.exists():
                     # Sync the cache from the remote to the local if necessary
                     sync_local_remote(read_backend, local_read_backend)
 
@@ -410,6 +418,12 @@ def cacheable(cache=True,
 
                     # Retry to preform the sync because for some backends data is transformed on read(!)
                     sync_local_remote(read_backend, local_read_backend)
+                elif metadata.exists(read_backend_type) and not read_backend.exists():
+                    print("Metadata does not match cache reality. Deleting metadata.")
+                    metadata.delete()
+                elif not metadata.exists(read_backend_type) and read_backend.exists():
+                    print("Metadata does not match cache reality. Deleting cache.")
+                    read_backend.delete()
 
 
             # If the cache doesn't exist or we are recomputing, compute the result
@@ -432,22 +446,34 @@ def cacheable(cache=True,
                 ds = func(*args, **kwargs)
                 ##########################
 
+            # Instantiate backends if necessary
+            if not write_backend:
+                _, _, write_backend_type, \
+                write_backend_kwargs = get_backend_types(get_default_backend(type(ds)), backend, backend_kwargs, storage_backend, storage_backend_kwargs)
+                write_backend_class = get_backend(write_backend_type)
+                write_backend = write_backend_class(get_config(location='root', backend_class=write_backend_class),
+                                              cache_key, namespace, cache_arg_values, write_backend_kwargs)
+
+                local_write_config = get_config(location='local', backend_class=write_backend_class)
+                if local_write_config and local:
+                    local_write_backend = backend_class(local_write_config, cache_key, namespace, cache_arg_values, write_backend_kwargs)
+
             # Store the result
             if cache and (compute_result or read_backend_type != write_backend_type):
                 if ds is None:
                     if not upsert:
-                        metadata.write_null()
-                        write_backend.write_null()
+                        metadata.set_null()
                         sync_local_remote(write_backend, local_write_backend)
+                        sync_local_remote(metadata, local_metadata)
                     else:
                         print(f"Null result not cached for {null_path} in upsert mode.")
 
                     return None
 
                 write = False  # boolean to determine if we should write to the cache
-                if (write_backend.cache_exists() and force_overwrite is None and not upsert):
-                    inp = input(f'A cache already exists at {
-                                write_backend.get_cache_path()}. Are you sure you want to overwrite it? (y/n)')
+                if (write_backend.exists() and force_overwrite is None and not upsert):
+                    inp = input(f'A cache already exists at {cache_key} in {write_backend_type}
+                                Are you sure you want to overwrite it? (y/n)')
                     if inp == 'y' or inp == 'Y':
                         write = True
                 elif force_overwrite is False:
@@ -455,14 +481,17 @@ def cacheable(cache=True,
                 else: write = True
 
                 if write:
-                    print(f"Caching result for {write_backend.get_cache_path()} as zarr.")
+                    print(f"Caching result for {cache_key} in {write_backend_type}.")
+                    metadata.pending(write_backend_type)
                     write_backend.write(ds, upsert=upsert, primary_keys=primary_keys)
+                    metadata.commit(write_backend_type)
                     sync_local_remote(write_backend, local_write_backend)
+                    sync_local_remote(metadata, local_metadata)
 
                     ds = write_backend.read(engine)
 
             if filepath_only:
-                return write_backend.get_cache_path()
+                return write_backend.get_file_path()
             else:
                 return ds
 

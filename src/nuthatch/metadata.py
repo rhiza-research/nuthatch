@@ -26,7 +26,7 @@ class CacheMetadata():
             return bool(self.current_metadata['null'])
 
 
-    def write_null(self):
+    def set_null(self):
         self.current_metdata['null'] = True
         self.current_metdata['cache_key'] = self.cache_key
         with self.fs.open(self.metadata_file) as f:
@@ -50,11 +50,18 @@ class CacheMetadata():
             return None
 
 
-    def exists(self):
+    def exists(self, backend=None):
         return 'cache_key' in self.current_metadata
 
+    def pending(self, backend):
+        self.current_metadata['backend'] = backend
+        self.current_metadata['cache_key'] = self.cache_key
+        self.current_metadata['null'] = False
+        self.current_metadata['last_updated'] = datetime.datetime.now().timestamp()
+        with self.fs.open(self.metadata_file) as f:
+            f.write(json.dumps(self.current_metadata))
 
-    def commit(self, backend, path):
+    def commit(self, backend):
         self.current_metadata['backend'] = backend
         self.current_metadata['cache_key'] = self.cache_key
         self.current_metadata['null'] = False
