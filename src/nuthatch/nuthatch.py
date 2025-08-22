@@ -14,15 +14,16 @@ logger = logging.getLogger(__name__)
 
 # Global variables for caching configuration
 global_recompute = None
+global_memoize = None
 global_force_overwrite = None
 global_retry_null_cache = None
 
 
-def set_global_cache_variables(recompute=None, force_overwrite=None,
+def set_global_cache_variables(recompute=None, memoize=None, force_overwrite=None,
                                retry_null_cache=None):
     """Reset all global variables to defaults and set the new values."""
-    global global_recompute, global_force_overwrite, \
-        global_validate_cache_timeseries, global_retry_null_cache
+    global global_recompute, global_memoize, global_force_overwrite, \
+           global_retry_null_cache
 
     # Simple logic for global variables
     global_force_overwrite = force_overwrite
@@ -36,6 +37,16 @@ def set_global_cache_variables(recompute=None, force_overwrite=None,
         global_recompute = [recompute]
     else:
         global_recompute = recompute  # if recompute is false, '_all' or a list
+
+    # More complex logic for memoize
+    if memoize == True:  # noqa: E712
+        global_memoize = False
+    elif isinstance(memoize, str) and memoize != '_all':
+        # if a single function's name is passed, convert to a list
+        global_memoize = [memoize]
+    else:
+        global_memoize = memoize  # if memoize is false, '_all' or a list
+
 
 
 def check_if_nested_fn():
@@ -200,7 +211,8 @@ def cacheable(cache=True,
               backend_kwargs=None,
               storage_backend=None,
               storage_backend_kwargs=None,
-              cache_local=False,
+              cache_local=False
+              memoize=False,
               primary_keys=None):
     """Decorator for caching function results.
 
@@ -235,6 +247,7 @@ def cacheable(cache=True,
         "storage_backend_kwargs": None,
         "filepath_only": False,
         "recompute": False,
+        "memoize": False,
         "force_overwrite": None,
         "retry_null_cache": False,
         "upsert": False,
@@ -257,12 +270,13 @@ def cacheable(cache=True,
             storage_backend = nonlocals['storage_backend']
             storage_backend_kwargs = nonlocals['storage_backend_kwargs']
             cache_local = nonlocals['cache_local']
+            memoize = nonlocals['memoize']
             primary_keys = nonlocals['primary_keys']
 
             # Calculate the appropriate cache key
             passed_cache, passed_namespace, passed_backend, passed_backend_kwargs, \
             passed_cache_local, storage_backend, storage_backend_kwargs, \
-            filepath_only, recompute, \
+            filepath_only, recompute, passed_memoize,\
             force_overwrite, retry_null_cache, upsert, \
             fail_if_no_cache = get_cache_args(kwargs, cache_kwargs)
 
@@ -280,17 +294,22 @@ def cacheable(cache=True,
             if passed_cache_local is not None:
                 cache_local = passed_cache_local
 
+            if passed_memoize is not None:
+                memoize = passed_memoize
+
             # Check if this is a nested cacheable function
             if not check_if_nested_fn():
                 # This is a top level cacheable function, reset global cache variables
-                set_global_cache_variables(recompute=recompute,
+                set_global_cache_variables(recompute=recompute, memoize=memoize,
                                            force_overwrite=force_overwrite,
                                            retry_null_cache=retry_null_cache)
                 if isinstance(recompute, list) or isinstance(recompute, str) or recompute == '_all':
                     recompute = True
+                if isinstance(memoize, list) or isinstance(memoize, str) or memoize == '_all':
+                    memoize = True
             else:
                 # Inherit global cache variables
-                global global_recompute, global_force_overwrite, global_retry_null_cache
+                global global_recompute, global_memoize, global_force_overwrite, global_retry_null_cache
 
                 # Set all global variables
                 if global_force_overwrite is not None:
@@ -300,6 +319,9 @@ def cacheable(cache=True,
                 if global_recompute:
                     if func.__name__ in global_recompute or global_recompute == '_all':
                         recompute = True
+                if global_memoize:
+                    if func.__name__ in global_memoize or global_memoize == '_all':
+                        memoize = True
 
             # The the function parameters and their values
             params = signature(func).parameters

@@ -42,12 +42,11 @@ def lon_base_change(ds, to_base="base180", lon_dim='lon'):
     return ds
 
 
-
 @register_backend
 class TerracottaBackend(DatabaseBackend, FileBackend):
 
     backend_name = 'terracotta'
-    config_parameters = DatabaseBackend.config_parameters + FileBackend.config_parameters
+    config_parameters = DatabaseBackend.config_parameters + FileBackend.config_parameters + ['override_path']
 
     def __init__(self, cacheable_config, cache_key, namespace, args, backend_kwargs):
         # This calls both inits right?
@@ -127,7 +126,7 @@ class TerracottaBackend(DatabaseBackend, FileBackend):
 
             pass
 
-    def write_individual_raster(self, ds):
+    def write_individual_raster(self, driver, ds):
         # Write the raster
         with MemoryFile() as mem_dst:
             ds.rio.to_raster(mem_dst.name, driver="COG")
