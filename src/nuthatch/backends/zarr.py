@@ -115,6 +115,7 @@ class ZarrBackend(FileBackend):
     """
 
     backend_name = 'zarr'
+    default_for_type = xr.DataSet
 
     def __init__(self, cacheable_config, cache_key, namespace, args, backend_kwargs):
         super().__init__(cacheable_config, cache_key, namespace, args, backend_kwargs, 'zarr')

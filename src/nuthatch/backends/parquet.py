@@ -100,6 +100,7 @@ def write_to_parquet(df, cache_path, temp_cache_path, upsert=False, primary_keys
 class ParquetBackend(FileBackend):
 
     backend_name = 'parquet'
+    default_for_type = dd.DataFrame
 
     def __init__(self, cacheable_config, cache_key, namespace, args, backend_kwargs):
         super().__init__(cacheable_config, cache_key, namespace, args, backend_kwargs, 'parquet')

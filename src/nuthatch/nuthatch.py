@@ -3,9 +3,9 @@ import os
 import inspect
 from functools import wraps
 from inspect import signature, Parameter
-from backends import get_backend
-from metadata import CacheMetadata
-from config import get_config
+from .backend import get_backend
+from .metadata import CacheMetadata
+from .config import get_config
 import logging
 import hashlib
 
@@ -64,7 +64,7 @@ def check_if_nested_fn():
     return False
 
 
-def sync_local_remote(backend, local_backend)
+def sync_local_remote(backend, local_backend):
     """Sync a local cache mirror to a remote cache.
 
     Args:
@@ -103,7 +103,7 @@ def check_cache_disable_if(cache_disable_if, cache_arg_values):
         cache_disable_if = [cache_disable_if]
     elif isinstance(cache_disable_if, list):
         pass
-    else
+    else:
         raise ValueError("cache_disable_if only accepts a dict or list of dicts.")
 
     for d in cache_disable_if:
@@ -204,14 +204,14 @@ def get_backend_types(metadata, backend, backend_kwargs, storage_backend, storag
 
 def cacheable(cache=True,
               namespace=None,
-              cache_args,
+              cache_args=[],
               cache_disable_if=None,
               engine=None,
               backend=None,
               backend_kwargs=None,
               storage_backend=None,
               storage_backend_kwargs=None,
-              cache_local=False
+              cache_local=False,
               memoize=False,
               primary_keys=None):
     """Decorator for caching function results.
@@ -345,7 +345,7 @@ def cacheable(cache=True,
                 if metadata_backend.is_null():
                     if retry_null_cache:
                         # Remove the null and move on because we don't know the backend and need to recompute
-                        metadata.delete_null())
+                        metadata.delete_null()
                     elif recompute:
                         # Just move on, let the user decide whether to oeverwrite the null cache later
                         pass
@@ -356,10 +356,11 @@ def cacheable(cache=True,
                     else:
                         # This implies cache is false, so we won't return the cache value
                         # we will recompute and not cache the values
+                        pass
 
             # Set up the backends if we have the information
             read_backend_type, read_backend_kwargs, write_backend_type, \
-                write_backend_kwargs = get_backend_types(metadata, backend, backend_kwargs, storage_backend, storage_backend_kwargs)
+            write_backend_kwargs = get_backend_types(metadata, backend, backend_kwargs, storage_backend, storage_backend_kwargs)
 
             # Make core versions of the backends if we can
             if read_backend_type:
@@ -369,7 +370,7 @@ def cacheable(cache=True,
 
                 local_config = get_config(location='local', backend_class=read_backend_class)
                 if local:
-                    if local_config
+                    if local_config:
                         local_read_backend = backend_class(local_config, cache_key, namespace, cache_arg_values, read_backend_kwargs)
                     else:
                         raise RuntimeError("Local backend not configured. Configure local backend for mirrong.")
@@ -386,7 +387,7 @@ def cacheable(cache=True,
 
             # Read the cache from the appropriate location if it exists
             if not recompute and not upsert and cache and read_backend:
-                if read_backend.cache_exists()
+                if read_backend.exists():
                     # Sync the cache from the remote to the local if necessary
                     sync_local_remote(read_backend, local_read_backend)
 

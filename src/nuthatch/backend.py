@@ -3,13 +3,24 @@ from pathlib import Path
 import fsspec
 
 registered_backends = {}
+default_backends = {}
 
 def register_backend(backendClass):
     registered_backends[backendClass.backend_name] = backendClass
+
+    if 'default_for_type' in backendClass.__dict__:
+        default_backends[backendClass.default_for_type] = backendClass.backend_name
+
     return backendClass
 
-def get_backends():
-    return registered_backends
+def get_backend(backend_name):
+    return registered_backends[backend_name]
+
+def get_default_backend(data_type):
+    if data_type in default_backends:
+        return default_backends[data_type]
+    else:
+        return 'basic'
 
 class NuthatchBackend(ABC):
     config_parameters = []

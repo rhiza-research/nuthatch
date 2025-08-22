@@ -4,17 +4,17 @@ from pathlib import Path
 import json
 import datetime
 
-class CacheMetdata():
+class CacheMetadata():
     config_parameters=['filesystem', 'filesystem_options']
     backend_name = ['metadata']
 
-    def __init__(self, config, cache_key)
+    def __init__(self, config, cache_key):
         self.cache_key = cache_key
         self.config = config
         self.fs = fsspec.core.url_to_fs(self.config['filesystem'], **self.config['filesystem_options'])[0]
         self.metadata_file = Path(self.config['filesystem']).joinpath(cache_key, 'metadata.json')
 
-        if self.fs.exists(self.metadata_file)
+        if self.fs.exists(self.metadata_file):
             with self.fs.open(self.metadata_file, 'r') as f:
                 self.current_metadata = json.load(f)
         else:
