@@ -199,6 +199,39 @@ def get_backend_types(prior_or_default_backend, backend, backend_kwargs, storage
 
     return read_backend_type, write_backend_type
 
+def instantiate_read_backends(cache_key, namespace, cache_arg_values, requested_backend, backend_kwargs):
+    """Returns a priority ordered list of reader backends and backend metadatas and then
+       prepares them for reading."""
+    # The general order of priority to check validity is:
+    # (1) local if local is requested and local config is provided
+    # (2) the root cache
+    # (3) any mirror caches
+
+    # Start by trying to instantiate the metadata stores
+    # then do our best to instantiate the backends themselves
+    resolution_list = ['local', 'root', 'mirror']
+    backends = {}
+
+    for location in resolution_list:
+        metadata = None
+        backend = None
+        metadata_config = get_config(location=location, backend_class=CacheMetadata)
+        if metadata_config:
+            metadata = CacheMetadata(metadata_config, cache_key, namespace, requested_backend)
+        elif location == 'root':
+            raise ValueError("At least a root filesystem for metadata storage must be configured. No configuration found.")
+
+        if metadata:
+            backend_type = metadata.get_backend()
+            if backend_type:
+                backend_class = get_backend(read_backend_type)
+                backend = backend_class(get_config(location=location, backend_class=backend_class),
+                                        cache_key, namespace, cache_arg_values, backend_kwargs)
+
+        backends[location] = (metadata, backend)
+
+    return backends
+
 
 def cacheable(cache=True,
               namespace=None,
@@ -295,6 +328,11 @@ def cacheable(cache=True,
             if passed_memoize is not None:
                 memoize = passed_memoize
 
+            if storage_backend is None:
+                storage_backend = backend
+            if storage_backend_kwargs is None:
+                storage_backend_kwargs = backend_kwargs
+
             # Check if this is a nested cacheable function
             if not check_if_nested_fn():
                 # This is a top level cacheable function, reset global cache variables
@@ -335,95 +373,48 @@ def cacheable(cache=True,
             ds = None
             compute_result = True
 
-            # Instantiate a metadata class
-            metadata = CacheMetadata(get_config(location='root', backend_class=CacheMetadata), cache_key, namespace)
+            read_backends = instantiate_read_backends(cache_key, namespace, backend, backend_kwargs)
 
-            local_metadata = None
+            # Try to sync local/remote only once on read. All syncing is done lazily
             if local:
-                local_metadata_config = get_config(location='local', backend_class=CacheMetadata)
-                if local_metadata_config:
-                    local_metadata = CacheMetadata(local_metadata_config, cache_key, namespace)
-                else
-                    raise RuntimeError("Local backend not configured. Configure local backend for mirroring.")
+                if not read_backends['local'][0]:
+                    raise ValueError("Local filesystem must be configured if local caching is requested.")
 
-            if metadata.is_null():
-                if local_metadata:
-                    sync_local_remote(metadata, local_metadata)
-
-                if retry_null_cache:
-                    # Remove the null and move on because we don't know the backend and need to recompute
-                    metadata.delete_null()
-                    sync_local_remote(metadata, local_metadata)
-                elif recompute:
-                    # Just move on, let the user decide whether to oeverwrite the null cache later
-                    pass
-                elif cache:
-                    # We want the null cache, return none
-                    print(f"Found null cache for {null_path}. Skipping computation.")
-                    return None
-                else:
-                    # This implies cache is false, so we won't return the cache value
-                    # we will recompute and not cache the values
-                    pass
-
-            # Set up the backends if we have the information
-            read_backend_type, read_backend_kwargs, write_backend_type, \
-            write_backend_kwargs = get_backend_types(metadata.get_backend(), backend, backend_kwargs, storage_backend, storage_backend_kwargs)
-
-            # Make core versions of the backends if we can
-            if read_backend_type:
-                read_backend_class = get_backend(read_backend_type)
-                read_backend = backend_class(get_config(location='root', backend_class=read_backend_class),
-                                             cache_key, namespace, cache_arg_values, read_backend_kwargs)
-
-                local_config = get_config(location='local', backend_class=read_backend_class)
-                if local:
-                    if local_config:
-                        local_read_backend = backend_class(local_config, cache_key, namespace, cache_arg_values, read_backend_kwargs)
-                    else:
-                        raise RuntimeError("Local backend not configured. Configure local backend for mirrong.")
-
-            if write_backend_type:
-                write_backend_class = get_backend(write_backend_type)
-                write_backend = write_backend_class(get_config(location='root', backend_class=write_backend_class),
-                                              cache_key, namespace, cache_arg_values, write_backend_kwargs)
-
-                local_write_config = get_config(location='local', backend_class=write_backend_class)
-                if local_write_config and local:
-                    local_write_backend = backend_class(local_write_config, cache_key, namespace, cache_arg_values, write_backend_kwargs)
+                sync_local_remote(read_backends['root'], read_backends['local'])
 
 
             # Read the cache from the appropriate location if it exists
-            if not recompute and not upsert and cache and read_backend:
-                if metadata.exists(read_backend_type) and read_backend.exists():
-                    # Sync the cache from the remote to the local if necessary
-                    sync_local_remote(read_backend, local_read_backend)
+            if not recompute and not upsert and cache:
+                for location, (metadata, backend) in read_backends:
+                    # If the metadata is null this backend isn't configured - continue
+                    if not metadata:
+                        continue
 
-                    if local_read_backend:
-                        print(f"Found cache for {backend.get_cache_path()}")
-                        if filepath_only:
-                            return local_read_backend.get_cache_path()
+                    # First check if it's null
+                    if metadata.is_null():
+                        print("Found null cache for {cache_key} in {location} cache.")
+                        if retry_null_cache:
+                            print("Retry null cache set. Recomputing.")
+                            break
                         else:
-                            print(f"Opening cache {read_backend.get_cache_path()}")
-                            ds = local_read_backend.read()
-                            compute_result = False
-                    else:
-                        print(f"Found cache for {backend.get_cache_path()}")
+                            return None
+
+                    # If it's not null see if it exists
+                    if metadata.exists() and backend.exists():
+                        print("Found cache for {cache_key} with backend {metadata.get_backend()} in {location} cache")
+
                         if filepath_only:
-                            return read_backend.get_cache_path()
+                            return backend.get_file_path()
                         else:
-                            print(f"Opening cache {read_backend.get_cache_path()}")
-                            ds = read_backend.read()
+                            ds = backend.read()
                             compute_result = False
 
-                    # Retry to preform the sync because for some backends data is transformed on read(!)
-                    sync_local_remote(read_backend, local_read_backend)
-                elif metadata.exists(read_backend_type) and not read_backend.exists():
-                    print("Metadata does not match cache reality. Deleting metadata.")
-                    metadata.delete()
-                elif not metadata.exists(read_backend_type) and read_backend.exists():
-                    print("Metadata does not match cache reality. Deleting cache.")
-                    read_backend.delete()
+                    elif metadata.exists() and not backend.exists():
+                        print("Metadata does not match cache reality. Deleting metadata.")
+                        metadata.delete()
+                    elif not metadata.exists() and backend.exists():
+                        print("Metadata does not match cache reality. Deleting cache.")
+                        backend.delete()
 
 
             # If the cache doesn't exist or we are recomputing, compute the result
@@ -463,8 +454,6 @@ def cacheable(cache=True,
                 if ds is None:
                     if not upsert:
                         metadata.set_null()
-                        sync_local_remote(write_backend, local_write_backend)
-                        sync_local_remote(metadata, local_metadata)
                     else:
                         print(f"Null result not cached for {null_path} in upsert mode.")
 
@@ -485,8 +474,6 @@ def cacheable(cache=True,
                     metadata.pending(write_backend_type)
                     write_backend.write(ds, upsert=upsert, primary_keys=primary_keys)
                     metadata.commit(write_backend_type)
-                    sync_local_remote(write_backend, local_write_backend)
-                    sync_local_remote(metadata, local_metadata)
 
                     ds = write_backend.read(engine)
 
