@@ -215,7 +215,8 @@ def instantiate_read_caches(cache_key, namespace, cache_arg_values, requested_ba
         cache = None
         cache_config = get_config(location=location, backend_class=Cache)
         if cache_config:
-            cache = Cache(cache_config, cache_key, namespace, requested_backend, backend_kwargs)
+            cache = Cache(cache_config, cache_key, namespace, cache_arg_values, 
+                          location, requested_backend, backend_kwargs)
         elif location == 'root':
             raise ValueError("At least a root filesystem for metadata storage must be configured. No configuration found.")
 
@@ -364,7 +365,7 @@ def cacheable(cache=True,
             ds = None
             compute_result = True
 
-            read_caches = instantiate_read_caches(cache_key, namespace, backend, backend_kwargs)
+            read_caches = instantiate_read_caches(cache_key, namespace, cache_arg_value, backend, backend_kwargs)
 
             # Try to sync local/remote only once on read. All syncing is done lazily
             if local:
@@ -372,6 +373,9 @@ def cacheable(cache=True,
                     raise ValueError("Local filesystem must be configured if local caching is requested.")
 
                 sync_local_remote(read_caches['root'], read_caches['local'])
+            else:
+                # If local isn't set we shuldn't use it even if it's configured
+                read_caches['local'] = None
 
             used_read_backend = None
 
@@ -431,8 +435,8 @@ def cacheable(cache=True,
                 if not storage_backend:
                     storage_backend = get_default_backend(type(ds))
 
-                write_cache = Cache(write_cache_config, cache_key, namespace, storage_backend,
-                                    storage_backend_kwargs)
+                write_cache = Cache(write_cache_config, cache_key, namespace, 'root',
+                                    cache_arg_values, storage_backend, storage_backend_kwargs)
             else:
                 raise ValueError("At least a root filesystem for metadata storage must be configured. No configuration found.")
 

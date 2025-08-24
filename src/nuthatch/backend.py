@@ -13,7 +13,7 @@ def register_backend(backendClass):
 
     return backendClass
 
-def get_backend(backend_name):
+def get_backend_by_name(backend_name):
     return registered_backends[backend_name]
 
 def get_default_backend(data_type):
