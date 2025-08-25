@@ -1,5 +1,4 @@
 from nuthatch.backend import FileBackend, register_backend
-import datetime
 import pickle
 
 @register_backend

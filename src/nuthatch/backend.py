@@ -1,6 +1,7 @@
 from abc import ABC, abstractmethod
 from pathlib import Path
 import fsspec
+import sqlalchemy
 
 registered_backends = {}
 default_backends = {}
@@ -87,7 +88,7 @@ class FileBackend(NuthatchBackend):
         else:
             self.raw_cache_path = base_path.joinpath(cache_key)
 
-        self.temp_cache_path = basepath.joinpath('temp', cache_key)
+        self.temp_cache_path = base_path.joinpath('temp', cache_key)
         self.path = self.raw_cache_path + '.' + extension
         self.fs = fsspec.core.url_to_fs(self.path, **self.config['filesystem_options'])[0]
 
@@ -109,7 +110,7 @@ class DatabaseBackend(NuthatchBackend):
     def __init__(self, cacheable_config, cache_key, namespace, args, backend_kwargs):
         super().__init__(cacheable_config, cache_key, namespace, args, backend_kwargs)
 
-        database_url = URL.create(self.config['driver'],
+        database_url = sqlalchemy.URL.create(self.config['driver'],
                                 username = self.config['username'],
                                 password = self.config['password'],
                                 host = self.config['host'],
@@ -119,7 +120,7 @@ class DatabaseBackend(NuthatchBackend):
         self.uri = database_url.render_as_string()
 
         if self.config['write_username'] and self.config['write_password']:
-            write_database_url = URL.create(self.config['driver'],
+            write_database_url = sqlalchemy.URL.create(self.config['driver'],
                                 username = self.config['write_username'],
                                 password = self.config['write_password'],
                                 host = self.config['host'],

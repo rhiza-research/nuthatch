@@ -1,5 +1,6 @@
 from nuthatch.backend import FileBackend, register_backend
 import xarray as xr
+import numpy as np
 
 CHUNK_SIZE_UPPER_LIMIT_MB = 300
 CHUNK_SIZE_LOWER_LIMIT_MB = 30
@@ -137,12 +138,12 @@ class ZarrBackend(FileBackend):
             raise NotImplementedError("Zarr backend does not support upsert.")
 
         if isinstance(data, xr.Dataset):
-            chunk_to_zarr(data, self.path)
+            self.chunk_to_zarr(data, self.path)
         else:
             raise NotImplementedError("Zarr backend only supports caching of xarray datasets.")
 
-    def read(engine):
-        if engine == 'xarray' or engine == xr.Dataset or engine == None:
+    def read(self, engine):
+        if engine == 'xarray' or engine == xr.Dataset or engine is None:
             # We must auto open chunks. This tries to use the underlying zarr chunking if possible.
             # Setting chunks=True triggers what I think is an xarray/zarr engine bug where
             # every chunk is only 4B!
@@ -162,13 +163,13 @@ class ZarrBackend(FileBackend):
                     # writing to temp cache is necessary because if you overwrite
                     # the original cache map it will write it before reading the
                     # data leading to corruption.
-                    chunk_to_zarr(ds_remote, self.temp_path)
+                    self.chunk_to_zarr(ds_remote, self.temp_path)
 
                     # Remove the old cache and verify files
                     if self.fs.exists(self.path):
                         self.fs.rm(self.path, recursive=True)
 
-                    fs.mv(self.temp_path, self.path, recursive=True)
+                    self.fs.mv(self.temp_path, self.path, recursive=True)
 
                     # Reopen the dataset - will use the appropriate global or local cache
                     return xr.open_dataset(self.path, engine='zarr',
@@ -202,8 +203,8 @@ class ZarrBackend(FileBackend):
         except ValueError:
             print("Failed to get chunks size! Continuing with unknown chunking...")
 
-        if fs.exists(path):
-            fs.rm(path, recursive=True)
+        if self.fs.exists(path):
+            self.fs.rm(path, recursive=True)
 
         ds.to_zarr(store=path, mode='w')
 

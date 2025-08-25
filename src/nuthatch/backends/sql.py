@@ -2,6 +2,8 @@ from nuthatch.backend import DatabaseBackend, register_backend
 import hashlib
 import sqlalchemy
 import uuid
+import pandas as pd
+import dask.dataframe as dd
 
 def hashed_table_name(table_name):
     """Return a qualified postgres table name."""
@@ -33,7 +35,7 @@ class SQLBackend(DatabaseBackend):
             if primary_keys is None or not isinstance(primary_keys, list):
                 raise ValueError("Upsert may only be performed with primary keys specified as a list.")
 
-            if not isinstance(df, dd.DataFrame):
+            if not isinstance(data, dd.DataFrame):
                 raise RuntimeError("Upsert is only supported by dask dataframes for parquet")
 
             with self.engine.begin() as conn:
@@ -42,21 +44,21 @@ class SQLBackend(DatabaseBackend):
 
                 # Extract the primary key columns for SQL constraint
                 for key in primary_keys:
-                    if key not in df.columns:
+                    if key not in data.columns:
                         raise ValueError("Dataframe MUST contain all primary keys as columns")
 
                 # Write a temporary table
                 temp_table_name = f"temp_{uuid.uuid4().hex[:6]}"
 
-                if isinstance(df, pd.DataFrame):
-                    df.to_sql(temp_table_name, engine, index=False)
-                elif isinstance(df, dd.DataFrame):
-                    df.to_sql(temp_table_name, uri=uri, index=False, parallel=True, chunksize=10000)
+                if isinstance(data, pd.DataFrame):
+                    data.to_sql(temp_table_name, self.engine, index=False)
+                elif isinstance(data, dd.DataFrame):
+                    data.to_sql(temp_table_name, uri=self.uri, index=False, parallel=True, chunksize=10000)
                 else:
                     raise RuntimeError("Did not return dataframe type.")
 
                 index_sql_txt = ", ".join([f'"{i}"' for i in primary_keys])
-                columns = list(df.columns)
+                columns = list(data.columns)
                 headers = primary_keys + list(set(columns) - set(primary_keys))
                 headers_sql_txt = ", ".join(
                     [f'"{i}"' for i in headers]
@@ -95,10 +97,10 @@ class SQLBackend(DatabaseBackend):
                 conn.exec_driver_sql(f"DROP TABLE {temp_table_name}")
         else:
             try:
-                if isinstance(df, pd.DataFrame):
-                    df.to_sql(self.table_name, self.write_engine, if_exists='replace', index=False)
-                elif isinstance(df, dd.DataFrame):
-                    df.to_sql(self.table_name, self.write_uri, if_exists='replace', index=False, parallel=True, chunksize=10000)
+                if isinstance(data, pd.DataFrame):
+                    data.to_sql(self.table_name, self.write_engine, if_exists='replace', index=False)
+                elif isinstance(data, dd.DataFrame):
+                    data.to_sql(self.table_name, self.write_uri, if_exists='replace', index=False, parallel=True, chunksize=10000)
                 else:
                     raise RuntimeError("Did not return dataframe type.")
 
@@ -112,8 +114,8 @@ class SQLBackend(DatabaseBackend):
     def read(self, engine=None):
         if engine == 'pandas' or engine == pd.DataFrame or engine is None:
             try:
-                df = pd.read_sql_query(f'select * from "{self.table_name}"', con=self.engine)
-                return df
+                data = pd.read_sql_query(f'select * from "{self.table_name}"', con=self.engine)
+                return data
             except sqlalchemy.exc.InterfaceError:
                 raise RuntimeError("Error connecting to database.")
         else:

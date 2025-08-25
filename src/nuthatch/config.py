@@ -1,4 +1,3 @@
-from nuthatch.backend import NuthatchBackend
 from pathlib import Path
 import os
 import tomllib
@@ -21,7 +20,7 @@ def config_parameter(parameter_name, location='root', backend=None):
 def is_fs_root(p):
      return os.path.splitdrive(str(p))[1] == os.sep
 
-def get_config(location='root', backend_class=NuthatchBackend):
+def get_config(location='root', requested_parameters=[], backend_name=None):
 
     #Find pyproject.toml or nuthatch.ini
     current_directory = Path.cwd()
@@ -38,9 +37,6 @@ def get_config(location='root', backend_class=NuthatchBackend):
     with open(config_file, "rb") as f:
         config = tomllib.load(f)
 
-    requested_parameters = backend_class.config_parameters
-    backend_name = backend_class.backend_name
-
     # If it's root allow the base parameters to be used and root to be set
     if location == 'root':
         location_params = config['tool']['nuthatch']
@@ -49,7 +45,7 @@ def get_config(location='root', backend_class=NuthatchBackend):
     else:
         location_params = config['tool']['nuthatch'][location]
 
-    if backend_name in location_params:
+    if backend_name and backend_name in location_params:
         backend_specific_params = config['tool']['nuthatch'][location][backend_name]
     else:
         backend_specific_params = {}

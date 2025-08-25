@@ -1,9 +1,55 @@
 from nuthatch.backend import DatabaseBackend, FileBackend, register_backend
+import shutil
+from pathlib import Path
 import terracotta as tc
 import sqlalchemy
 import xarray as xr
+import numpy as np
 from rasterio.io import MemoryFile
 from rasterio.enums import Resampling
+
+def base360_to_base180(lons):
+    """Converts a list of longitudes from base 360 to base 180.
+
+    Args:
+        lons (list, float): A list of longitudes, or a single longitude
+    """
+    if not isinstance(lons, np.ndarray) and not isinstance(lons, list):
+        lons = [lons]
+    val = [x - 360.0 if x >= 180.0 else x for x in lons]
+    if len(val) == 1:
+        return val[0]
+    return np.array(val)
+
+
+def base180_to_base360(lons):
+    """Converts a list of longitudes from base 180 to base 360.
+
+    Args:
+        lons (list, float): A list of longitudes, or a single longitude
+    """
+    if not isinstance(lons, np.ndarray) and not isinstance(lons, list):
+        lons = [lons]
+    val = [x + 360.0 if x < 0.0 else x for x in lons]
+    if len(val) == 1:
+        return val[0]
+    return np.array(val)
+
+
+
+def is_wrapped(lons):
+    """Check if the longitudes are wrapped.
+
+    Works for both base180 and base360 longitudes. Requires that
+    longitudes are in increasing order, outside of a wrap point.
+    """
+    wraps = (np.diff(lons) < 0.0).sum()
+    if wraps > 1:
+        raise ValueError("Only one wrapping discontinuity allowed.")
+    elif wraps == 1:
+        return True
+    return False
+
 
 def lon_base_change(ds, to_base="base180", lon_dim='lon'):
     """Change the base of the dataset from base 360 to base 180 or vice versa.
@@ -118,26 +164,28 @@ class TerracottaBackend(DatabaseBackend, FileBackend):
                     sub_ds = sub_ds.reset_coords('time', drop=True)
 
                     # add the time to the cache_key
-                    sub_cache_key = cache_key + '_' + str(t.values)
+                    sub_cache_key = self.cache_key + '_' + str(t.values)
+                    sub_path = self.raw_cache_path + '_' + str(t.values) + '.tif'
+                    sub_override_path = self.raw_override_path + '_' + str(t.values) + '.tif'
 
-                    write_individual_raster(driver, sub_ds)
+                    self.write_individual_raster(self.driver, sub_ds, sub_path, sub_cache_key, sub_override_path)
             else:
-                write_individual_raster(driver, ds)
+                self.write_individual_raster(self.driver, ds, self.path, self.cache_key, self.override_path)
 
             pass
 
-    def write_individual_raster(self, driver, ds):
+    def write_individual_raster(self, driver, ds, path, cache_key, override_path):
         # Write the raster
         with MemoryFile() as mem_dst:
             ds.rio.to_raster(mem_dst.name, driver="COG")
 
-            with self.fs.open(self.path, 'wb') as f_out:
+            with self.fs.open(path, 'wb') as f_out:
                 shutil.copyfileobj(mem_dst, f_out)
 
-            driver.insert({'key': self.cache_key.replace('/', '_')}, mem_dst,
-                         override_path=self.override_path, skip_metadata=False)
+            driver.insert({'key': cache_key.replace('/', '_')}, mem_dst,
+                         override_path=override_path, skip_metadata=False)
 
-            print(f"Inserted {self.cache_key.replace('/', '_')} into the terracotta database.")
+            print(f"Inserted {cache_key.replace('/', '_')} into the terracotta database.")
 
     def read(engine):
         raise NotImplementedError("Cannot read from the terracotta backend.")

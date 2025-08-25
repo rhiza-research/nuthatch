@@ -1,12 +1,12 @@
 """Automated dataframe caching utilities."""
-import os
 import inspect
 from functools import wraps
 from inspect import signature, Parameter
 from .cache import Cache
+from .backend import get_default_backend
 from .config import get_config
+from .memoizer import save_to_memory, recall_from_memory
 import logging
-import hashlib
 
 
 logger = logging.getLogger(__name__)
@@ -130,7 +130,7 @@ def check_cache_disable_if(cache_disable_if, cache_arg_values):
     return True
 
 
-def extract_cache_arg_values(cache_args, params, kwargs):
+def extract_cache_arg_values(cache_args, args, params, kwargs):
     # Handle keying based on cache arguments
     cache_arg_values = {}
 
@@ -181,23 +181,6 @@ def get_cache_key(func, cache_arg_values):
     return func.__name__ + '/' + '_'.join(flat_values)
 
 
-
-def get_backend_types(prior_or_default_backend, backend, backend_kwargs, storage_backend, storage_backend_kwargs):
-    prior_backend_type = prior_or_default_backend
-
-    read_backend_type = backend
-    write_backend_type = storage_backend
-
-    if write_backend_type is None and read_backend_type:
-        write_backend_type = read_backend_type
-    elif write_backend_type is None and prior_backend_type:
-        write_backend_type = prior_backend_type
-
-    if read_backend_type is None and prior_backend_type:
-        read_backend_type = prior_backend_type
-
-    return read_backend_type, write_backend_type
-
 def instantiate_read_caches(cache_key, namespace, cache_arg_values, requested_backend, backend_kwargs):
     """Returns a priority ordered list of reader backends and backend metadatas and then
        prepares them for reading."""
@@ -213,9 +196,9 @@ def instantiate_read_caches(cache_key, namespace, cache_arg_values, requested_ba
 
     for location in resolution_list:
         cache = None
-        cache_config = get_config(location=location, backend_class=Cache)
+        cache_config = get_config(location=location, requested_parameters=Cache.config_parameters)
         if cache_config:
-            cache = Cache(cache_config, cache_key, namespace, cache_arg_values, 
+            cache = Cache(cache_config, cache_key, namespace, cache_arg_values,
                           location, requested_backend, backend_kwargs)
         elif location == 'root':
             raise ValueError("At least a root filesystem for metadata storage must be configured. No configuration found.")
@@ -225,18 +208,18 @@ def instantiate_read_caches(cache_key, namespace, cache_arg_values, requested_ba
     return caches
 
 
-def cacheable(cache=True,
-              namespace=None,
-              cache_args=[],
-              cache_disable_if=None,
-              engine=None,
-              backend=None,
-              backend_kwargs=None,
-              storage_backend=None,
-              storage_backend_kwargs=None,
-              cache_local=False,
-              memoize=False,
-              primary_keys=None):
+def cache(cache=True,
+          namespace=None,
+          cache_args=[],
+          cache_disable_if=None,
+          engine=None,
+          backend=None,
+          backend_kwargs=None,
+          storage_backend=None,
+          storage_backend_kwargs=None,
+          cache_local=False,
+          memoize=False,
+          primary_keys=None):
     """Decorator for caching function results.
 
     Args:
@@ -286,7 +269,7 @@ def cacheable(cache=True,
             # Proper variable scope for the decorator args
             cache_args = nonlocals['cache_args']
             cache = nonlocals['cache']
-            namepsace = nonlocals['namespace']
+            namespace = nonlocals['namespace']
             cache_disable_if = nonlocals['cache_disable_if']
             backend = nonlocals['backend']
             backend_kwargs = nonlocals['backend_kwargs']
@@ -320,11 +303,6 @@ def cacheable(cache=True,
             if passed_memoize is not None:
                 memoize = passed_memoize
 
-            if storage_backend is None:
-                storage_backend = backend
-            if storage_backend_kwargs is None:
-                storage_backend_kwargs = backend_kwargs
-
             # Check if this is a nested cacheable function
             if not check_if_nested_fn():
                 # This is a top level cacheable function, reset global cache variables
@@ -353,7 +331,7 @@ def cacheable(cache=True,
 
             # The the function parameters and their values
             params = signature(func).parameters
-            cache_arg_values = extract_cache_arg_values(cache_args, params, kwargs)
+            cache_arg_values = extract_cache_arg_values(cache_args, args, params, kwargs)
 
             # Disable the cache if it's enabled and the function params/values match the disable statement
             if cache:
@@ -365,10 +343,10 @@ def cacheable(cache=True,
             ds = None
             compute_result = True
 
-            read_caches = instantiate_read_caches(cache_key, namespace, cache_arg_value, backend, backend_kwargs)
+            read_caches = instantiate_read_caches(cache_key, namespace, cache_arg_values, backend, backend_kwargs)
 
             # Try to sync local/remote only once on read. All syncing is done lazily
-            if local:
+            if cache_local:
                 if not read_caches['local']:
                     raise ValueError("Local filesystem must be configured if local caching is requested.")
 
@@ -377,10 +355,17 @@ def cacheable(cache=True,
                 # If local isn't set we shuldn't use it even if it's configured
                 read_caches['local'] = None
 
-            used_read_backend = None
 
-            # Read the cache from the appropriate location if it exists
-            if not recompute and not upsert and cache:
+            # Try the memoizer first
+            if not recompute and not upsert and cache and memoize:
+                ds = recall_from_memory(cache_key)
+                if ds:
+                    print("Found cache for {cache_key} in memory.")
+                    compute_result = False
+
+            # Try to read from the cache in priority locations
+            used_read_backend = None
+            if not recompute and not upsert and cache and not ds:
                 for location, read_cache in read_caches:
                     # If the metadata is null this backend isn't configured - continue
                     if not read_cache:
@@ -397,7 +382,7 @@ def cacheable(cache=True,
                             return None
 
                     # If it's not null see if it exists
-                    if read_cache.exists()
+                    if read_cache.exists():
                         print("Found cache for {cache_key} with backend {metadata.get_backend()} in {location} cache")
 
                         used_read_backend = read_cache.get_backend()
@@ -428,40 +413,47 @@ def cacheable(cache=True,
                 ds = func(*args, **kwargs)
                 ##########################
 
-            # Instantiate write backend
-            write_cache = None
-            write_cache_config = get_config(location='root', backend_class=Cache)
-            if write_cache_config:
-                if not storage_backend:
-                    storage_backend = get_default_backend(type(ds))
+                if memoize:
+                    print("Memoizing {cache_key}.")
+                    save_to_memory(ds)
 
-                write_cache = Cache(write_cache_config, cache_key, namespace, 'root',
-                                    cache_arg_values, storage_backend, storage_backend_kwargs)
-            else:
-                raise ValueError("At least a root filesystem for metadata storage must be configured. No configuration found.")
 
             # Store the result
-            if cache and (compute_result or write_cache.get_backend() != used_read_backend):
+            if cache and (compute_result or (storage_backend and storage_backend != used_read_backend)):
+                # Instantiate write backend
+                write_cache = None
+                write_cache_config = get_config(location='root', requested_parameters=Cache.config_parameters)
+                if write_cache_config:
+                    if not storage_backend:
+                        storage_backend = get_default_backend(type(ds))
+
+                    write_cache = Cache(write_cache_config, cache_key, namespace, 'root',
+                                        cache_arg_values, storage_backend, storage_backend_kwargs)
+                else:
+                    raise ValueError("At least a root filesystem for metadata storage must be configured. No configuration found.")
+
+
                 if ds is None:
                     if not upsert:
                         write_cache.set_null()
                     else:
-                        print(f"Null result not cached for {null_path} in upsert mode.")
+                        print("Null result not cached in upsert mode.")
 
                     return None
 
                 write = False  # boolean to determine if we should write to the cache
                 if (write_cache.exists() and force_overwrite is None and not upsert):
-                    inp = input(f'A cache already exists at {cache_key} for type {write_backend.get_backend()}
-                                Are you sure you want to overwrite it? (y/n)')
+                    inp = input(f"""A cache already exists at {cache_key} for type {write_cache.get_backend()}
+                                Are you sure you want to overwrite it? (y/n)""")
                     if inp == 'y' or inp == 'Y':
                         write = True
                 elif force_overwrite is False:
                     pass
-                else: write = True
+                else:
+                    write = True
 
                 if write:
-                    print(f"Caching result for {cache_key} in {write_backend_type}.")
+                    print(f"Caching result for {cache_key} in {write_cache.get_backend()}.")
                     ds = write_cache.write(ds, upsert=upsert, primary_keys=primary_keys)
 
             if filepath_only:
