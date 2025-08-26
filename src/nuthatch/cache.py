@@ -1,5 +1,7 @@
 from deltalake import DeltaTable, write_deltalake, QueryBuilder
 from os.path import join
+import git
+import getpass
 import datetime
 from .backend import get_backend_by_name
 from .config import get_config
@@ -24,7 +26,7 @@ class Cache():
                               schema=pa.schema(
                                 [pa.field("cache_key", pa.string()), pa.field("backend", pa.string()),
                                  pa.field("namespace", pa.string()), pa.field("state", pa.string()),
-                                 pa.field("last_modified", pa.timestamp('us')), pa.field("commit_hash", pa.string()),
+                                 pa.field("last_modified", pa.int64()), pa.field("commit_hash", pa.string()),
                                  pa.field("user", pa.string()), pa.field("path", pa.string())]
                               ),
                               storage_options=self.config['filesystem_options'],
@@ -51,6 +53,8 @@ class Cache():
                                                                          AND state = 'null'""").read_all()
         if len(null_rows) > 0:
             return True
+        else:
+            return False
 
     def set_null(self):
         self._update_metadata_state(state='null')
@@ -61,15 +65,15 @@ class Cache():
 
     def _delete_metadata(self, null=False):
         if null:
-            self.dt.delete(predicate="cache_key = '{self.cache_key}' AND namespace = {self.namespace} AND state = 'null'")
+            self.dt.delete(predicate=f"cache_key = '{self.cache_key}' AND namespace = '{self.namespace}' AND state = 'null'")
         else:
             if self.backend_name:
-                self.dt.delete("cache_key = '{self.cache_key}' AND namespace = '{self.namespace}' AND backend = '{self.backend_name}'")
+                self.dt.delete(f"cache_key = '{self.cache_key}' AND namespace = '{self.namespace}' AND backend = '{self.backend_name}'")
             else:
                 raise RuntimeError("Can only delete non-null metadata with a valid backend")
 
-    def _metadata_exists(self):
-        rows = QueryBuilder().register('metadata', self.dt).execute(f"""select backend from metadata where cache_key = '{self.cache_key}'
+    def _metadata_confirmed(self):
+        rows = QueryBuilder().register('metadata', self.dt).execute(f"""select * from metadata where cache_key = '{self.cache_key}'
                                                                                 AND namespace = '{self.namespace}'
                                                                                 AND backend = '{self.backend_name}'
                                                                                 AND state = 'confirmed'""").read_all()
@@ -79,13 +83,26 @@ class Cache():
         else:
             return False
 
+    def _metadata_exists(self):
+        rows = QueryBuilder().register('metadata', self.dt).execute(f"""select backend from metadata where cache_key = '{self.cache_key}'
+                                                                                AND namespace = '{self.namespace}'
+                                                                                AND backend = '{self.backend_name}'""").read_all()
+
+        if len(rows) > 0:
+            return True
+        else:
+            return False
+
     def _get_backend_from_metadata(self):
         backend_rows = QueryBuilder().register('metadata', self.dt).execute(f"""select backend from metadata where metadata.cache_key = '{self.cache_key}'
                                                                                 AND metadata.namespace = '{self.namespace}'""").read_all()
+
         if len(backend_rows) == 0:
             return None
         else:
-            return backend_rows[0]
+            print(type(backend_rows.to_batches()[0][0][0]))
+            print(str(backend_rows.to_batches()[0][0][0].as_py()))
+            return backend_rows.to_batches()[0][0][0].as_py()
 
     def _set_metadata_pending(self):
         self._update_metadata_state(state='pending')
@@ -94,39 +111,54 @@ class Cache():
         self._update_metadata_state(state='confirmed')
 
     def _update_metadata_state(self, state=None):
+        repo = git.Repo(search_parent_directories=True)
+        if repo:
+            sha = repo.head.object.hexsha
+        else:
+            sha = 'no_git_repo'
         if self._metadata_exists():
             if state == 'null':
-                self.dt.update(predicate="cache_key = {self.cache_key} AND namespace = {self.namespace}",
-                               update={'state': 'null', 'last_modified': datetime.datetime.now()})
+                self.dt.update(predicate=f"cache_key = '{self.cache_key}' AND namespace = '{self.namespace}'",
+                               new_values={'state': 'null', 'last_modified': datetime.datetime.now(datetime.timezone.utc).timestamp() * 1000000,
+                                           'commit_hash': sha, 'user': getpass.getuser(), 'path': self.backend.get_file_path()})
             else:
-                self.dt.update(predicate="cache_key = {self.cache_key} AND namespace = {self.namespace} AND backend = {self.backend_name}",
-                               update={'state': state, 'last_modified': datetime.datetime.now()})
+                met = self.dt.update(predicate=f"cache_key = '{self.cache_key}' AND namespace = '{self.namespace}' AND backend = '{self.backend_name}'",
+                               new_values={'state': state, 'last_modified': datetime.datetime.now(datetime.timezone.utc).timestamp() * 1000000,
+                                           'commit_hash': sha, 'user': getpass.getuser(), 'path': self.backend.get_file_path()})
+                print(met)
         else:
-            df = pd.DataFrame({'cache_key': self.cache_key,
-                               'namespace': self.namespace,
-                               'backend': self.backend_name,
-                               'state': state,
-                               'last_modified': datetime.datetime.now()})
+            df = pd.DataFrame({'cache_key': [self.cache_key],
+                               'namespace': [self.namespace],
+                               'backend': [self.backend_name],
+                               'commit_hash': [sha],
+                               'user': [getpass.getuser()],
+                               'path' : [self.backend.get_file_path()],
+                               'state': [state],
+                               'last_modified': [datetime.datetime.now(datetime.timezone.utc).timestamp() * 1000000]})
             write_deltalake(self.dt, df, mode='append')
 
     def get_backend(self):
         return self.backend.backend_name
 
     def exists(self):
-        if self._metadata_exists() and not self.backend:
+        if self._metadata_confirmed() and not self.backend:
             raise RuntimeError("If metadata exists then there should be a backend. Inconsistent state error.")
         elif not self.backend:
             # We just aren't initialized yet
             return False
-        elif self._metadata_exists() and self.backend.exists():
+        elif self._metadata_confirmed() and self.backend.exists():
             # Both exists!
             return True
-        elif self._metadata_exists() and not self.backend.exists():
+        elif self._metadata_confirmed() and not self.backend.exists():
             # Inconsistent state - should probably throw a warning
             self._delete_matadata()
             return False
+        elif not self._metadata_confirmed():
+            return False
+        else:
+            raise ValueError("Inconsistent and unknown cache state.")
 
-    def write(self, ds, upsert, primary_keys):
+    def write(self, ds, upsert=False, primary_keys=None):
         if self.backend:
             self._set_metadata_pending()
             data = self.backend.write(ds, upsert, primary_keys)

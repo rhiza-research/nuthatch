@@ -15,7 +15,9 @@ dependencies = [
     "dask-deltatable",
     "xarray",
     "pyarrow",
-    "terracotta"
+    "terracotta",
+    "gcsfs",
+    "gitpython",
 ]
 readme = "README.md"
 requires-python = ">= 3.12"

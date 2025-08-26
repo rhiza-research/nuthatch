@@ -1,5 +1,5 @@
 from abc import ABC, abstractmethod
-from pathlib import Path
+from os.path import join
 import fsspec
 import sqlalchemy
 
@@ -50,7 +50,7 @@ class NuthatchBackend(ABC):
 
 
     @abstractmethod
-    def write(self, data):
+    def write(self, data, upsert=False, primary_keys=None):
         pass
 
     @abstractmethod
@@ -79,16 +79,16 @@ class FileBackend(NuthatchBackend):
     config_parameters = ["filesystem", "filesystem_options"]
 
     def __init__(self, cacheable_config, cache_key, namespace, args, backend_kwargs, extension):
-        super().__init__(cacheable_config, cache_key, args, backend_kwargs)
+        super().__init__(cacheable_config, cache_key, namespace, args, backend_kwargs)
 
-        base_path = Path(self.config['filesystem'])
+        base_path = self.config['filesystem']
 
         if namespace:
-            self.raw_cache_path = base_path.joinpath(namespace, cache_key)
+            self.raw_cache_path = join(base_path, namespace, cache_key)
         else:
-            self.raw_cache_path = base_path.joinpath(cache_key)
+            self.raw_cache_path = join(base_path, cache_key)
 
-        self.temp_cache_path = base_path.joinpath('temp', cache_key)
+        self.temp_cache_path = join(base_path, 'temp', cache_key)
         self.path = self.raw_cache_path + '.' + extension
         self.fs = fsspec.core.url_to_fs(self.path, **self.config['filesystem_options'])[0]
 
@@ -101,6 +101,9 @@ class FileBackend(NuthatchBackend):
 
     def get_file_path(self):
         return self.path
+
+    def sync(self, NuthatchBackend):
+        raise NotImplementedError("Sync not implemented for file backend.")
 
 
 class DatabaseBackend(NuthatchBackend):
