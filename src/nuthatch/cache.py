@@ -11,6 +11,7 @@ import pandas as pd
 class Cache():
     config_parameters=['filesystem', 'filesystem_options']
     delta_tables = {}
+    delta_table_configs = {}
 
     def __init__(self, config, cache_key, namespace, args, backend_location, requested_backend, backend_kwargs):
         self.cache_key = cache_key
@@ -26,7 +27,8 @@ class Cache():
             for key, value in options.items():
                 options[key] = str(value)
 
-        if backend_location in self.__class__.delta_tables:
+        if (backend_location in self.__class__.delta_tables and
+            self.__class__.delta_table_configs[backend_location] == config):
             self.dt = self.__class__.delta_tables[backend_location]
         else:
             # Instantiate the metadata store here so that _get_backend_from_metadata() works
@@ -44,6 +46,7 @@ class Cache():
 
             self.dt = DeltaTable(self.table_path, storage_options=options)
             self.__class__.delta_tables[backend_location] = self.dt
+            self.__class__.delta_table_configs[backend_location] = config
 
         self.backend = None
         self.backend_name = None
