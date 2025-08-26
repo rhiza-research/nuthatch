@@ -38,12 +38,14 @@ def get_config(location='root', requested_parameters=[], backend_name=None):
         config = tomllib.load(f)
 
     # If it's root allow the base parameters to be used and root to be set
+    location_params = {}
     if location == 'root':
         location_params = config['tool']['nuthatch']
         if location in config['tool']['nuthatch']:
             location_params.update(config['tool']['nuthatch'][location])
     else:
-        location_params = config['tool']['nuthatch'][location]
+        if location in config['tool']['nuthatch']:
+            location_params = config['tool']['nuthatch'][location]
 
     if backend_name and backend_name in location_params:
         backend_specific_params = config['tool']['nuthatch'][location][backend_name]

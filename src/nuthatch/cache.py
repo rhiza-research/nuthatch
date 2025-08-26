@@ -10,6 +10,7 @@ import pandas as pd
 
 class Cache():
     config_parameters=['filesystem', 'filesystem_options']
+    delta_tables = {}
 
     def __init__(self, config, cache_key, namespace, args, backend_location, requested_backend, backend_kwargs):
         self.cache_key = cache_key
@@ -19,22 +20,34 @@ class Cache():
         base_path = self.config['filesystem']
         self.table_path = join(base_path, 'nuthatch_metadata.delta')
 
-        # Instantiate the metadata store here so that _get_backend_from_metadata() works
-        if not DeltaTable.is_deltatable(self.table_path, storage_options=self.config['filesystem_options']):
-            print("Instantiating empty delta table.")
-            DeltaTable.create(self.table_path,
-                              schema=pa.schema(
-                                [pa.field("cache_key", pa.string()), pa.field("backend", pa.string()),
-                                 pa.field("namespace", pa.string()), pa.field("state", pa.string()),
-                                 pa.field("last_modified", pa.int64()), pa.field("commit_hash", pa.string()),
-                                 pa.field("user", pa.string()), pa.field("path", pa.string())]
-                              ),
-                              storage_options=self.config['filesystem_options'],
-                              partition_by="cache_key")
+        options = None
+        if 'filesystem_options' in self.config:
+            options = self.config['filesystem_options']
+            for key, value in options.items():
+                options[key] = str(value)
 
-        self.dt = DeltaTable(self.table_path, storage_options=self.config['filesystem_options'])
+        if backend_location in self.__class__.delta_tables:
+            self.dt = self.__class__.delta_tables[backend_location]
+        else:
+            # Instantiate the metadata store here so that _get_backend_from_metadata() works
+            if not DeltaTable.is_deltatable(self.table_path, storage_options=options):
+                print("Instantiating empty delta table.")
+                DeltaTable.create(self.table_path,
+                                  schema=pa.schema(
+                                    [pa.field("cache_key", pa.string()), pa.field("backend", pa.string()),
+                                     pa.field("namespace", pa.string()), pa.field("state", pa.string()),
+                                     pa.field("last_modified", pa.int64()), pa.field("commit_hash", pa.string()),
+                                     pa.field("user", pa.string()), pa.field("path", pa.string())]
+                                  ),
+                                  storage_options=options,
+                                  partition_by="cache_key")
+
+            self.dt = DeltaTable(self.table_path, storage_options=options)
+            self.__class__.delta_tables[backend_location] = self.dt
 
         self.backend = None
+        self.backend_name = None
+
         backend_class = None
         if requested_backend:
             backend_class = get_backend_by_name(requested_backend)
@@ -48,6 +61,7 @@ class Cache():
             self.backend_name = backend_class.backend_name
 
     def is_null(self):
+
         null_rows = QueryBuilder().register('metadata', self.dt).execute(f"""select * from metadata where cache_key = '{self.cache_key}'
                                                                          AND namespace = '{self.namespace}'
                                                                          AND state = 'null'""").read_all()
@@ -73,6 +87,9 @@ class Cache():
                 raise RuntimeError("Can only delete non-null metadata with a valid backend")
 
     def _metadata_confirmed(self):
+        if not self.backend:
+            return False
+
         rows = QueryBuilder().register('metadata', self.dt).execute(f"""select * from metadata where cache_key = '{self.cache_key}'
                                                                                 AND namespace = '{self.namespace}'
                                                                                 AND backend = '{self.backend_name}'
@@ -100,8 +117,6 @@ class Cache():
         if len(backend_rows) == 0:
             return None
         else:
-            print(type(backend_rows.to_batches()[0][0][0]))
-            print(str(backend_rows.to_batches()[0][0][0].as_py()))
             return backend_rows.to_batches()[0][0][0].as_py()
 
     def _set_metadata_pending(self):
@@ -125,16 +140,16 @@ class Cache():
                 met = self.dt.update(predicate=f"cache_key = '{self.cache_key}' AND namespace = '{self.namespace}' AND backend = '{self.backend_name}'",
                                new_values={'state': state, 'last_modified': datetime.datetime.now(datetime.timezone.utc).timestamp() * 1000000,
                                            'commit_hash': sha, 'user': getpass.getuser(), 'path': self.backend.get_file_path()})
-                print(met)
         else:
             df = pd.DataFrame({'cache_key': [self.cache_key],
-                               'namespace': [self.namespace],
+                               'namespace': [str(self.namespace)],
                                'backend': [self.backend_name],
                                'commit_hash': [sha],
                                'user': [getpass.getuser()],
                                'path' : [self.backend.get_file_path()],
                                'state': [state],
                                'last_modified': [datetime.datetime.now(datetime.timezone.utc).timestamp() * 1000000]})
+
             write_deltalake(self.dt, df, mode='append')
 
     def get_backend(self):

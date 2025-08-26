@@ -15,8 +15,9 @@ def save_to_memory(cache_key, data):
         pass
 
     max_size = get_config(location='root', requested_parameters=['maximum_memory_usage'])
-    max_size = max_size['maximum_memory_usage']
-    if not max_size:
+    if 'maximum_memory_usage' in max_size:
+        max_size = max_size['maximum_memory_usage']
+    else:
         max_size = 100*10^6
 
     if(sys.getsizeof(data) > max_size):

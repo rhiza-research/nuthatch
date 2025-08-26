@@ -11,7 +11,7 @@ dependencies = [
     "sqlalchemy",
     "pandas",
     "dask[dataframe]",
-    "deltalake",
+    "deltalake==1.1.2",
     "dask-deltatable",
     "xarray",
     "pyarrow",
@@ -49,4 +49,4 @@ token = "google_default"
 cache_timeout = 0
 
 [tool.nuthatch.local]
-filesystem = "~/.cache/sheerwater"
+filesystem = ".cache/sheerwater"

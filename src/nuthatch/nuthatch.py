@@ -98,6 +98,9 @@ def check_cache_disable_if(cache_disable_if, cache_arg_values):
     Cache disable if is a dict or list of dicts. Each dict specifies a set of
     arguments that should disable the cache if they are present.
     """
+    if not cache_disable_if:
+        return True
+
     if isinstance(cache_disable_if, dict):
         cache_disable_if = [cache_disable_if]
     elif isinstance(cache_disable_if, list):
@@ -126,6 +129,7 @@ def check_cache_disable_if(cache_disable_if, cache_arg_values):
         if all(key_match):
             print(f"Caching disabled for arg values {d}")
             return False
+
     # Keep the cache enabled - we didn't find a match
     return True
 
@@ -343,6 +347,7 @@ def cache(cache=True,
             ds = None
             compute_result = True
 
+            print("Instantiating read caches")
             read_caches = instantiate_read_caches(cache_key, namespace, cache_arg_values, backend, backend_kwargs)
 
             # Try to sync local/remote only once on read. All syncing is done lazily
@@ -360,20 +365,20 @@ def cache(cache=True,
             if not recompute and not upsert and cache and memoize:
                 ds = recall_from_memory(cache_key)
                 if ds:
-                    print("Found cache for {cache_key} in memory.")
+                    print(f"Found cache for {cache_key} in memory.")
                     compute_result = False
 
             # Try to read from the cache in priority locations
             used_read_backend = None
             if not recompute and not upsert and cache and not ds:
-                for location, read_cache in read_caches:
+                for location, read_cache in read_caches.items():
                     # If the metadata is null this backend isn't configured - continue
                     if not read_cache:
                         continue
 
                     # First check if it's null
                     if read_cache.is_null():
-                        print("Found null cache for {cache_key} in {location} cache.")
+                        print(f"Found null cache for {cache_key} in {location} cache.")
                         if retry_null_cache:
                             print("Retry null cache set. Recomputing.")
                             read_cache.delete_null()
@@ -383,13 +388,18 @@ def cache(cache=True,
 
                     # If it's not null see if it exists
                     if read_cache.exists():
-                        print("Found cache for {cache_key} with backend {metadata.get_backend()} in {location} cache")
+                        print(f"Found cache for {cache_key} with backend {read_cache.get_backend()} in {location} cache")
 
                         used_read_backend = read_cache.get_backend()
                         if filepath_only:
                             return read_cache.get_file_path()
                         else:
                             ds = read_cache.read(engine=engine)
+
+                            if memoize:
+                                print(f"Memoizing {cache_key}.")
+                                save_to_memory(cache_key, ds)
+
                             compute_result = False
                             break
 
@@ -414,8 +424,8 @@ def cache(cache=True,
                 ##########################
 
                 if memoize:
-                    print("Memoizing {cache_key}.")
-                    save_to_memory(ds)
+                    print(f"Memoizing {cache_key}.")
+                    save_to_memory(cache_key, ds)
 
 
             # Store the result
@@ -427,8 +437,8 @@ def cache(cache=True,
                     if not storage_backend:
                         storage_backend = get_default_backend(type(ds))
 
-                    write_cache = Cache(write_cache_config, cache_key, namespace, 'root',
-                                        cache_arg_values, storage_backend, storage_backend_kwargs)
+                    write_cache = Cache(write_cache_config, cache_key, namespace,
+                                        cache_arg_values, 'root', storage_backend, storage_backend_kwargs)
                 else:
                     raise ValueError("At least a root filesystem for metadata storage must be configured. No configuration found.")
 
