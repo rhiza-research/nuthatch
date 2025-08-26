@@ -90,7 +90,10 @@ class FileBackend(NuthatchBackend):
 
         self.temp_cache_path = join(base_path, 'temp', cache_key)
         self.path = self.raw_cache_path + '.' + extension
-        self.fs = fsspec.core.url_to_fs(self.path, **self.config['filesystem_options'])[0]
+        if fsspec.utils.get_protocol(self.path) == 'file':
+            self.fs = fsspec.core.url_to_fs(self.path, auto_mkdir=True, **self.config['filesystem_options'])[0]
+        else:
+            self.fs = fsspec.core.url_to_fs(self.path, **self.config['filesystem_options'])[0]
 
 
     def exists(self):
