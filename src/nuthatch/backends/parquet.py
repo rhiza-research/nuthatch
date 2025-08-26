@@ -1,4 +1,4 @@
-from nuthatch.beckend import FileBackend, register_backend
+from nuthatch.backend import FileBackend, register_backend
 from pandas.api.types import is_datetime64_any_dtype as is_datetime
 import dask.dataframe as dd
 import pandas as pd

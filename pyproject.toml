@@ -12,7 +12,10 @@ dependencies = [
     "pandas",
     "dask[dataframe]",
     "deltalake",
-    "dask-deltatable"
+    "dask-deltatable",
+    "xarray",
+    "pyarrow",
+    "terracotta"
 ]
 readme = "README.md"
 requires-python = ">= 3.12"

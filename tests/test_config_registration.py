@@ -4,7 +4,7 @@ from nuthatch.backends import SQLBackend
 from nuthatch.backends import DeltaBackend
 
 def test_get_config():
-    print(get_config(location='root', backend_class=SQLBackend))
+    get_config(location='root', requested_parameters = SQLBackend.config_parameters, backend_name=SQLBackend.backend_name)
 
 def test_config_reg():
 
@@ -12,7 +12,8 @@ def test_config_reg():
     def username():
         return 'test_username'
 
-    print(get_config(location='root', backend_class=SQLBackend))
+    sql = get_config(location='root', requested_parameters = SQLBackend.config_parameters, backend_name=SQLBackend.backend_name)
+    assert sql['username'] == 'test_username'
 
 def test_config_backend_reg():
 
@@ -24,9 +25,9 @@ def test_config_backend_reg():
     def password():
         return 'test_password'
 
-    print(get_config(location='root', backend_class=SQLBackend))
-    print(get_config(location='root', backend_class=DeltaBackend))
-
+    sql = get_config(location='root', requested_parameters = SQLBackend.config_parameters, backend_name=SQLBackend.backend_name)
+    assert sql['username'] == 'test_username'
+    assert sql['password'] == 'test_password'
 
 
 if __name__ == '__main__':
