@@ -1,4 +1,5 @@
 from nuthatch.backend import DatabaseBackend, register_backend
+from os.path import join
 import hashlib
 import sqlalchemy
 import uuid
@@ -18,7 +19,7 @@ class SQLBackend(DatabaseBackend):
         super().__init__(cacheable_config, cache_key, namespace, args, backend_kwargs)
 
         if backend_kwargs['hash_table_name']:
-            self.table_name = namespace + '.' + hashed_table_name(cache_key)
+            self.table_name = hashed_table_name(cache_key)
         else:
             self.table_name = cache_key
 
@@ -127,6 +128,9 @@ class SQLBackend(DatabaseBackend):
             return insp.has_table(self.table_name)
         except sqlalchemy.exc.InterfaceError:
             raise RuntimeError("Error connecting to database.")
+
+    def get_file_path(self):
+        return join(self.uri, self.table_name)
 
     def delete(self):
         base = sqlalchemy.ext.declarative.declarative_base()

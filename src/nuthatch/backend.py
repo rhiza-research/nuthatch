@@ -135,9 +135,5 @@ class DatabaseBackend(NuthatchBackend):
             self.write_engine = self.engine
             self.write_uri = self.uri
 
-
-    def get_file_path(self):
-        raise NotImplementedError("File path returns not supported for database-like backends.")
-
     def sync(self, local_backend):
         raise NotImplementedError("Backend syncing not implemented for database-like backends.")
