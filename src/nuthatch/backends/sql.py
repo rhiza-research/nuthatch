@@ -18,7 +18,7 @@ class SQLBackend(DatabaseBackend):
     def __init__(self, cacheable_config, cache_key, namespace, args, backend_kwargs):
         super().__init__(cacheable_config, cache_key, namespace, args, backend_kwargs)
 
-        if backend_kwargs['hash_table_name']:
+        if backend_kwargs and 'hash_table_name' in backend_kwargs:
             self.table_name = hashed_table_name(cache_key)
         else:
             self.table_name = cache_key
@@ -100,8 +100,10 @@ class SQLBackend(DatabaseBackend):
             try:
                 if isinstance(data, pd.DataFrame):
                     data.to_sql(self.table_name, self.write_engine, if_exists='replace', index=False)
+                    return data
                 elif isinstance(data, dd.DataFrame):
                     data.to_sql(self.table_name, self.write_uri, if_exists='replace', index=False, parallel=True, chunksize=10000)
+                    return data
                 else:
                     raise RuntimeError("Did not return dataframe type.")
 
@@ -113,10 +115,13 @@ class SQLBackend(DatabaseBackend):
                 raise RuntimeError("Error connecting to database.")
 
     def read(self, engine=None):
-        if engine == 'pandas' or engine == pd.DataFrame or engine is None:
+        if engine == 'pandas' or engine == pd.DataFrame or engine =='dask' or engine == dd.DataFrame or engine is None:
             try:
                 data = pd.read_sql_query(f'select * from "{self.table_name}"', con=self.engine)
-                return data
+                if engine == 'dask' or engine == dd.DataFrame:
+                    return dd.from_pandas(data)
+                else:
+                    return data
             except sqlalchemy.exc.InterfaceError:
                 raise RuntimeError("Error connecting to database.")
         else:

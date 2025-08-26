@@ -89,17 +89,21 @@ gitpython==3.1.45
     # via nuthatch
 google-api-core==2.25.1
     # via google-cloud-core
+    # via google-cloud-secret-manager
     # via google-cloud-storage
 google-auth==2.40.3
     # via gcsfs
     # via google-api-core
     # via google-auth-oauthlib
     # via google-cloud-core
+    # via google-cloud-secret-manager
     # via google-cloud-storage
 google-auth-oauthlib==1.2.2
     # via gcsfs
 google-cloud-core==2.4.3
     # via google-cloud-storage
+google-cloud-secret-manager==2.24.0
+    # via nuthatch
 google-cloud-storage==3.3.0
     # via gcsfs
 google-crc32c==1.7.1
@@ -108,6 +112,17 @@ google-crc32c==1.7.1
 google-resumable-media==2.7.2
     # via google-cloud-storage
 googleapis-common-protos==1.70.0
+    # via google-api-core
+    # via grpc-google-iam-v1
+    # via grpcio-status
+grpc-google-iam-v1==0.14.2
+    # via google-cloud-secret-manager
+grpcio==1.74.0
+    # via google-api-core
+    # via googleapis-common-protos
+    # via grpc-google-iam-v1
+    # via grpcio-status
+grpcio-status==1.74.0
     # via google-api-core
 idna==3.10
     # via requests
@@ -161,10 +176,16 @@ propcache==0.3.2
     # via yarl
 proto-plus==1.26.1
     # via google-api-core
+    # via google-cloud-secret-manager
 protobuf==6.32.0
     # via google-api-core
+    # via google-cloud-secret-manager
     # via googleapis-common-protos
+    # via grpc-google-iam-v1
+    # via grpcio-status
     # via proto-plus
+psycopg2==2.9.10
+    # via nuthatch
 pyarrow==21.0.0
     # via dask
     # via dask-deltatable

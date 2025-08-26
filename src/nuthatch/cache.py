@@ -60,8 +60,9 @@ class Cache():
         if backend_class:
             backend_config = get_config(location=backend_location, requested_parameters=backend_class.config_parameters,
                                         backend_name=backend_class.backend_name)
-            self.backend = backend_class(backend_config, cache_key, namespace, args, backend_kwargs)
-            self.backend_name = backend_class.backend_name
+            if backend_config:
+                self.backend = backend_class(backend_config, cache_key, namespace, args, backend_kwargs)
+                self.backend_name = backend_class.backend_name
 
     def is_null(self):
 

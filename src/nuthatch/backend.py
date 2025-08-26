@@ -123,9 +123,9 @@ class DatabaseBackend(NuthatchBackend):
                                 port = self.config['port'],
                                 database = self.config['database'])
         self.engine = sqlalchemy.create_engine(database_url)
-        self.uri = database_url.render_as_string()
+        self.uri = database_url.render_as_string(hide_password=False)
 
-        if self.config['write_username'] and self.config['write_password']:
+        if 'write_username' in self.config and 'write_password' in self.config:
             write_database_url = sqlalchemy.URL.create(self.config['driver'],
                                 username = self.config['write_username'],
                                 password = self.config['write_password'],
@@ -133,7 +133,7 @@ class DatabaseBackend(NuthatchBackend):
                                 port = self.config['port'],
                                 database = self.config['database'])
             self.write_engine = sqlalchemy.create_engine(write_database_url)
-            self.write_uri = write_database_url.render_as_string()
+            self.write_uri = write_database_url.render_as_string(hide_password=False)
         else:
             self.write_engine = self.engine
             self.write_uri = self.uri

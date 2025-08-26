@@ -18,6 +18,8 @@ dependencies = [
     "terracotta",
     "gcsfs",
     "gitpython",
+    "google-cloud-secret-manager",
+    "psycopg2"
 ]
 readme = "README.md"
 requires-python = ">= 3.12"
@@ -38,10 +40,11 @@ packages = ["src/nuthatch"]
 
 [tool.nuthatch]
 filesystem = "gs://sheerwater-datalake/cache"
-host = "postgres.sheerwater.rhizresearch.org"
+host = "postgres.sheerwater.rhizaresearch.org"
 port = 5432
 database = "postgres"
-driver = "postgres"
+username = "write"
+driver = "postgresql"
 raster_store = "gs://terracotta-files"
 
 [tool.nuthatch.filesystem_options]

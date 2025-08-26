@@ -250,6 +250,7 @@ def cache(cache=True,
     cache_kwargs = {
         "cache": None,
         "namespace": None,
+        "engine": None,
         "backend": None,
         "backend_kwargs": None,
         "cache_local": False,
@@ -274,6 +275,7 @@ def cache(cache=True,
             cache_args = nonlocals['cache_args']
             cache = nonlocals['cache']
             namespace = nonlocals['namespace']
+            engine = nonlocals['engine']
             cache_disable_if = nonlocals['cache_disable_if']
             backend = nonlocals['backend']
             backend_kwargs = nonlocals['backend_kwargs']
@@ -284,7 +286,7 @@ def cache(cache=True,
             primary_keys = nonlocals['primary_keys']
 
             # Calculate the appropriate cache key
-            passed_cache, passed_namespace, passed_backend, passed_backend_kwargs, \
+            passed_cache, passed_namespace, passed_engine, passed_backend, passed_backend_kwargs, \
             passed_cache_local, storage_backend, storage_backend_kwargs, \
             filepath_only, recompute, passed_memoize,\
             force_overwrite, retry_null_cache, upsert, \
@@ -294,6 +296,8 @@ def cache(cache=True,
                 cache = passed_cache
             if passed_namespace is not None:
                 namespace = passed_namespace
+            if passed_engine is not None:
+                engine = passed_engine
             if passed_backend is not None:
                 backend = passed_backend
             if passed_backend_kwargs is not None:
@@ -347,7 +351,6 @@ def cache(cache=True,
             ds = None
             compute_result = True
 
-            print("Instantiating read caches")
             read_caches = instantiate_read_caches(cache_key, namespace, cache_arg_values, backend, backend_kwargs)
 
             # Try to sync local/remote only once on read. All syncing is done lazily
@@ -434,8 +437,10 @@ def cache(cache=True,
                 write_cache = None
                 write_cache_config = get_config(location='root', requested_parameters=Cache.config_parameters)
                 if write_cache_config:
-                    if not storage_backend:
+                    if not storage_backend and not backend:
                         storage_backend = get_default_backend(type(ds))
+                    elif backend:
+                        storage_backend = backend
 
                     write_cache = Cache(write_cache_config, cache_key, namespace,
                                         cache_arg_values, 'root', storage_backend, storage_backend_kwargs)
