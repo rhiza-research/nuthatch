@@ -6,6 +6,7 @@ import pandas as pd
 
 def write_parquet_helper(df, path, partition_on=None):
     """Helper to write parquets."""
+    print(path)
     df.to_parquet(
         path,
         overwrite=True,
@@ -33,11 +34,17 @@ class ParquetBackend(FileBackend):
     def write(self, data, upsert=False, primary_keys=None):
         if isinstance(data, dd.DataFrame):
             self.write_to_parquet(data, self.path, self.temp_cache_path, upsert=upsert, primary_keys=primary_keys)
+            return data
         elif isinstance(data, pd.DataFrame):
             if upsert:
                 raise RuntimeError("Parquet backend does not support upsert for pandas engine.")
 
-            data.to_parquet(self.path)
+            part = None
+            if hasattr(data, 'cache_partition'):
+                part = data.cache_partition
+
+            data.to_parquet(self.path, partition_cols=part, engine='pyarrow')
+            return data
         else:
             raise RuntimeError("Delta backend only supports dask and pandas engines.")
 
@@ -116,13 +123,5 @@ class ParquetBackend(FileBackend):
             else:
                 print("No rows to upsert.")
         else:
-            if self.fs.exists(cache_path):
-                self.fs.rm(cache_path, recursive=True)
-
-            if isinstance(df, dd.DataFrame):
-                write_parquet_helper(df, cache_path, part)
-            elif isinstance(df, pd.DataFrame):
-                df.to_parquet(cache_path, partition_cols=part, engine='pyarrow')
-            else:
-                raise ValueError("Can only write dask and pandas dataframes to parquet.")
+            write_parquet_helper(df, cache_path, part)
 

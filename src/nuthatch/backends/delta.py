@@ -23,13 +23,15 @@ class DeltaBackend(FileBackend):
             print("""Warning: Dask datafame passed to delta backend. Will run `compute()`
                       on the dataframe prior to storage. This will fail if the dataframe
                       does not fit in memory. Use `backend=parquet` to handle parallel writing of dask dataframes.""")
-            data = data.compute()
+            write_data = data.compute()
         elif isinstance(data, pd.DataFrame):
-            pass
+            write_data = data
         else:
             raise RuntimeError("Delta backend only supports dask and pandas engines.")
 
-        write_deltalake(self.path, data, mode='overwrite', schema_mode='overwrite')
+        write_deltalake(self.path, write_data, mode='overwrite', schema_mode='overwrite')
+
+        return data
 
 
     def read(self, engine=None):
