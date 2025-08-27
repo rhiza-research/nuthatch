@@ -1,4 +1,4 @@
-from nuthatch.process import NuthatchProcessor
+from nuthatch.processor import NuthatchProcessor
 import dateparser
 import datetime
 import pandas as pd
@@ -124,10 +124,10 @@ class TimeseriesProcessor(NuthatchProcessor):
                             et - datetime.timedelta(days=365)):
                         return True
                     else:
-                        print("WARNING: The cached array does not have data within "
-                              "1 year of your start or end time. Automatically recomputing. "
-                              "If you do not want to recompute the result set "
-                              "`validate_cache_timeseries=False`")
+                        print("""WARNING: The cached array does not have data within
+                              1 year of your start or end time. Triggering recompute.
+                              If you do not want to recompute the result set
+                              `validate_cache_timeseries=False`""")
                         return False
             else:
                 raise RuntimeError(f"Cannot validate timeseries for data type {type(ds)}")

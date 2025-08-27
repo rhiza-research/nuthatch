@@ -1,5 +1,4 @@
 from nuthatch.cache import Cache
-from nuthatch.config import get_config
 import uuid
 
 test_config = {

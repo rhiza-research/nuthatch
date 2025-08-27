@@ -1,7 +1,6 @@
 from nuthatch.config import get_config
 from nuthatch import config_parameter
 from nuthatch.backends import SQLBackend
-from nuthatch.backends import DeltaBackend
 
 def test_get_config():
     get_config(location='root', requested_parameters = SQLBackend.config_parameters, backend_name=SQLBackend.backend_name)

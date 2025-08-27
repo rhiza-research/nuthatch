@@ -1,3 +1,3 @@
-from timeseries import timeseries
+from .timeseries import timeseries
 
 __all__ = ["timeseries"]

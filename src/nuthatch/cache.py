@@ -142,7 +142,7 @@ class Cache():
                                new_values={'state': 'null', 'last_modified': datetime.datetime.now(datetime.timezone.utc).timestamp() * 1000000,
                                            'commit_hash': sha, 'user': getpass.getuser(), 'path': self.backend.get_file_path()})
             else:
-                met = self.dt.update(predicate=f"cache_key = '{self.cache_key}' AND namespace = '{self.namespace}' AND backend = '{self.backend_name}'",
+                self.dt.update(predicate=f"cache_key = '{self.cache_key}' AND namespace = '{self.namespace}' AND backend = '{self.backend_name}'",
                                new_values={'state': state, 'last_modified': datetime.datetime.now(datetime.timezone.utc).timestamp() * 1000000,
                                            'commit_hash': sha, 'user': getpass.getuser(), 'path': self.backend.get_file_path()})
         else:
@@ -181,7 +181,7 @@ class Cache():
     def write(self, ds, upsert=False, primary_keys=None):
         if self.backend:
             self._set_metadata_pending()
-            data = self.backend.write(ds, upsert, primary_keys)
+            self.backend.write(ds, upsert, primary_keys)
             self._commit_metadata()
         else:
             raise RuntimeError("Cannot not write to an uninitialized backend")
