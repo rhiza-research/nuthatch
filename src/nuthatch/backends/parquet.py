@@ -34,7 +34,6 @@ class ParquetBackend(FileBackend):
     def write(self, data, upsert=False, primary_keys=None):
         if isinstance(data, dd.DataFrame):
             self.write_to_parquet(data, self.path, self.temp_cache_path, upsert=upsert, primary_keys=primary_keys)
-            return data
         elif isinstance(data, pd.DataFrame):
             if upsert:
                 raise RuntimeError("Parquet backend does not support upsert for pandas engine.")
@@ -44,7 +43,6 @@ class ParquetBackend(FileBackend):
                 part = data.cache_partition
 
             data.to_parquet(self.path, partition_cols=part, engine='pyarrow')
-            return data
         else:
             raise RuntimeError("Delta backend only supports dask and pandas engines.")
 

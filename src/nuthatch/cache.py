@@ -1,5 +1,6 @@
 from deltalake import DeltaTable, write_deltalake, QueryBuilder
 from os.path import join
+import copy
 import git
 import getpass
 import datetime
@@ -61,7 +62,7 @@ class Cache():
             backend_config = get_config(location=backend_location, requested_parameters=backend_class.config_parameters,
                                         backend_name=backend_class.backend_name)
             if backend_config:
-                self.backend = backend_class(backend_config, cache_key, namespace, args, backend_kwargs)
+                self.backend = backend_class(backend_config, cache_key, namespace, args, copy.deepcopy(backend_kwargs))
                 self.backend_name = backend_class.backend_name
 
     def is_null(self):
@@ -170,7 +171,7 @@ class Cache():
             return True
         elif self._metadata_confirmed() and not self.backend.exists():
             # Inconsistent state - should probably throw a warning
-            self._delete_matadata()
+            self._delete_metadata()
             return False
         elif not self._metadata_confirmed():
             return False
@@ -182,7 +183,6 @@ class Cache():
             self._set_metadata_pending()
             data = self.backend.write(ds, upsert, primary_keys)
             self._commit_metadata()
-            return data
         else:
             raise RuntimeError("Cannot not write to an uninitialized backend")
 

@@ -43,6 +43,7 @@ def merge_chunk_by_arg(chunking, chunk_by_arg, kwargs):
     return chunking
 
 
+#TODO Why was this the way it was in sheerwater???
 def prune_chunking_dimensions(ds, chunking):
     """Prune the chunking dimensions to only those that exist in the dataset.
 
@@ -50,17 +51,10 @@ def prune_chunking_dimensions(ds, chunking):
         ds (xr.Dataset): The dataset to check for chunking dimensions.
         chunking (dict): The chunking dimensions to prune.
     """
-    # Get the chunks for the dataset
-    ds_chunks = {dim: ds.chunks[dim][0] for dim in ds.chunks}
-
     # Drop any dimensions that don't exist in the ds_chunks
-    dims_to_drop = []
     for dim in chunking:
-        if dim not in ds_chunks:
-            dims_to_drop.append(dim)
-
-    for dim in dims_to_drop:
-        del chunking[dim]
+        if dim not in ds.dims:
+            del chunking[dim]
 
     return chunking
 
@@ -121,14 +115,14 @@ class ZarrBackend(FileBackend):
     def __init__(self, cacheable_config, cache_key, namespace, args, backend_kwargs):
         super().__init__(cacheable_config, cache_key, namespace, args, backend_kwargs, 'zarr')
 
-        if 'chunking' in backend_kwargs and 'chunk_by_arg' in backend_kwargs:
+        if backend_kwargs and 'chunking' in backend_kwargs and 'chunk_by_arg' in backend_kwargs:
             self.chunking = merge_chunk_by_arg(self.backend_kwargs['chunking'], self.backend_kwargs['chunk_by_arg'], args)
-        elif 'chunking' in backend_kwargs:
-            self.chunking = self.backend_kwargs['chunking']
+        elif backend_kwargs and 'chunking' in backend_kwargs:
+            self.chunking = backend_kwargs['chunking']
         else:
             self.chunking = 'auto'
 
-        if 'auto_rechunk' in self.backend_kwargs and self.backend_kwargs['auto_rechunk']:
+        if backend_kwargs and 'auto_rechunk' in backend_kwargs and backend_kwargs['auto_rechunk']:
             self.auto_rechunk = True
         else:
             self.auto_rechunk = False
@@ -188,6 +182,7 @@ class ZarrBackend(FileBackend):
         """Write a dataset to a zarr cache map and check the chunking."""
         ds = drop_encoded_chunks(ds)
 
+        chunking = self.chunking
         if isinstance(self.chunking, dict):
             # No need to prune if chunking is None or 'auto'
             chunking = prune_chunking_dimensions(ds, self.chunking)
@@ -202,9 +197,6 @@ class ZarrBackend(FileBackend):
                 print(chunk_with_labels)
         except ValueError:
             print("Failed to get chunks size! Continuing with unknown chunking...")
-
-        if self.fs.exists(path):
-            self.fs.rm(path, recursive=True)
 
         ds.to_zarr(store=path, mode='w')
 

@@ -31,8 +31,6 @@ class DeltaBackend(FileBackend):
 
         write_deltalake(self.path, write_data, mode='overwrite', schema_mode='overwrite')
 
-        return data
-
 
     def read(self, engine=None):
         if engine == 'pandas' or engine == pd.DataFrame or engine is None:

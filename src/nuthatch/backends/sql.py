@@ -103,7 +103,6 @@ class SQLBackend(DatabaseBackend):
                     return data
                 elif isinstance(data, dd.DataFrame):
                     data.to_sql(self.table_name, self.write_uri, if_exists='replace', index=False, parallel=True, chunksize=10000)
-                    return data
                 else:
                     raise RuntimeError("Did not return dataframe type.")
 

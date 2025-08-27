@@ -17,8 +17,6 @@ class BasicBackend(FileBackend):
         with self.fs.open(self.path, 'wb') as f:
             pickle.dump(data, f)
 
-        return data
-
 
     def read(self, engine=None):
         # Check to make sure the verify exists

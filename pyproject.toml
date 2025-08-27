@@ -6,7 +6,6 @@ authors = [
     { name = "Joshua Adkins", email = "josh@rhizaresearch.org" }
 ]
 dependencies = [
-    "pytest",
     "fsspec",
     "sqlalchemy",
     "pandas",
@@ -16,10 +15,9 @@ dependencies = [
     "xarray",
     "pyarrow",
     "terracotta",
-    "gcsfs",
     "gitpython",
-    "google-cloud-secret-manager",
-    "psycopg2"
+    "psycopg2",
+    "zarr"
 ]
 readme = "README.md"
 requires-python = ">= 3.12"
@@ -30,7 +28,12 @@ build-backend = "hatchling.build"
 
 [tool.rye]
 managed = true
-dev-dependencies = []
+dev-dependencies = [
+    "google-cloud-secret-manager",
+    "gcsfs",
+    "pytest",
+    "sheerwater-benchmarking @ git+https://github.com/rhiza-research/sheerwater-benchmarking",
+]
 
 [tool.hatch.metadata]
 allow-direct-references = true

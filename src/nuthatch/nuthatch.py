@@ -439,8 +439,11 @@ def cache(cache=True,
                 if write_cache_config:
                     if not storage_backend and not backend:
                         storage_backend = get_default_backend(type(ds))
+                        if not storage_backend_kwargs:
+                            storage_backend_kwargs = backend_kwargs
                     elif backend:
                         storage_backend = backend
+                        storage_backend_kwargs = backend_kwargs
 
                     write_cache = Cache(write_cache_config, cache_key, namespace,
                                         cache_arg_values, 'root', storage_backend, storage_backend_kwargs)
@@ -469,7 +472,7 @@ def cache(cache=True,
 
                 if write:
                     print(f"Caching result for {cache_key} in {write_cache.get_backend()}.")
-                    ds = write_cache.write(ds, upsert=upsert, primary_keys=primary_keys)
+                    write_cache.write(ds, upsert=upsert, primary_keys=primary_keys)
 
             if filepath_only:
                 return write_cache.get_file_path()
