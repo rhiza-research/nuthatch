@@ -70,7 +70,7 @@ class NuthatchBackend(ABC):
         pass
 
     @abstractmethod
-    def sync(self, NuthatchBackend):
+    def sync(self, from_backend):
         pass
 
 
@@ -108,8 +108,9 @@ class FileBackend(NuthatchBackend):
     def get_file_path(self):
         return self.path
 
-    def sync(self, NuthatchBackend):
-        raise NotImplementedError("Sync not implemented for file backend.")
+    def sync(self, from_backend):
+        from_backend.fs.get(from_backend.path, self.path)
+        #self.fs.put(from_backend.path, self.path, recursive=True)
 
 
 class DatabaseBackend(NuthatchBackend):

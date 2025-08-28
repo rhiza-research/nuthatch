@@ -63,21 +63,14 @@ def check_if_nested_fn():
     return False
 
 
-def sync_local_remote(backend, local_backend):
+def sync_local_remote(cache, local_cache):
     """Sync a local cache mirror to a remote cache.
 
     Args:
         backend (NuthatchBackend): The backend to use for the cache
         local_backend (NuthatchBackend): The backend to use for the local cache
     """
-
-    # If there is a local
-    if not local_backend:
-        return
-
-    assert backend.exists()
-    backend.sync(local_backend)
-
+    local_cache.sync(cache)
 
 def get_cache_args(kwargs, cache_kwargs):
     """Extract the cache arguments from the kwargs and return them."""

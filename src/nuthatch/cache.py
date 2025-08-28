@@ -18,6 +18,9 @@ class Cache():
         self.cache_key = cache_key
         self.config = config
         self.namespace = namespace
+        self.location = backend_location
+        self.args = args
+        self. backend_kwargs = backend_kwargs
 
         base_path = self.config['filesystem']
         self.table_path = join(base_path, 'nuthatch_metadata.delta')
@@ -124,6 +127,17 @@ class Cache():
         else:
             return backend_rows.to_batches()[0][0][0].as_py()
 
+    def last_modified(self):
+        backend_rows = QueryBuilder().register('metadata', self.dt).execute(f"""select last_modified from metadata where metadata.cache_key = '{self.cache_key}'
+                                                                                AND metadata.namespace = '{self.namespace}'
+                                                                                AND metadata.backend = '{self.backend_name}'""").read_all()
+
+        if len(backend_rows) == 0:
+            return None
+        else:
+            return backend_rows.to_batches()[0][0][0].as_py()
+
+
     def _set_metadata_pending(self):
         self._update_metadata_state(state='pending')
 
@@ -202,3 +216,34 @@ class Cache():
             return self.backend.get_file_path()
         else:
             raise RuntimeError("Cannot not get file path for an uninitialized backend")
+
+    def sync(self, from_cache):
+        if self.exists():
+            if from_cache.exists():
+                # If we both exists, copy if last modified is before other cache
+                if self.last_modified() < from_cache.last_modified():
+                    self._set_metadata_pending()
+                    self.backend.sync(from_cache.backend)
+                    self._commit_metadata()
+                else:
+                    return
+            else:
+                # If it's not in the form cache either don't sync
+                return
+        else:
+            if from_cache.exists():
+                # We don't exist at all. Setup backend and write
+                backend_class = get_backend_by_name(from_cache.backend_name)
+                backend_config = get_config(location=self.location, requested_parameters=backend_class.config_parameters,
+                                            backend_name=backend_class.backend_name)
+                if backend_config:
+                    self.backend = backend_class(backend_config, self.cache_key, self.namespace, self.args, copy.deepcopy(self.backend_kwargs))
+                    self.backend_name = backend_class.backend_name
+                else:
+                    raise RuntimeError("Error finding backend config for syncing.")
+
+                self._set_metadata_pending()
+                self.backend.sync(from_cache.backend)
+                self._commit_metadata()
+            else:
+                return
