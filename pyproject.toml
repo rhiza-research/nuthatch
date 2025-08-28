@@ -49,6 +49,7 @@ database = "postgres"
 username = "write"
 driver = "postgresql"
 raster_store = "gs://terracotta-files"
+metadata_location = "database"
 
 [tool.nuthatch.filesystem_options]
 token = "google_default"
