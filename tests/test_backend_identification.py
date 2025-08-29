@@ -1,5 +1,4 @@
 from nuthatch.backend import get_default_backend
-from nuthatch.backend import NuthatchBackend
 from nuthatch.backend import register_backend
 
 def test_backend_default_registration():
