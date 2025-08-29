@@ -1,13 +1,23 @@
+"""
+This module contains the NuthatchProcessor class, which is a base class for all Nuthatch processors.
+"""
 from abc import ABC, abstractmethod
 from inspect import signature
 
 class NuthatchProcessor(ABC):
-    """Decorator example mixing class and function definitions."""
+    """
+    Base class for all Nuthatch processors.
+
+    A NuthatchProcessor is a class that wraps a function and provides a way to process the function's arguments,
+    post-process the function's return value, and validate the function's return value.
+    """
     def __init__(self, func):
         self.func = func
 
     def __call__(self, *args, **kwargs):
-
+        """
+        Call the wrapped function with the given arguments.
+        """
         params = signature(self.func).parameters
         args, kwargs = self.process_arguments(params, args, kwargs)
 
@@ -31,13 +41,45 @@ class NuthatchProcessor(ABC):
 
     @abstractmethod
     def post_process(self, data):
-        # Do something to the data and return it
+        """
+        Post-process the data.
+
+        Args:
+            data: The data to post-process.
+
+        Returns:
+            The post-processed data.
+
+        Raises:
+            ValueError: If the data is of the wrong type.
+        """
         return data
 
     def process_arguments(self, params, args, kwargs):
+        """
+        Process the arguments.
+
+        Args:
+            params: The parameters of the function.
+            args: The arguments to the function.
+            kwargs: The keyword arguments to the function.
+
+        Returns:
+            The processed arguments and keyword arguments to be passed to the function.
+        """
         return args, kwargs
 
+    @abstractmethod
     def validate_data(self, data):
+        """
+        Validate the data. Used to trigger recomputation if the data is invalid.
+
+        Args:
+            data: The data to validate.
+
+        Returns:
+            True if the data is valid, False otherwise.
+        """
         return True
 
 # example use of nutach processor

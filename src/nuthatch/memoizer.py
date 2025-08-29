@@ -1,3 +1,4 @@
+"""The memoizer is a module that memoizes data in memory."""
 import sys
 import xarray as xr
 import dask.dataframe as dd
@@ -7,6 +8,15 @@ memoized_objects = {}
 cache_key_lru = []
 
 def save_to_memory(cache_key, data):
+    """Save data to memory.
+
+    Implements special handling for xarray and dask dataframes.
+    Evicts the least recently used object when the memory limit is reached.
+
+    Args:
+        cache_key (str): The key to save the data to.
+        data (any): The data to save to memory.
+    """
     if isinstance(data, xr.Dataset):
         data = data.persist()
     elif isinstance(data, dd.DataFrame):
@@ -36,6 +46,16 @@ def save_to_memory(cache_key, data):
 
 
 def recall_from_memory(cache_key):
+    """Recall data from memory.
+
+    Refreshes the LRU cache when the data is recalled.
+
+    Args:
+        cache_key (str): The key to recall the data from.
+
+    Returns:
+        The memoized object.
+    """
     if cache_key in memoized_objects:
         # refresh the lru
         cache_key_lru.remove(cache_key)

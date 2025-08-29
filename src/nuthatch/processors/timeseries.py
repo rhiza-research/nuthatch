@@ -6,8 +6,24 @@ import dask.dataframe as dd
 import xarray as xr
 
 class TimeseriesProcessor(NuthatchProcessor):
-    """Decorator example mixing class and function definitions."""
+    """
+    Processor for timeseries data.
+
+    This processor is used to slice a timeseries dataset based on the start and end times.
+
+    It also validates the timeseries data to ensure it has data within the start and end times.
+
+    It supports xarray datasets and pandas/dask dataframes.
+    """
     def __init__(self, func, timeseries, validate_timeseries):
+        """
+        Initialize the timeseries processor.
+
+        Args:
+            func: The function to wrap.
+            timeseries: The name of the timeseries dimension.
+            validate_timeseries: Whether to validate the timeseries data.
+        """
         self.func = func
         self.validate_timeseries = validate_timeseries
         self.timeseries = timeseries

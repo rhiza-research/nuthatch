@@ -125,6 +125,7 @@ click==8.2.1
     # via flask
     # via kopf
     # via mercantile
+    # via nuthatch
     # via rasterio
     # via sheerwater-benchmarking
     # via terracotta

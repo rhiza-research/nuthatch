@@ -90,6 +90,11 @@ def lon_base_change(ds, to_base="base180", lon_dim='lon'):
 
 @register_backend
 class TerracottaBackend(DatabaseBackend, FileBackend):
+    """
+    Terracotta backend for caching geospatial data in a terracotta database.
+    
+    This backend supports xarray datasets.
+    """
 
     backend_name = 'terracotta'
     config_parameters = DatabaseBackend.config_parameters + FileBackend.config_parameters + ['override_path']

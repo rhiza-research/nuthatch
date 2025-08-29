@@ -24,6 +24,11 @@ def read_from_parquet(cache_path):
 
 @register_backend
 class ParquetBackend(FileBackend):
+    """
+    Parquet backend for caching tabular data in a parquet file.
+
+    This backend supports dask and pandas dataframes.
+    """
 
     backend_name = 'parquet'
     default_for_type = dd.DataFrame

@@ -1,3 +1,4 @@
+"""The config module is used to get the config for a given location and backend."""
 from pathlib import Path
 import os
 import tomllib
@@ -5,6 +6,13 @@ import tomllib
 dynamic_parameters = {}
 
 def config_parameter(parameter_name, location='root', backend=None):
+    """A decorator to register a function as a dynamic parameter.
+
+    Args:
+        parameter_name (str): The name of the parameter.
+        location (str, optional): The location to register the parameter.
+        backend (str, optional): The backend to register the parameter.
+    """
     def decorator(function):
         if location not in dynamic_parameters:
             dynamic_parameters[location] = {}
@@ -17,16 +25,23 @@ def config_parameter(parameter_name, location='root', backend=None):
             dynamic_parameters[location][parameter_name] = function
     return decorator
 
-def is_fs_root(p):
-     return os.path.splitdrive(str(p))[1] == os.sep
+def _is_fs_root(p):
+    """Check if a path is the root of a filesystem."""
+    return os.path.splitdrive(str(p))[1] == os.sep
 
 def get_config(location='root', requested_parameters=[], backend_name=None):
+    """Get the config for a given location and backend.
 
+    Args:
+        location (str, optional): The location to get the config for.
+        requested_parameters (list, optional): The parameters to get the config for.
+        backend_name (str, optional): The backend to get the config for.
+    """
     #Find pyproject.toml or nuthatch.ini
     current_directory = Path.cwd()
 
     config_file = None
-    while not is_fs_root(current_directory):
+    while not _is_fs_root(current_directory):
         if current_directory.joinpath('pyproject.toml').exists():
             config_file = current_directory.joinpath('pyproject.toml')
 

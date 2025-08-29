@@ -6,6 +6,11 @@ import dask_deltatable as ddt
 
 @register_backend
 class DeltaBackend(FileBackend):
+    """
+    Delta backend for caching tabular data in a delta table.
+
+    This backend supports dask and pandas dataframes.
+    """
 
     backend_name = "delta"
     default_for_type = pd.DataFrame

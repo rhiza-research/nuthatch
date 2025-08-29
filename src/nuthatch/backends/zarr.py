@@ -92,21 +92,25 @@ def drop_encoded_chunks(ds):
 @register_backend
 class ZarrBackend(FileBackend):
     """
-        Possible backend_kwargs:
-            chunking(dict): Specifies chunking if that coordinate exists. If coordinate does not exist
-                the chunking specified will be dropped.
-            chunk_by_arg(dict): Specifies chunking modifiers based on the passed cached arguments,
-                e.g. grid resolution.  For example:
-                chunk_by_arg={
-                    'grid': {
-                        'global0_25': {"lat": 721, "lon": 1440, 'time': 30}
-                        'global1_5': {"lat": 121, "lon": 240, 'time': 1000}
-                    }
+    Zarr backend for caching data in a zarr store.
+
+    This backend supports xarray datasets.
+
+    Possible backend_kwargs:
+        chunking(dict): Specifies chunking if that coordinate exists. If coordinate does not exist
+            the chunking specified will be dropped.
+        chunk_by_arg(dict): Specifies chunking modifiers based on the passed cached arguments,
+            e.g. grid resolution.  For example:
+            chunk_by_arg={
+                'grid': {
+                    'global0_25': {"lat": 721, "lon": 1440, 'time': 30}
+                    'global1_5': {"lat": 121, "lon": 240, 'time': 1000}
                 }
-                will modify the chunking dict values for lat, lon, and time, depending
-                on the value of the 'grid' argument. If multiple cache arguments specify
-                modifiers for the same chunking dimension, the last one specified will prevail.
-            auto_rechunk(bool): If True will aggressively rechunk a cache on load.
+            }
+            will modify the chunking dict values for lat, lon, and time, depending
+            on the value of the 'grid' argument. If multiple cache arguments specify
+            modifiers for the same chunking dimension, the last one specified will prevail.
+        auto_rechunk(bool): If True will aggressively rechunk a cache on load.
     """
 
     backend_name = 'zarr'

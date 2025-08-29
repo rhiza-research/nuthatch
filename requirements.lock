@@ -33,6 +33,7 @@ click==8.2.1
     # via dask
     # via flask
     # via mercantile
+    # via nuthatch
     # via rasterio
     # via terracotta
 click-plugins==1.1.1.2

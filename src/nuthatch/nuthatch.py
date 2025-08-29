@@ -1,4 +1,8 @@
-"""Automated dataframe caching utilities."""
+"""The main module for the nuthatch package.
+
+This module contains the main decorator for caching functions and the global
+variables for caching configuration.
+"""
 import inspect
 from functools import wraps
 from inspect import signature, Parameter
@@ -49,7 +53,7 @@ def set_global_cache_variables(recompute=None, memoize=None, force_overwrite=Non
 
 
 def check_if_nested_fn():
-    """Check if the current scope downstream from another cached function."""
+    """Check if the current scope is downstream from another cached function."""
     # Get the current frame
     stack = inspect.stack()
     # skip the first two frames (this function and the current cacheable function)
@@ -72,17 +76,36 @@ def sync_local_remote(cache, local_cache):
     """
     local_cache.sync(cache)
 
-def get_cache_args(kwargs, cache_kwargs):
+def get_cache_args(passed_kwargs, default_cache_kwargs, nonlocals):
     """Extract the cache arguments from the kwargs and return them."""
-    cache_args = []
-    for k in cache_kwargs:
-        if k in kwargs:
-            cache_args.append(kwargs[k])
-            del kwargs[k]
+    cache_args = {}
+    for k in default_cache_kwargs:
+        if k in passed_kwargs:
+            cache_args[k] = passed_kwargs[k]
+            del passed_kwargs[k]
         else:
-            cache_args.append(cache_kwargs[k])
-    return cache_args
+            cache_args[k] = default_cache_kwargs[k]
 
+    if cache_args['cache'] is None:
+        cache_args['cache'] = nonlocals['cache']
+    if cache_args['namespace'] is None:
+        cache_args['namespace'] = nonlocals['namespace']
+    if cache_args['engine'] is None:
+        cache_args['engine'] = nonlocals['engine']
+    if cache_args['memoize'] is None:
+        cache_args['memoize'] = nonlocals['memoize']
+    if cache_args['backend'] is None:
+        cache_args['backend'] = nonlocals['backend']
+
+    if 'backend_kwargs' in cache_args and isinstance(cache_args['backend_kwargs'], dict):
+        cache_args['backend_kwargs'] = cache_args['backend_kwargs'].update(nonlocals['backend_kwargs'])
+    elif 'backend_kwargs' in cache_args and cache_args['backend_kwargs'] is None:
+        cache_args['backend_kwargs'] = nonlocals['backend_kwargs']
+
+    if cache_args['cache_local'] is None:
+        cache_args['cache_local'] = nonlocals['cache_local']
+
+    return cache_args
 
 
 def check_cache_disable_if(cache_disable_if, cache_arg_values):
@@ -128,6 +151,7 @@ def check_cache_disable_if(cache_disable_if, cache_arg_values):
 
 
 def extract_cache_arg_values(cache_args, args, params, kwargs):
+    """Extract the cache arguments from the kwargs and return them."""
     # Handle keying based on cache arguments
     cache_arg_values = {}
 
@@ -159,6 +183,7 @@ def extract_cache_arg_values(cache_args, args, params, kwargs):
 
 
 def get_cache_key(func, cache_arg_values):
+    """Calculate the cache key from the function and the cache arguments."""
     imkeys = list(cache_arg_values.keys())
     imkeys.sort()
     sorted_values = [cache_arg_values[i] for i in imkeys]
@@ -179,8 +204,18 @@ def get_cache_key(func, cache_arg_values):
 
 
 def instantiate_read_caches(cache_key, namespace, cache_arg_values, requested_backend, backend_kwargs):
-    """Returns a priority ordered list of reader backends and backend metadatas and then
-       prepares them for reading."""
+    """Returns a priority ordered list of caches to read from.
+
+    Args:
+        cache_key (str): The cache key.
+        namespace (str): The namespace.
+        cache_arg_values (dict): The cache arguments.
+        requested_backend (str): The requested backend.
+        backend_kwargs (dict): The backend kwargs.
+
+    Returns:
+        A priority ordered list of caches to read from.
+    """
     # The general order of priority to check validity is:
     # (1) local if local is requested and local config is provided
     # (2) the root cache
@@ -233,14 +268,19 @@ def cache(cache=True,
             certain arguments. Defaults to None.
         backend(str): The name of the backend to use for cache recall/storage. None for
             default, zarr, delta, postgres, terracotta.
+        backend_kwargs(dict): A dictionary of backend-specific arguments that will be passed to
+            and used back the backend for reading and possibly writing
         storage_backend(str): The name of the backend to use for cache storage only. None
             to match backend. Useful for pulling from one backend and writing to another.
+        storage_backend_kwargs(dict): A dictionary of backend-specific arguments that will be passed to
+            and used back the backend for writing
         cache_local (bool): If True, will mirror the result locally, at the location
             specified by the LOCAL_CACHE_ROOT_DIR variable. Default is False.
+        memoize(bool): Whether to memoize the result in memory. Default is False.
         primary_keys (list(str)): Column names of the primary keys to user for upsert.
     """
     # Valid configuration kwargs for the cacheable decorator
-    cache_kwargs = {
+    default_cache_kwargs = {
         "cache": None,
         "namespace": None,
         "engine": None,
@@ -263,46 +303,28 @@ def cache(cache=True,
     def create_cacheable(func):
 
         @wraps(func)
-        def cacheable_wrapper(*args, **kwargs):
-            # Proper variable scope for the decorator args
+        def cacheable_wrapper(*args, **passed_kwargs):
+            final_cache_config = get_cache_args(passed_kwargs, default_cache_kwargs, nonlocals)
+
+            # Set all the final cache config variables
+            cache = final_cache_config['cache']
+            namespace = final_cache_config['namespace']
+            engine = final_cache_config['engine']
+            backend = final_cache_config['backend']
+            backend_kwargs = final_cache_config['backend_kwargs']
+            storage_backend = final_cache_config['storage_backend']
+            storage_backend_kwargs = final_cache_config['storage_backend_kwargs']
+            filepath_only = final_cache_config['filepath_only']
+            recompute = final_cache_config['recompute']
+            cache_local = final_cache_config['cache_local']
+            memoize = final_cache_config['memoize']
+            force_overwrite = final_cache_config['force_overwrite']
+            retry_null_cache = final_cache_config['retry_null_cache']
+            upsert = final_cache_config['upsert']
+            fail_if_no_cache = final_cache_config['fail_if_no_cache']
             cache_args = nonlocals['cache_args']
-            cache = nonlocals['cache']
-            namespace = nonlocals['namespace']
-            engine = nonlocals['engine']
             cache_disable_if = nonlocals['cache_disable_if']
-            backend = nonlocals['backend']
-            backend_kwargs = nonlocals['backend_kwargs']
-            storage_backend = nonlocals['storage_backend']
-            storage_backend_kwargs = nonlocals['storage_backend_kwargs']
-            cache_local = nonlocals['cache_local']
-            memoize = nonlocals['memoize']
             primary_keys = nonlocals['primary_keys']
-
-            # Calculate the appropriate cache key
-            passed_cache, passed_namespace, passed_engine, passed_backend, passed_backend_kwargs, \
-            passed_cache_local, storage_backend, storage_backend_kwargs, \
-            filepath_only, recompute, passed_memoize,\
-            force_overwrite, retry_null_cache, upsert, \
-            fail_if_no_cache = get_cache_args(kwargs, cache_kwargs)
-
-            if passed_cache is not None:
-                cache = passed_cache
-            if passed_namespace is not None:
-                namespace = passed_namespace
-            if passed_engine is not None:
-                engine = passed_engine
-            if passed_backend is not None:
-                backend = passed_backend
-            if passed_backend_kwargs is not None:
-                if backend_kwargs is None:
-                    backend_kwargs = passed_backend_kwargs
-                else:
-                    backend_kwargs = backend_kwargs.update(passed_backend_kwargs)
-            if passed_cache_local is not None:
-                cache_local = passed_cache_local
-
-            if passed_memoize is not None:
-                memoize = passed_memoize
 
             # Check if this is a nested cacheable function
             if not check_if_nested_fn():
@@ -332,7 +354,7 @@ def cache(cache=True,
 
             # The the function parameters and their values
             params = signature(func).parameters
-            cache_arg_values = extract_cache_arg_values(cache_args, args, params, kwargs)
+            cache_arg_values = extract_cache_arg_values(cache_args, args, params, passed_kwargs)
 
             # Disable the cache if it's enabled and the function params/values match the disable statement
             if cache:
@@ -416,7 +438,7 @@ def cache(cache=True,
                     print(f"Cache doesn't exist for {cache_key}. Running function")
 
                 ##### IF NOT EXISTS ######
-                ds = func(*args, **kwargs)
+                ds = func(*args, **passed_kwargs)
                 ##########################
 
                 if memoize:

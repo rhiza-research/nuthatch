@@ -3,6 +3,9 @@ import pickle
 
 @register_backend
 class BasicBackend(FileBackend):
+    """
+    Basic backend for caching data in a pickle file.
+    """
 
     backend_name = "basic"
 

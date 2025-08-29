@@ -12,6 +12,11 @@ def hashed_table_name(table_name):
 
 @register_backend
 class SQLBackend(DatabaseBackend):
+    """
+    SQL backend for caching tabular data in a SQL database.
+
+    This backend supports dask and pandas dataframes.
+    """
 
     backend_name = "sql"
 
@@ -54,7 +59,7 @@ class SQLBackend(DatabaseBackend):
                 if isinstance(data, pd.DataFrame):
                     data.to_sql(temp_table_name, self.engine, index=False)
                 elif isinstance(data, dd.DataFrame):
-                    data.to_sql(temp_table_name, uri=self.uri, index=False, parallel=True, chunksize=10000)
+                    data.to_sql(temp_table_name, uri=self.engine.url.render_as_string(hide_password=False), index=False, parallel=True, chunksize=10000)
                 else:
                     raise RuntimeError("Did not return dataframe type.")
 
@@ -102,7 +107,7 @@ class SQLBackend(DatabaseBackend):
                     data.to_sql(self.table_name, self.write_engine, if_exists='replace', index=False)
                     return data
                 elif isinstance(data, dd.DataFrame):
-                    data.to_sql(self.table_name, self.write_uri, if_exists='replace', index=False, parallel=True, chunksize=10000)
+                    data.to_sql(self.table_name, self.engine.url.render_as_string(hide_password=False), if_exists='replace', index=False, parallel=True, chunksize=10000)
                 else:
                     raise RuntimeError("Did not return dataframe type.")
 
@@ -134,7 +139,7 @@ class SQLBackend(DatabaseBackend):
             raise RuntimeError("Error connecting to database.")
 
     def get_file_path(self):
-        return join(self.uri, self.table_name)
+        return join(self.engine.url.render_as_string(), self.table_name)
 
     def delete(self):
         base = sqlalchemy.ext.declarative.declarative_base()

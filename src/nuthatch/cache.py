@@ -11,6 +11,13 @@ import pandas as pd
 import sqlalchemy
 
 class Cache():
+    """The cache class is the main class that manages the cache.
+    
+    It is responsible for:
+    - Instantiating the correct backend
+    - Managing the metadata in the metadata database or delta table
+    - Writing and reading data to the backend
+    """
     database_parameters = ["driver", "host", "port", "database", "username", "password"]
     config_parameters = ['filesystem', 'filesystem_options', 'metadata_location'] + database_parameters
     delta_tables = {}
@@ -91,17 +98,29 @@ class Cache():
         backend_class = None
         if requested_backend:
             backend_class = get_backend_by_name(requested_backend)
-        elif self._get_backend_from_metadata():
-            backend_class = get_backend_by_name(self._get_backend_from_metadata())
+            self.backend_name = requested_backend
+        elif self.cache_key:
+            stored_backend = self._get_backend_from_metadata()
+            if stored_backend:
+                backend_class = get_backend_by_name(stored_backend)
+                self.backend_name = stored_backend    
 
-        if backend_class:
+        if backend_class and self.cache_key:
             backend_config = get_config(location=backend_location, requested_parameters=backend_class.config_parameters,
                                         backend_name=backend_class.backend_name)
             if backend_config:
                 self.backend = backend_class(backend_config, cache_key, namespace, args, copy.deepcopy(backend_kwargs))
-                self.backend_name = backend_class.backend_name
 
     def _delta_check_exists(self, state=None, include_backend=False):
+        """Check if the metadata exists in the delta table.
+
+        Args:
+            state (str, optional): The state of the metadata to check for.
+            include_backend (bool, optional): Whether to include the backend in the check.
+
+        Returns:
+            bool: True if the metadata exists in the delta table, False otherwise.
+        """
         base = f"""select * from metadata where cache_key = '{self.cache_key}' AND namespace = '{self.namespace}'"""
         if include_backend:
             base += f" AND backend = '{self.backend_name}'"
@@ -116,6 +135,15 @@ class Cache():
             return False
 
     def _sql_check_exists(self, state=None, include_backend=False):
+        """Check if the metadata exists in the database.
+
+        Args:
+            state (str, optional): The state of the metadata to check for.
+            include_backend (bool, optional): Whether to include the backend in the check.
+
+        Returns:
+            bool: True if the metadata exists in the database, False otherwise.
+        """
         statement = sqlalchemy.select(sqlalchemy.func.count(self.db_table.c.cache_key)).where(self.db_table.c.cache_key == self.cache_key)\
                                                                     .where(self.db_table.c.namespace == self.namespace)
         if state:
@@ -131,59 +159,124 @@ class Cache():
                 return False
 
     def _check_row_exists(self, state=None, include_backend=False):
+        """Check if the metadata exists in the database or delta table.
+
+        Args:
+            state (str, optional): The state of the metadata to check for.
+            include_backend (bool, optional): Whether to include the backend in the check.
+
+        Returns:
+            bool: True if the metadata exists in the database or delta table, False otherwise.
+        """
         if self.store == 'delta':
             return self._delta_check_exists(state, include_backend)
         else:
             return self._sql_check_exists(state, include_backend)
 
     def _sql_get_row(self, select, include_backend=False):
-        statement = sqlalchemy.select(select).where(self.db_table.c.cache_key == self.cache_key)\
-                                             .where(self.db_table.c.namespace == self.namespace)
+        """Get a row from the database.
+
+        Args:
+            select (str): The column to select.
+            include_backend (bool, optional): Whether to include the backend in the check.
+
+        Returns:
+            The row from the database.
+        """
+        if isinstance(select, str):
+            select = [select]
+
+        statement = sqlalchemy.select(self.db_table.c[*select]).where(self.db_table.c.namespace == self.namespace)\
+                                                               .where(self.db_table.c.cache_key.like(self.cache_key))
+
         if include_backend:
             statement = statement.where(self.db_table.c.backend == self.backend_name)
 
         with self.engine.connect() as conn:
             rows = conn.execute(statement)
-            if rows.rowcount == 0:
-                return None
-            else:
-                return rows.fetchone()[0]
+            return rows.mappings().all()
 
     def _delta_get_row(self, select, include_backend=False):
-        base = f"""select {select} from metadata where cache_key = '{self.cache_key}' AND namespace = '{self.namespace}'"""
+        """Get a row from the delta table.
+
+        Args:
+            select (str): The column to select.
+            include_backend (bool, optional): Whether to include the backend in the check.
+
+        Returns:
+            The row from the delta table.
+        """
+        if isinstance(select, str):
+            select = [select]
+
+        base = f"""select {', '.join(f'"{s}"' for s in select)} from metadata where namespace = '{self.namespace}' AND 
+                                                                  cache_key LIKE '{self.cache_key}'"""
         if include_backend:
             base += f" AND backend = '{self.backend_name}'"
 
         rows = QueryBuilder().register('metadata', self.dt).execute(base).read_all()
 
-        if len(rows) == 0:
-            return None
-        else:
-            return rows.to_batches()[0][0][0].as_py()
+        return rows.to_struct_array().to_pylist()
 
     def _get_row(self, select, include_backend=False):
+        """Get a row from the database or delta table.
+
+        Args:
+            select (str): The column to select.
+            include_backend (bool, optional): Whether to include the backend in the check.
+
+        Returns:
+            The row from the database or delta table.
+        """
         if self.store == 'delta':
             return self._delta_get_row(select, include_backend)
         else:
-            obj = None
-            if select == 'backend':
-                obj = self.db_table.c.backend
-            elif select == 'last_modified':
-                obj = self.db_table.c.last_modified
+            return self._sql_get_row(select, include_backend)
 
-            return self._sql_get_row(obj, include_backend)
+    def list(self, cache_key):
+        #convert cache_key glob to valid sql pattern matching
+        if not self.cache_key:
+            cache_key = cache_key.replace('*', '%')
+            cache_key = cache_key.replace('?', '_')
+            self.cache_key = cache_key
+
+        if self.backend_name:
+            include_backend = True
+        else:
+            include_backend = False
+
+        return self._get_row(['cache_key',
+                              'namespace',
+                              'backend',
+                              'state', 
+                              'last_modified',
+                              'user',
+                              'commit_hash',
+                              'path'], include_backend=include_backend)
 
     def is_null(self):
+        """Check if the metadata is null.
+
+        Returns:
+            bool: True if the metadata is null, False otherwise.
+        """
         return self._check_row_exists(state='null', include_backend=False)
 
     def set_null(self):
+        """Set the metadata to null."""
         self._update_metadata_state(state='null')
 
     def delete_null(self):
+        """Delete the metadata that is null."""
         # Deleting a null is really just deleting a metadata
         self._delete_metadata(null=True)
 
     def _delete_metadata(self, null=False):
+        """Delete the metadata from the database or delta table.
+
+        Args:
+            null (bool, optional): Whether to delete the metadata that is null.
+        """
         if self.store == 'delta':
             if null:
                 self.dt.delete(predicate=f"cache_key = '{self.cache_key}' AND namespace = '{self.namespace}' AND state = 'null'")
@@ -205,27 +298,64 @@ class Cache():
 
 
     def _metadata_confirmed(self):
+        """Check if the metadata is confirmed.
+
+        Returns:
+            bool: True if the metadata is confirmed, False otherwise.
+        """
         if not self.backend:
             return False
 
         return self._check_row_exists(state='confirmed', include_backend=True)
 
     def _metadata_exists(self):
+        """Check if the metadata exists.
+
+        Returns:
+            bool: True if the metadata exists, False otherwise.
+        """
         return self._check_row_exists(state=None, include_backend=True)
 
     def _get_backend_from_metadata(self):
-        return self._get_row('backend', include_backend=False)
+        """Get the backend from the metadata.
+
+        Returns:
+            The backend from the metadata.
+        """
+        rows = self._get_row('backend', include_backend=False)
+        if len(rows) == 0:
+            return None
+        else:
+            return rows[0]['backend']
 
     def last_modified(self):
-        return self._get_row('last_modified', include_backend=False)
+        """Get the last modified time of the metadata.
+
+        Returns:
+            The last modified time of the metadata.
+        """
+        rows = self._get_row('last_modified', include_backend=True)
+        if len(rows) == 0:
+            return None
+        else:
+            return rows[0]['last_modified']
 
     def _set_metadata_pending(self):
+        """Set the metadata to pending."""
         self._update_metadata_state(state='pending')
 
     def _commit_metadata(self):
+        """Commit the metadata."""
         self._update_metadata_state(state='confirmed')
 
     def _update_metadata_state(self, state=None):
+        """Update the state of the metadata.
+
+        If metadata doesn't exist, it will be created.
+
+        Args:
+            state (str, optional): The state to update the metadata to.
+        """
         repo = git.Repo(search_parent_directories=True)
         if repo:
             sha = repo.head.object.hexsha
@@ -275,9 +405,19 @@ class Cache():
                 conn.commit()
 
     def get_backend(self):
+        """Get the backend name.
+
+        Returns:
+            The backend name.
+        """
         return self.backend.backend_name
 
     def exists(self):
+        """Check if the metadata exists, is confirmed, and the data exists in the backend.
+
+        Returns:
+            bool: True if the metadata exists, False otherwise.
+        """
         if self._metadata_confirmed() and not self.backend:
             raise RuntimeError("If metadata exists then there should be a backend. Inconsistent state error.")
         elif not self.backend:
@@ -287,7 +427,7 @@ class Cache():
             # Both exists!
             return True
         elif self._metadata_confirmed() and not self.backend.exists():
-            # Inconsistent state - should probably throw a warning
+            # The data doesn't exist in the backend, so delete the metadata
             self._delete_metadata()
             return False
         elif not self._metadata_confirmed():
@@ -296,6 +436,16 @@ class Cache():
             raise ValueError("Inconsistent and unknown cache state.")
 
     def write(self, ds, upsert=False, primary_keys=None):
+        """Write data to the backend.
+
+        First we set the metadata to pending, then we write the data to the backend, 
+        and then we commit the metadata.
+
+        Args:
+            ds (any): The data to write to the backend.
+            upsert (bool, optional): Whether to upsert the data.
+            primary_keys (list, optional): The primary keys to use for upsert.
+        """
         if self.backend:
             self._set_metadata_pending()
             self.backend.write(ds, upsert, primary_keys)
@@ -304,23 +454,43 @@ class Cache():
             raise RuntimeError("Cannot not write to an uninitialized backend")
 
     def read(self, engine=None):
+        """Read data from the backend.
+
+        Args:
+            engine (str or type, optional): The data processing engine to use for
+                reading data from the backend.
+
+        Returns:
+            The data from the backend.
+        """
         if self.backend:
             return self.backend.read(engine)
         else:
             raise RuntimeError("Cannot not read from an uninitialized backend")
 
     def delete(self):
+        """Delete the metadata and the data from the backend."""
         self._delete_metadata()
         if self.backend:
             return self.backend.delete()
 
     def get_file_path(self):
+        """Get the file path of the data in the backend.
+
+        Returns:
+            The file path of the data in the backend.
+        """
         if self.backend:
             return self.backend.get_file_path()
         else:
             raise RuntimeError("Cannot not get file path for an uninitialized backend")
 
     def sync(self, from_cache):
+        """Sync the data from one cache to another.
+
+        Args:
+            from_cache (Cache): The cache to sync data from.
+        """
         if self.exists():
             if from_cache.exists():
                 # If we both exists, copy if last modified is before other cache
