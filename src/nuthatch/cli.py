@@ -6,6 +6,7 @@ This module provides a CLI for interacting with nuthatch caching functionality,
 including cache management, backend operations, and configuration.
 """
 
+import importlib
 import click
 import shutil
 import pprint
@@ -23,7 +24,15 @@ def cli():
     This CLI provides tools for managing cache entries, inspecting backends,
     and configuring the nuthatch system.
     """
-    pass
+
+    config = get_config(location='root', requested_parameters=['secret_import_path'], backend_name=None)
+    if 'secret_import_path' in config:
+        try:
+            importlib.import_module(config['secret_import_path'])
+        except Exception as e:
+            click.echo(f"WARNGIN: Failed to import {config['secret_import_path']} with '{e}'. You may be missing dynamic secret resolution.")
+
+
 
 @cli.command('import')
 @click.argument('cache_key')
@@ -38,13 +47,7 @@ def import_data(glob, namespace, backend):
 
     # Is the cache key file-like or database-like?
 
-@cli.command('list')
-@click.argument('cache_key', required=False)
-@click.option('--namespace', help='Namespace for the cache')
-@click.option('--backend', help='Backend filter')
-@click.option('--location', help='Location to search', default='root')
-@click.option('--long', '-l', is_flag=True, help='List all information about the cache')
-def list_caches(cache_key, namespace, backend, location, long):
+def list_helper(cache_key, namespace, backend, location):
     """List all cache entries."""
     config = get_config(location=location, requested_parameters=Cache.config_parameters)
     cache = Cache(config, None, namespace, None, location, backend, {})
@@ -54,6 +57,17 @@ def list_caches(cache_key, namespace, backend, location, long):
 
     caches = cache.list(cache_key)
 
+    return caches
+
+@cli.command('list')
+@click.argument('cache_key', required=False)
+@click.option('--namespace', help='Namespace for the cache')
+@click.option('--backend', help='Backend filter')
+@click.option('--location', help='Location to search', default='root')
+@click.option('--long', '-l', is_flag=True, help='List all information about the cache')
+def list_caches(cache_key, namespace, backend, location, long):
+
+    caches = list_helper(cache_key, namespace, backend, location, long)
     pager = len(caches) > shutil.get_terminal_size()[0]
 
     if not long:
@@ -64,7 +78,7 @@ def list_caches(cache_key, namespace, backend, location, long):
         caches['last_modified'] = pd.to_datetime(caches['last_modified'], unit='us').dt.floor('s')
         caches = caches[['cache_key', 'namespace', 'backend', 'state', 'last_modified', 'user', 'commit_hash', 'path']]
         caches = caches.to_string()
-    
+
 
     if pager:
         click.echo_via_pager(caches)
@@ -80,13 +94,14 @@ def list_caches(cache_key, namespace, backend, location, long):
 @click.option('--force', '-f', is_flag=True, help='Force deletion without confirmation')
 def delete_cache(cache_key, namespace, backend, location, force):
     """Clear cache entries."""
-    caches = list_caches(cache_key, namespace, backend, location)
+    caches = list_helper(cache_key, namespace, backend, location)
     config = get_config(location=location, requested_parameters=Cache.config_parameters)
 
     click.confirm(f"Are you sure you want to delete {len(caches)} cache entries?", abort=True)
 
     for cache in caches:
-        cache = Cache(config, cache.cache_key, cache.namespace, None, location, cache.backend_name, {})
+        cache = Cache(config, cache.cache_key, cache.namespace, None, location, cache.backend, {})
+        click.echo(f"Deleting {cache.cache_key} from {cache.location} with backend {cache.backend_name}.")
         cache.delete()
 
 

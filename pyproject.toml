@@ -54,6 +54,7 @@ username = "write"
 driver = "postgresql"
 raster_store = "gs://terracotta-files"
 metadata_location = "database"
+secret_import_path = "nuthatch.secrets"
 
 [tool.nuthatch.filesystem_options]
 token = "google_default"

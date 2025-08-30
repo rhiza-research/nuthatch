@@ -222,7 +222,7 @@ class FileBackend(NuthatchBackend):
         return (self.fs.exists(self.path))
 
     def delete(self):
-        self.fs.rm(self.path)
+        self.fs.rm(self.path, recursive=True)
 
     def get_file_path(self):
         return self.path

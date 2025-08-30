@@ -12,7 +12,7 @@ import sqlalchemy
 
 class Cache():
     """The cache class is the main class that manages the cache.
-    
+
     It is responsible for:
     - Instantiating the correct backend
     - Managing the metadata in the metadata database or delta table
@@ -103,7 +103,7 @@ class Cache():
             stored_backend = self._get_backend_from_metadata()
             if stored_backend:
                 backend_class = get_backend_by_name(stored_backend)
-                self.backend_name = stored_backend    
+                self.backend_name = stored_backend
 
         if backend_class and self.cache_key:
             backend_config = get_config(location=backend_location, requested_parameters=backend_class.config_parameters,
@@ -209,7 +209,7 @@ class Cache():
         if isinstance(select, str):
             select = [select]
 
-        base = f"""select {', '.join(f'"{s}"' for s in select)} from metadata where namespace = '{self.namespace}' AND 
+        base = f"""select {', '.join(f'"{s}"' for s in select)} from metadata where namespace = '{self.namespace}' AND
                                                                   cache_key LIKE '{self.cache_key}'"""
         if include_backend:
             base += f" AND backend = '{self.backend_name}'"
@@ -248,7 +248,7 @@ class Cache():
         return self._get_row(['cache_key',
                               'namespace',
                               'backend',
-                              'state', 
+                              'state',
                               'last_modified',
                               'user',
                               'commit_hash',
@@ -438,7 +438,7 @@ class Cache():
     def write(self, ds, upsert=False, primary_keys=None):
         """Write data to the backend.
 
-        First we set the metadata to pending, then we write the data to the backend, 
+        First we set the metadata to pending, then we write the data to the backend,
         and then we commit the metadata.
 
         Args:
@@ -470,9 +470,10 @@ class Cache():
 
     def delete(self):
         """Delete the metadata and the data from the backend."""
+        if self.backend and self.backend.exists():
+            self.backend.delete()
+
         self._delete_metadata()
-        if self.backend:
-            return self.backend.delete()
 
     def get_file_path(self):
         """Get the file path of the data in the backend.
