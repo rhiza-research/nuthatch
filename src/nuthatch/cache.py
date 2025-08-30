@@ -361,6 +361,7 @@ class Cache():
             sha = repo.head.object.hexsha
         else:
             sha = 'no_git_repo'
+
         if self.store == 'delta':
             if self._metadata_exists():
                 values = {'state': state, 'last_modified': datetime.datetime.now(datetime.timezone.utc).timestamp() * 1000000,
@@ -387,7 +388,7 @@ class Cache():
                 statement = sqlalchemy.update(self.db_table).where(self.db_table.c.cache_key == self.cache_key)\
                                                             .where(self.db_table.c.namespace == self.namespace)
 
-                if state == 'null':
+                if state != 'null':
                     statement = statement.where(self.db_table.c.backend == self.backend_name)
 
                 statement = statement.values(state=state, last_modified=datetime.datetime.now(datetime.timezone.utc).timestamp()*1000000,

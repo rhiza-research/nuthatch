@@ -142,6 +142,6 @@ class SQLBackend(DatabaseBackend):
         return join(self.engine.url.render_as_string(), self.table_name)
 
     def delete(self):
-        metadata = sqlalchemy.MetaData(self.engine)
-        table = Table(self.table_name, metadata)
+        metadata = sqlalchemy.MetaData()
+        table = sqlalchemy.Table(self.table_name, metadata)
         table.drop(self.engine, checkfirst=True)

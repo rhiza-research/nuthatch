@@ -67,7 +67,7 @@ def list_helper(cache_key, namespace, backend, location):
 @click.option('--long', '-l', is_flag=True, help='List all information about the cache')
 def list_caches(cache_key, namespace, backend, location, long):
 
-    caches = list_helper(cache_key, namespace, backend, location, long)
+    caches = list_helper(cache_key, namespace, backend, location)
     pager = len(caches) > shutil.get_terminal_size()[0]
 
     if not long:
