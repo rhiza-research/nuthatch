@@ -37,15 +37,49 @@ def cli():
 @cli.command('import')
 @click.argument('cache_key')
 @click.option('--namespace', help='Namespace for the cache')
-@click.option('--backend', help='Backend to use', default='infer')
-def import_data(glob, namespace, backend):
+@click.option('--backend', help='Backend to use', required=True)
+@click.option('--location', help='Location to search', default='root')
+def import_data(cache_key, namespace, backend, location):
     """Import data from a glob pattern."""
-    if backend == 'infer':
-        click.echo(f"Importing data from {glob} with namespace {namespace}.")
-    else:
-        click.echo(f"Importing data from {glob} with namespace {namespace} and backend {backend}")
 
-    # Is the cache key file-like or database-like?
+    # First instantiate the backend based on the passed backend
+    backend_name = backend
+    backend_class = get_backend_by_name(backend)
+    config = get_config(location=location, requested_parameters=backend_class.config_parameters, backend_name=backend_class.backend_name)
+    backend = backend_class(config, cache_key, namespace, None, {})
+
+    cache_keys = []
+    if hasattr(backend, 'fs') and backend.fs is not None:
+        paths = backend.fs.glob(backend.path)
+        for path in paths:
+            cache_keys.append(backend.get_cache_key(path))
+
+    if len(cache_keys) > 0:
+        click.confirm(f"Are you sure you want to import {len(paths)} cache entries?", abort=True)
+    else:
+        print("No caches found for import.")
+
+    for key in cache_keys:
+        print(f"Importing {key}.")
+
+        if backend_name == 'null':
+            config = get_config(location=location, requested_parameters=Cache.config_parameters)
+            cache = Cache(config, key, namespace, None, location, None, {})
+            if cache.is_null():
+                print(f"{key} already in cache as null!")
+            elif cache.exists():
+                print(f"Cache {key} already exists and is valid. Skipping entry. Delete this cache key if you would like to reimport it as null.")
+            else:
+                cache.set_null()
+                print(f"Set {key} successfully to null.")
+        else:
+            config = get_config(location=location, requested_parameters=Cache.config_parameters)
+            cache = Cache(config, key, namespace, None, location, backend_name, {})
+            if not cache.exists():
+                cache._commit_metadata()
+                print(f"Imported {key} successfully.")
+            else:
+                print(f"{key} already in cache!")
 
 def list_helper(cache_key, namespace, backend, location):
     """List all cache entries."""

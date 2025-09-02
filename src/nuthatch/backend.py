@@ -12,19 +12,19 @@ default_backends = {}
 
 def register_backend(backendClass):
     """Register a backend class with the nuthatch system.
-    
+
     This function registers a backend class so it can be used by the nuthatch
     caching system. The backend class must have a `backend_name` attribute.
     Optionally, if the backend class has a `default_for_type` attribute, it
     will be set as the default backend for that data type.
-    
+
     Args:
-        backendClass: The backend class to register. Must have a `backend_name` 
+        backendClass: The backend class to register. Must have a `backend_name`
                      attribute and optionally a `default_for_type` attribute.
-    
+
     Returns:
         The registered backend class (allows use as a decorator).
-    
+
     Example:
         @register_backend
         class MyBackend:
@@ -40,13 +40,13 @@ def register_backend(backendClass):
 
 def get_backend_by_name(backend_name):
     """Retrieve a registered backend class by its name.
-    
+
     Args:
         backend_name (str): The name of the backend to retrieve.
-    
+
     Returns:
         The backend class associated with the given name.
-    
+
     Raises:
         KeyError: If no backend is registered with the given name.
     """
@@ -54,12 +54,12 @@ def get_backend_by_name(backend_name):
 
 def get_default_backend(data_type):
     """Get the default backend name for a specific data type.
-    
+
     Args:
         data_type (str): The data type to get the default backend for.
-    
+
     Returns:
-        str: The name of the default backend for the data type, or 'basic' 
+        str: The name of the default backend for the data type, or 'basic'
              if no default is set.
     """
     if data_type in default_backends:
@@ -72,13 +72,13 @@ class NuthatchBackend(ABC):
 
     def __init__(self, cacheable_config, cache_key, namespace, args, backend_kwargs):
         """The abstract base class for all cacheable backends.
-        
+
         This is the base class for all cacheable backends in the nuthatch system.
         Each backend instance manages a specific cache entry with its own
         configuration and storage mechanism.
-        
+
         Args:
-            cacheable_config (dict): Configuration dictionary containing static or 
+            cacheable_config (dict): Configuration dictionary containing static or
                 dynamic parameters. Required parameters should be listed as strings
                 in the backend's `config_parameters` class attribute.
             cache_key (str): Unique identifier for the cache entry. This key is
@@ -91,7 +91,7 @@ class NuthatchBackend(ABC):
             backend_kwargs (dict): User-configurable keyword arguments specific to
                 the backend implementation. For example, the zarr backend uses
                 these for per-argument-value chunking configuration.
-        
+
         Note:
             This is an abstract base class. Subclasses must implement the abstract
             methods: `write()`, `read()`, `delete()`, `exists()`, `get_file_path()`,
@@ -109,11 +109,11 @@ class NuthatchBackend(ABC):
     @abstractmethod
     def write(self, data, upsert=False, primary_keys=None):
         """Write data to the backend.
-        
+
         This method is responsible for writing data to the backend. It should
         be implemented by subclasses to handle the specific storage mechanism
         of the backend.
-        
+
         Args:
             data (any): The data to write to the backend.
             upsert (bool, optional): Whether to perform an upsert operation.
@@ -127,11 +127,11 @@ class NuthatchBackend(ABC):
     @abstractmethod
     def read(self, engine):
         """Read data from the backend.
-        
+
         This method is responsible for reading data from the backend. It should
         be implemented by subclasses to handle the specific storage mechanism
         of the backend.
-        
+
         Args:
             engine (str or type): The data processing engine to use for
                 reading data from the backend.
@@ -144,7 +144,7 @@ class NuthatchBackend(ABC):
     @abstractmethod
     def delete(self):
         """Delete data from the backend.
-        
+
         This method is responsible for deleting data from the backend. It should
         be implemented by subclasses to handle the specific storage mechanism
         of the backend.
@@ -154,7 +154,7 @@ class NuthatchBackend(ABC):
     @abstractmethod
     def exists(self):
         """Check if the data exists in the backend.
-        
+
         This method is responsible for checking if the data exists in the backend.
         It should be implemented by subclasses to handle the specific storage
         mechanism of the backend.
@@ -167,7 +167,7 @@ class NuthatchBackend(ABC):
     @abstractmethod
     def get_file_path(self):
         """Get the file path of the data in the backend.
-        
+
         This method is responsible for returning the file path of the data in the
         backend. It should be implemented by subclasses to handle the specific
         storage mechanism of the backend.
@@ -180,14 +180,14 @@ class NuthatchBackend(ABC):
     @abstractmethod
     def sync(self, from_backend):
         """Sync data from one backend to another.
-        
+
         This method is responsible for syncing data from one backend to another.
         It should be implemented by subclasses to handle the specific storage
         mechanism of the backend.
 
         Args:
             from_backend (NuthatchBackend): The backend to sync data from.
-        """ 
+        """
         pass
 
 
@@ -199,14 +199,15 @@ class FileBackend(NuthatchBackend):
     def __init__(self, cacheable_config, cache_key, namespace, args, backend_kwargs, extension):
         super().__init__(cacheable_config, cache_key, namespace, args, backend_kwargs)
 
-        base_path = self.config['filesystem']
+        self.base_path = self.config['filesystem']
 
         if namespace:
-            self.raw_cache_path = join(base_path, namespace, cache_key)
+            self.raw_cache_path = join(self.base_path, namespace, cache_key)
         else:
-            self.raw_cache_path = join(base_path, cache_key)
+            self.raw_cache_path = join(self.base_path, cache_key)
 
-        self.temp_cache_path = join(base_path, 'temp', cache_key)
+        self.temp_cache_path = join(self.base_path, 'temp', cache_key)
+        self.extension = extension
         self.path = self.raw_cache_path + '.' + extension
         if 'filesystem_options' not in self.config:
             self.config['filesystem_options'] = {}
@@ -227,8 +228,46 @@ class FileBackend(NuthatchBackend):
     def get_file_path(self):
         return self.path
 
+    def get_cache_key(self, path):
+        if path.endswith('.' + self.extension):
+            path = path[:-len('.' + self.extension)]
+
+        if path.startswith(self.base_path):
+            path = path[len(self.base_path):]
+
+        stripped = fsspec.core.strip_protocol(self.base_path)
+        if path.startswith(stripped):
+            path = path[len(stripped):]
+
+        if path.startswith('/'):
+            path = path[1:]
+
+        if self.namespace:
+            if path.startswith(self.namespace):
+                path = path[len(self.namespace):]
+
+        if path.startswith('/'):
+            path = path[1:]
+
+        return path
+
+
     def sync(self, from_backend):
         from_backend.fs.get(from_backend.path, self.path)
+
+@register_backend
+class NullBackend(FileBackend):
+
+    backend_name = 'null'
+
+    def __init__(self, cacheable_config, cache_key, namespace, args, backend_kwargs):
+        super().__init__(cacheable_config, cache_key, namespace, args, backend_kwargs, 'null')
+
+    def read(self, engine=None):
+        raise RuntimeError("Null backend used only for import/export path manipulation. Cannot read from null backend.")
+
+    def write(self, engine=None):
+        raise RuntimeError("Null backend used only for import/export path manipulation. Cannot write to null backend.")
 
 
 class DatabaseBackend(NuthatchBackend):

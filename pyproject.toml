@@ -46,7 +46,7 @@ allow-direct-references = true
 packages = ["src/nuthatch"]
 
 [tool.nuthatch]
-filesystem = "gs://sheerwater-datalake/cache"
+filesystem = "gs://sheerwater-datalake/caches"
 host = "postgres.sheerwater.rhizaresearch.org"
 port = 5432
 database = "postgres"

@@ -362,10 +362,14 @@ class Cache():
         else:
             sha = 'no_git_repo'
 
+        path = 'None'
+        if self.backend:
+            path = self.backend.get_file_path()
+
         if self.store == 'delta':
             if self._metadata_exists():
                 values = {'state': state, 'last_modified': datetime.datetime.now(datetime.timezone.utc).timestamp() * 1000000,
-                          'commit_hash': sha, 'user': getpass.getuser(), 'path': self.backend.get_file_path()}
+                          'commit_hash': sha, 'user': getpass.getuser(), 'path': path}
                 if state == 'null':
                     self.dt.update(predicate=f"cache_key = '{self.cache_key}' AND namespace = '{self.namespace}'",
                                    new_values = values)
@@ -378,7 +382,7 @@ class Cache():
                                    'backend': [self.backend_name],
                                    'commit_hash': [sha],
                                    'user': [getpass.getuser()],
-                                   'path' : [self.backend.get_file_path()],
+                                   'path' : [path],
                                    'state': [state],
                                    'last_modified': [datetime.datetime.now(datetime.timezone.utc).timestamp() * 1000000]})
 
@@ -392,11 +396,11 @@ class Cache():
                     statement = statement.where(self.db_table.c.backend == self.backend_name)
 
                 statement = statement.values(state=state, last_modified=datetime.datetime.now(datetime.timezone.utc).timestamp()*1000000,
-                                             commit_hash=sha, user=getpass.getuser(), path=self.backend.get_file_path())
+                                             commit_hash=sha, user=getpass.getuser(), path=path)
             else:
                 statement = sqlalchemy.insert(self.db_table).values(state=state,
                                                                     last_modified=datetime.datetime.now(datetime.timezone.utc).timestamp()*1000000,
-                                                                    commit_hash=sha, user=getpass.getuser(), path=self.backend.get_file_path(),
+                                                                    commit_hash=sha, user=getpass.getuser(), path=path,
                                                                     backend=self.backend_name,
                                                                     cache_key=self.cache_key,
                                                                     namespace=self.namespace)
