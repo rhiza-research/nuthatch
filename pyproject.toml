@@ -1,0 +1,64 @@
+[project]
+name = "nuthatch"
+version = "0.1.0"
+description = "Add your description here"
+authors = [
+    { name = "Joshua Adkins", email = "josh@rhizaresearch.org" }
+]
+dependencies = [
+    "fsspec",
+    "sqlalchemy",
+    "pandas",
+    "dask[dataframe]",
+    "deltalake==1.1.2",
+    "dask-deltatable",
+    "xarray",
+    "pyarrow",
+    "terracotta",
+    "gitpython",
+    "psycopg2",
+    "zarr",
+    "click"
+]
+readme = "README.md"
+requires-python = ">= 3.12"
+
+[project.scripts]
+nuthatch = "nuthatch.cli:main"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.rye]
+managed = true
+dev-dependencies = [
+    "google-cloud-secret-manager",
+    "gcsfs",
+    "pytest",
+    "sheerwater-benchmarking @ git+https://github.com/rhiza-research/sheerwater-benchmarking",
+]
+
+[tool.hatch.metadata]
+allow-direct-references = true
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/nuthatch"]
+
+[tool.nuthatch]
+filesystem = "gs://sheerwater-datalake/cache"
+host = "postgres.sheerwater.rhizaresearch.org"
+port = 5432
+database = "postgres"
+username = "write"
+driver = "postgresql"
+raster_store = "gs://terracotta-files"
+metadata_location = "database"
+secret_import_path = "nuthatch.secrets"
+
+[tool.nuthatch.filesystem_options]
+token = "google_default"
+cache_timeout = 0
+
+[tool.nuthatch.local]
+filesystem = ".cache/"
