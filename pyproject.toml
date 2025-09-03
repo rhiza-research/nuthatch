@@ -44,6 +44,9 @@ allow-direct-references = true
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/nuthatch"]
+exclude = [
+    "src/nuthatch/test_secrets.py" # Exclude a specific file
+]
 
 [tool.nuthatch]
 filesystem = "gs://sheerwater-datalake/caches"
@@ -54,7 +57,7 @@ username = "write"
 driver = "postgresql"
 raster_store = "gs://terracotta-files"
 metadata_location = "database"
-secret_import_path = "nuthatch.secrets"
+dynamic_config_path = "nuthatch.test_secrets"
 
 [tool.nuthatch.filesystem_options]
 token = "google_default"
