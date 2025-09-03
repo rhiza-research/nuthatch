@@ -5,7 +5,7 @@ import tomllib
 
 dynamic_parameters = {}
 
-def config_parameter(parameter_name, location='root', backend=None):
+def config_parameter(parameter_name, location='root', backend=None, secret=False):
     """A decorator to register a function as a dynamic parameter.
 
     Args:
@@ -20,16 +20,16 @@ def config_parameter(parameter_name, location='root', backend=None):
             dynamic_parameters[location][backend] = {}
 
         if backend:
-            dynamic_parameters[location][backend][parameter_name] = function
+            dynamic_parameters[location][backend][parameter_name] = (function, secret)
         else:
-            dynamic_parameters[location][parameter_name] = function
+            dynamic_parameters[location][parameter_name] = (function, secret)
     return decorator
 
 def _is_fs_root(p):
     """Check if a path is the root of a filesystem."""
     return os.path.splitdrive(str(p))[1] == os.sep
 
-def get_config(location='root', requested_parameters=[], backend_name=None):
+def get_config(location='root', requested_parameters=[], backend_name=None, mask_secrets=False):
     """Get the config for a given location and backend.
 
     Args:
@@ -76,8 +76,19 @@ def get_config(location='root', requested_parameters=[], backend_name=None):
     for p in requested_parameters:
         if location in dynamic_parameters:
             if backend_name in dynamic_parameters[location] and p in dynamic_parameters[location][backend_name]:
-                filtered_config[p] = dynamic_parameters[location][backend_name][p]()
+                secret = dynamic_parameters[location][backend_name][p][1]
+                param = dynamic_parameters[location][backend_name][p][0]()
+                if secret and mask_secrets:
+                    filtered_config[p] = '*'*len(param)
+                else:
+                    filtered_config[p] = param
             elif p in dynamic_parameters[location]:
-                filtered_config[p] = dynamic_parameters[location][p]()
+                secret = dynamic_parameters[location][p][1]
+                param = dynamic_parameters[location][p][0]()
+                if secret and mask_secrets:
+                    filtered_config[p] = '*'*len(param)
+                else:
+                    filtered_config[p] = param
+
 
     return filtered_config
