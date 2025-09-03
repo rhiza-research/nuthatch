@@ -9,9 +9,8 @@ including cache management, backend operations, and configuration.
 import importlib
 import click
 import shutil
-import pprint
 from .config import get_config
-from .backend import get_backend_by_name
+from .backend import get_backend_by_name, registered_backends
 from .cache import Cache
 import pandas as pd
 
@@ -126,7 +125,8 @@ def list_caches(cache_key, namespace, backend, location, long):
 @click.option('--backend', help='Backend to use')
 @click.option('--location', help='Location to search', default='root')
 @click.option('--force', '-f', is_flag=True, help='Force deletion without confirmation')
-def delete_cache(cache_key, namespace, backend, location, force):
+@click.option('--metadata-only', '-m', is_flag=True, help='Only delete the metadata for the cache, not the underlying data.')
+def delete_cache(cache_key, namespace, backend, location, force, metadata_only):
     """Clear cache entries."""
     caches = list_helper(cache_key, namespace, backend, location)
     config = get_config(location=location, requested_parameters=Cache.config_parameters)
@@ -136,25 +136,35 @@ def delete_cache(cache_key, namespace, backend, location, force):
     for cache in caches:
         cache = Cache(config, cache.cache_key, cache.namespace, None, location, cache.backend, {})
         click.echo(f"Deleting {cache.cache_key} from {cache.location} with backend {cache.backend_name}.")
-        cache.delete()
+        if metadata_only:
+            cache._delete_metadata()
+        else:
+            cache.delete()
 
 
 @cli.command('print-config')
 @click.option('--location', help='Location to search', default='root')
 @click.option('--backend', help='Backend to use')
-def get_config_value(location, backend):
+@click.option('--show-secrets', '-s', is_flag=True, help='Only delete the metadata for the cache, not the underlying data.')
+def get_config_value(location, backend, show_secrets):
     """Get configuration value for a specific key."""
     if backend:
-        backend_class = get_backend_by_name(backend)
-        backend_name = backend
+        backend_classes = [get_backend_by_name(backend)]
     else:
-        backend_class = Cache
-        backend_name = None
+        backend_classes = [Cache] + list(registered_backends.values())
 
-    config = get_config(location=location, requested_parameters=backend_class.config_parameters,
-                        backend_name=backend_name)
+    for backend_class in backend_classes:
+        if show_secrets:
+            config = get_config(location=location, requested_parameters=backend_class.config_parameters,
+                                backend_name=backend_class.backend_name, mask_secrets=False)
+        else:
+            config = get_config(location=location, requested_parameters=backend_class.config_parameters,
+                                backend_name=backend_class.backend_name, mask_secrets=True)
 
-    click.echo(pprint.pformat(config))
+        click.echo(backend_class.backend_name.title())
+        for key, value in config.items():
+            click.echo(f"\t{key}: {value}")
+        click.echo()
 
 def main():
     return cli()

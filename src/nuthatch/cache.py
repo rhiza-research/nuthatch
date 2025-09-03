@@ -20,6 +20,7 @@ class Cache():
     """
     database_parameters = ["driver", "host", "port", "database", "username", "password"]
     config_parameters = ['filesystem', 'filesystem_options', 'metadata_location'] + database_parameters
+    backend_name = "cache_metadata"
     delta_tables = {}
     delta_table_configs = {}
 
