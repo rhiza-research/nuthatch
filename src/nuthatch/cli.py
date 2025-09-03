@@ -24,12 +24,12 @@ def cli():
     and configuring the nuthatch system.
     """
 
-    config = get_config(location='root', requested_parameters=['secret_import_path'], backend_name=None)
-    if 'secret_import_path' in config:
+    config = get_config(location='root', requested_parameters=['dynamic_config_path'], backend_name=None)
+    if 'dynamic_config_path' in config:
         try:
-            importlib.import_module(config['secret_import_path'])
+            importlib.import_module(config['dynamic_config_path'])
         except Exception as e:
-            click.echo(f"WARNGIN: Failed to import {config['secret_import_path']} with '{e}'. You may be missing dynamic secret resolution.")
+            click.echo(f"WARNGIN: Failed to import {config['dynamic_config_path']} with '{e}'. You may be missing dynamic secret resolution.")
 
 
 
