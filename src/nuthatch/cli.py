@@ -8,6 +8,7 @@ including cache management, backend operations, and configuration.
 
 import importlib
 import click
+import fsspec
 import shutil
 from .config import get_config
 from .backend import get_backend_by_name, registered_backends
@@ -40,6 +41,31 @@ def cli():
 @click.option('--location', help='Location to search', default='root')
 def import_data(cache_key, namespace, backend, location):
     """Import data from a glob pattern."""
+
+    def get_cache_key(self, path):
+        if path.endswith('.' + self.extension):
+            path = path[:-len('.' + self.extension)]
+
+        if path.startswith(self.base_path):
+            path = path[len(self.base_path):]
+
+        stripped = fsspec.core.strip_protocol(self.base_path)
+        if path.startswith(stripped):
+            path = path[len(stripped):]
+
+        if path.startswith('/'):
+            path = path[1:]
+
+        if self.namespace:
+            if path.startswith(self.namespace):
+                path = path[len(self.namespace):]
+
+        if path.startswith('/'):
+            path = path[1:]
+
+        return path
+
+
 
     # First instantiate the backend based on the passed backend
     backend_name = backend

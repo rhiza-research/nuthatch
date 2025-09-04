@@ -3,7 +3,7 @@
 It also contains the abstract base class for all backends.
 """
 from abc import ABC, abstractmethod
-from os.path import join
+import os
 import fsspec
 import sqlalchemy
 
@@ -33,7 +33,7 @@ def register_backend(backendClass):
     """
     registered_backends[backendClass.backend_name] = backendClass
 
-    if 'default_for_type' in backendClass.__dict__:
+    if hasattr(backendClass, 'default_for_type'):
         default_backends[backendClass.default_for_type] = backendClass.backend_name
 
     return backendClass
@@ -79,7 +79,8 @@ class NuthatchBackend(ABC):
 
         Args:
             cacheable_config (dict): Configuration dictionary containing static or
-                dynamic parameters. Required parameters should be listed as strings
+                dynamic parameters. Parameters are used to configure a backend's
+                access to its storage. Required parameters should be listed as strings
                 in the backend's `config_parameters` class attribute.
             cache_key (str): Unique identifier for the cache entry. This key is
                 used to distinguish between different cached items.
@@ -94,8 +95,8 @@ class NuthatchBackend(ABC):
 
         Note:
             This is an abstract base class. Subclasses must implement the abstract
-            methods: `write()`, `read()`, `delete()`, `exists()`, `get_file_path()`,
-            and `sync()`.
+            methods: `write()`, `upsert()`, `read()`, `delete()`, `exists()`, `get_uri()`,
+            and `sync()`. They must also handle namespacing their reads and writes appropriately.
         """
 
         # Store base
@@ -107,8 +108,8 @@ class NuthatchBackend(ABC):
 
 
     @abstractmethod
-    def write(self, data, upsert=False, primary_keys=None):
-        """Write data to the backend.
+    def write(self, data):
+        """Write data to the backend. Overwrite if exists.
 
         This method is responsible for writing data to the backend. It should
         be implemented by subclasses to handle the specific storage mechanism
@@ -116,16 +117,34 @@ class NuthatchBackend(ABC):
 
         Args:
             data (any): The data to write to the backend.
-            upsert (bool, optional): Whether to perform an upsert operation.
-                If True, the data will be inserted or updated based on the
-                primary keys provided.
-            primary_keys (list, optional): List of primary key columns to use
-                for upsert operations.
+
+        Returns:
+            A version or copy of the written data.
         """
         pass
 
     @abstractmethod
-    def read(self, engine):
+    def upsert(self, data, upsert_keys=None):
+        """Upsert/append data into the backend.
+
+        This method is responsible for upserting data to the backend based
+        on the upsert keys. It should
+        be implemented by subclasses to handle the specific storage mechanism
+        of the backend.
+
+        Args:
+            data (any): The data to write to the backend.
+            upsert_keys (list, optional): List of primary key columns to use
+                for upsert operations.
+
+        Returns:
+            A version/copy of the written data.
+        """
+        pass
+
+
+    @abstractmethod
+    def read(self, engine=None):
         """Read data from the backend.
 
         This method is responsible for reading data from the backend. It should
@@ -134,7 +153,8 @@ class NuthatchBackend(ABC):
 
         Args:
             engine (str or type): The data processing engine to use for
-                reading data from the backend.
+                reading data from the backend (i.e. 'pandas' or pd.DataFrame).
+                By default will just use the default for each backend.
 
         Returns:
             Any: The data read from the backend.
@@ -165,7 +185,7 @@ class NuthatchBackend(ABC):
         pass
 
     @abstractmethod
-    def get_file_path(self):
+    def get_uri(self):
         """Get the file path of the data in the backend.
 
         This method is responsible for returning the file path of the data in the
@@ -185,8 +205,12 @@ class NuthatchBackend(ABC):
         It should be implemented by subclasses to handle the specific storage
         mechanism of the backend.
 
+        The most basic version of this could implement self.write(from_backend.read()),
+        but there is likely a more efficient way of transferring backend-specific data.
+
         Args:
             from_backend (NuthatchBackend): The backend to sync data from.
+
         """
         pass
 
@@ -196,28 +220,30 @@ class FileBackend(NuthatchBackend):
 
     config_parameters = ["filesystem", "filesystem_options"]
 
-    def __init__(self, cacheable_config, cache_key, namespace, args, backend_kwargs, extension):
+    def __init__(self, cacheable_config, cache_key, namespace, args, backend_kwargs, extension=None):
         super().__init__(cacheable_config, cache_key, namespace, args, backend_kwargs)
 
         self.base_path = self.config['filesystem']
 
         if namespace:
-            self.raw_cache_path = join(self.base_path, namespace, cache_key)
+            self.raw_cache_path = os.path.join(self.base_path, namespace, cache_key)
         else:
-            self.raw_cache_path = join(self.base_path, cache_key)
+            self.raw_cache_path = os.path.join(self.base_path, cache_key)
 
-        self.temp_cache_path = join(self.base_path, 'temp', cache_key)
+        self.temp_cache_path = os.path.join(self.base_path, 'temp', cache_key)
         self.extension = extension
-        self.path = self.raw_cache_path + '.' + extension
+        if extension:
+            self.path = self.raw_cache_path + '.' + extension
+
         if 'filesystem_options' not in self.config:
             self.config['filesystem_options'] = {}
 
+        # This instantiates an fsspec filesystem
         if fsspec.utils.get_protocol(self.path) == 'file':
             # If the protocol is a local filesystem, we need to create the directory if it doesn't exist
             self.fs = fsspec.core.url_to_fs(self.path, auto_mkdir=True, **self.config['filesystem_options'])[0]
         else:
             self.fs = fsspec.core.url_to_fs(self.path, **self.config['filesystem_options'])[0]
-
 
     def exists(self):
         return (self.fs.exists(self.path))
@@ -225,49 +251,13 @@ class FileBackend(NuthatchBackend):
     def delete(self):
         self.fs.rm(self.path, recursive=True)
 
-    def get_file_path(self):
+    def get_uri(self):
         return self.path
-
-    def get_cache_key(self, path):
-        if path.endswith('.' + self.extension):
-            path = path[:-len('.' + self.extension)]
-
-        if path.startswith(self.base_path):
-            path = path[len(self.base_path):]
-
-        stripped = fsspec.core.strip_protocol(self.base_path)
-        if path.startswith(stripped):
-            path = path[len(stripped):]
-
-        if path.startswith('/'):
-            path = path[1:]
-
-        if self.namespace:
-            if path.startswith(self.namespace):
-                path = path[len(self.namespace):]
-
-        if path.startswith('/'):
-            path = path[1:]
-
-        return path
 
 
     def sync(self, from_backend):
+        # Proper way to copy data from a remote to a local filesystem
         from_backend.fs.get(from_backend.path, self.path)
-
-@register_backend
-class NullBackend(FileBackend):
-
-    backend_name = 'null'
-
-    def __init__(self, cacheable_config, cache_key, namespace, args, backend_kwargs):
-        super().__init__(cacheable_config, cache_key, namespace, args, backend_kwargs, 'null')
-
-    def read(self, engine=None):
-        raise RuntimeError("Null backend used only for import/export path manipulation. Cannot read from null backend.")
-
-    def write(self, engine=None):
-        raise RuntimeError("Null backend used only for import/export path manipulation. Cannot write to null backend.")
 
 
 class DatabaseBackend(NuthatchBackend):
@@ -284,7 +274,7 @@ class DatabaseBackend(NuthatchBackend):
                                 host = self.config['host'],
                                 port = self.config['port'],
                                 database = self.config['database'])
-        self.engine = sqlalchemy.create_engine(database_url)
+        self.connection = sqlalchemy.create_engine(database_url)
 
         if 'write_username' in self.config and 'write_password' in self.config:
             write_database_url = sqlalchemy.URL.create(self.config['driver'],
@@ -293,9 +283,9 @@ class DatabaseBackend(NuthatchBackend):
                                 host = self.config['host'],
                                 port = self.config['port'],
                                 database = self.config['database'])
-            self.write_engine = sqlalchemy.create_engine(write_database_url)
+            self.write_connection = sqlalchemy.create_engine(write_database_url)
         else:
-            self.write_engine = self.engine
+            self.write_connection = self.connection
 
     def sync(self, local_backend):
         raise NotImplementedError("Backend syncing not implemented for database-like backends.")

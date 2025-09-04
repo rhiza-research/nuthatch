@@ -1,25 +1,7 @@
-from nuthatch.backend import FileBackend, register_backend
+import pandas as pd
 from pandas.api.types import is_datetime64_any_dtype as is_datetime
 import dask.dataframe as dd
-import pandas as pd
-
-
-def write_parquet_helper(df, path, partition_on=None):
-    """Helper to write parquets."""
-    print(path)
-    df.to_parquet(
-        path,
-        overwrite=True,
-        partition_on=partition_on,
-        engine="pyarrow",
-        write_metadata_file=True,
-        write_index=False,
-    )
-
-def read_from_parquet(cache_path):
-    """Read from a deltatable into a pandas dataframe."""
-    return dd.read_parquet(cache_path, engine='pyarrow', ignore_metadata_file=True)
-
+from nuthatch.backend import FileBackend, register_backend
 
 
 @register_backend
@@ -34,38 +16,36 @@ class ParquetBackend(FileBackend):
     default_for_type = dd.DataFrame
 
     def __init__(self, cacheable_config, cache_key, namespace, args, backend_kwargs):
-        super().__init__(cacheable_config, cache_key, namespace, args, backend_kwargs, 'parquet')
+        super().__init__(cacheable_config, cache_key, namespace, args, backend_kwargs, extension='parquet')
 
-    def write(self, data, upsert=False, primary_keys=None):
+
+    def write(self, data):
+        part = None
+        if hasattr(data, 'cache_partition'):
+            part = data.cache_partition
+
         if isinstance(data, dd.DataFrame):
-            self.write_to_parquet(data, self.path, self.temp_cache_path, upsert=upsert, primary_keys=primary_keys)
+            self._write_parquet_helper(data, self.path, part)
+            return self.read(engine=dd.DataFrame)
         elif isinstance(data, pd.DataFrame):
-            if upsert:
-                raise RuntimeError("Parquet backend does not support upsert for pandas engine.")
-
-            part = None
-            if hasattr(data, 'cache_partition'):
-                part = data.cache_partition
-
             data.to_parquet(self.path, partition_cols=part, engine='pyarrow')
+            return data
         else:
-            raise RuntimeError("Delta backend only supports dask and pandas engines.")
+            raise RuntimeError("Parquet backend only supports dask and pandas engines.")
 
-    def read(self, engine):
-        if engine == 'pandas' or engine == pd.DataFrame or engine is None:
-            return pd.read_parquet(self.path)
-        elif engine == 'dask' or engine == dd.DataFrame:
-            return dd.read_parquet(self.path, engine='pyarrow', ignore_metadata_file=True)
-        else:
-            raise RuntimeError("Delta backend only supports dask and pandas engines.")
 
-    def write_to_parquet(self, df, cache_path, temp_cache_path, upsert=False, primary_keys=None):
-        """Write a pandas or dask dataframe to a parquet."""
+    def upsert(self, data, upsert_keys=None):
+        df = data
+        primary_keys = upsert_keys
+
         part = None
         if hasattr(df, 'cache_partition'):
             part = df.cache_partition
 
-        if upsert and self.fs.exists(cache_path):
+        if not isinstance(data, dd.DataFrame):
+            raise RuntimeError("Parquet backend only supports upsert for dask dataframes.")
+
+        if self.fs.exists(self.path):
             print("Found existing cache for upsert.")
             if primary_keys is None:
                 raise ValueError("Upsert may only be performed with primary keys specified")
@@ -77,7 +57,7 @@ class ParquetBackend(FileBackend):
             if not isinstance(df, dd.DataFrame):
                 raise RuntimeError("Upsert is only supported by dask dataframes for parquet")
 
-            existing_df = read_from_parquet(cache_path)
+            existing_df = dd.read_parquet(self.path, engine='pyarrow', ignore_metadata_file=True)
 
             # Record starting partitions
             start_parts = df.npartitions
@@ -112,19 +92,41 @@ class ParquetBackend(FileBackend):
                 # Coearce dtypes and make the columns the same order
 
                 print("Copying cache for ``consistent'' upsert.")
-                if self.fs.exists(temp_cache_path):
-                    self.fs.rm(temp_cache_path, recursive=True)
+                if self.fs.exists(self.temp_cache_path):
+                    self.fs.rm(self.temp_cache_path, recursive=True)
 
-                write_parquet_helper(final_df, temp_cache_path, part)
+                self._write_parquet_helper(final_df, self.temp_cache_path, part)
                 print("Successfully appended rows to temp parquet. Overwriting existing cache.")
 
-                if self.fs.exists(cache_path):
-                    self.fs.rm(cache_path, recursive=True)
+                if self.fs.exists(self.path):
+                    self.fs.rm(self.path, recursive=True)
 
-                self.fs.cp(temp_cache_path, cache_path, recursive=True)
+                self.fs.cp(self.temp_cache_path, self.path, recursive=True)
+
+                return self.read(engine=dd.DataFrame)
 
             else:
                 print("No rows to upsert.")
         else:
-            write_parquet_helper(df, cache_path, part)
+            return self.write(data)
+
+    def read(self, engine):
+        if engine == 'dask' or engine == dd.DataFrame or engine is None:
+            return dd.read_parquet(self.path, engine='pyarrow', ignore_metadata_file=True)
+        elif engine == 'pandas' or engine == pd.DataFrame:
+            return pd.read_parquet(self.path)
+        else:
+            raise RuntimeError("Delta backend only supports dask and pandas engines.")
+
+    def _write_parquet_helper(self, df, path, partition_on=None):
+        """Helper to write parquets."""
+        df.to_parquet(
+            path,
+            overwrite=True,
+            partition_on=partition_on,
+            engine="pyarrow",
+            write_metadata_file=True,
+            write_index=False,
+        )
+
 

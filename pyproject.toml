@@ -6,6 +6,9 @@ authors = [
     { name = "Joshua Adkins", email = "josh@rhizaresearch.org" },
     { name = "Genevieve Flaspohler", email = "geneviee@rhizaresearch.org" }
 ]
+
+# TODO: Make backend submodules so that their
+# dependencies can be installed independently
 dependencies = [
     "fsspec",
     "sqlalchemy",

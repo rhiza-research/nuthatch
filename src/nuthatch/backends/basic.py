@@ -1,5 +1,5 @@
-from nuthatch.backend import FileBackend, register_backend
 import pickle
+from nuthatch.backend import FileBackend, register_backend
 
 @register_backend
 class BasicBackend(FileBackend):
@@ -10,19 +10,21 @@ class BasicBackend(FileBackend):
     backend_name = "basic"
 
     def __init__(self, cacheable_config, cache_key, namespace, args, backend_kwargs):
-        super().__init__(cacheable_config, cache_key, namespace, args, backend_kwargs, 'pkl')
+        super().__init__(cacheable_config, cache_key, namespace, args, backend_kwargs, extension='pkl')
 
 
-    def write(self, data, upsert=False, primary_keys=None):
-        if upsert:
-            raise ValueError("Basic/pickle backend does not support upsert.")
-
+    def write(self, data):
         with self.fs.open(self.path, 'wb') as f:
             pickle.dump(data, f)
+
+        return data
+
+
+    def upsert(self, data, upsert_keys=None):
+        raise NotImplementedError("Basic backend does not support upsert.")
 
 
     def read(self, engine=None):
         # Check to make sure the verify exists
-        if self.fs.exists(self.path):
-            with self.fs.open(self.path, 'rb') as f:
-                return pickle.load(f)
+        with self.fs.open(self.path, 'rb') as f:
+            return pickle.load(f)
