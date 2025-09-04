@@ -20,11 +20,11 @@ team, or the public - can acess and build off of your most up-to-date data.
 
 ### Configuration
 
-(1) To use Nuthatch you must configure access to some file store. Most basically this could be your local
+To use Nuthatch you must configure access to some file store. Most basically this could be your local
 filesystem, but is likely more useful if it's a remote cloud bucket (like gcs, s3, etc). Configuration
 is done in your pyproject.toml, e.g.
 
-```
+```toml
 [tool.nuthatch]
 filesystem = "s3://my-bucket/caches"
 
@@ -42,7 +42,7 @@ You *should not* save secrets in pyproject.toml. To solve this problem nuthatch 
 secrets dynamically, from a cloud secret store, or from another location like an environment variable or
 file. Just make sure this file is imported before you run your code
 
-```
+```python
 from nuthatch import config_parameter
 
 @config_parameter('filesystem_options', secret=True)
@@ -61,7 +61,7 @@ def fetch_key():
 Now you can make your first cache! Simple tag with nuthatch, and nuthatch will do its best to store
 your data efficiently.
 
-```
+```python
 from nuthatch import cache
 from nuthatch.processors import timeseries
 import xarray as xr
@@ -84,7 +84,7 @@ Nuthatch has many more features too:
  - Caching of data locally for lower-latency access
  - Namespacing of caches to rerun the same data pipeline for multiple scenarios
  
-```
+```python
 @timeseries(timeseries='time')
 @cache(cache_args=['agg_days'])
 def agg_and_clip(start_time, end_time, agg_days=1):
