@@ -1,11 +1,12 @@
 # Nuthatch
 
 Nuthatch is a tool for building pure-python big data pipelines. At its core it
-enables the transparent multi-level caching and recall of results. It supports a variety of 
+enables the transparent multi-level caching and recall of results in formats that 
+are efficient for each data type. It supports a variety of 
 common storage backends, data processing frameworks, and their associated
 data types for caching. 
 
-It also provides a framework for re-using and sharing data-type specific pre-processing and
+It also provides a framework for re-using and sharing data-type specific
 post-processing, and for these data type
 processors to pass hints to storage backends for more efficient storager and recall.
 
