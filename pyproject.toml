@@ -3,7 +3,7 @@ name = "nuthatch"
 version = "0.0.1"
 description = "Cacheable big data pipelines"
 authors = [
-    { name = "Joshua Adkins", email = "josh@rhizaresearch.org" }
+    { name = "Joshua Adkins", email = "josh@rhizaresearch.org" },
     { name = "Genevieve Flaspohler", email = "geneviee@rhizaresearch.org" }
 ]
 dependencies = [
