@@ -1,6 +1,6 @@
 [project]
 name = "nuthatch"
-version = "0.0.1"
+version = "0.1.0"
 description = "Cacheable big data pipelines"
 authors = [
     { name = "Joshua Adkins", email = "josh@rhizaresearch.org" },
@@ -28,12 +28,13 @@ requires-python = ">= 3.12"
 nuthatch = "nuthatch.cli:main"
 
 [build-system]
-requires = ["hatchling"]
+requires = ["hatchling==1.26.3"]
 build-backend = "hatchling.build"
 
 [tool.rye]
 managed = true
 dev-dependencies = [
+    "pooch",
     "google-cloud-secret-manager",
     "gcsfs",
     "pytest",

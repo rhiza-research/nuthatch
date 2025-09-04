@@ -564,6 +564,7 @@ packaging==25.0
     # via nbconvert
     # via pip-requirements-parser
     # via plotly
+    # via pooch
     # via pyogrio
     # via pytest
     # via rioxarray
@@ -603,10 +604,12 @@ pip-requirements-parser==32.0.1
     # via coiled
 platformdirs==4.4.0
     # via jupyter-core
+    # via pooch
 plotly==6.3.0
     # via sheerwater-benchmarking
 pluggy==1.6.0
     # via pytest
+pooch==1.8.2
 prometheus-client==0.22.1
     # via coiled
     # via jupyter-server
@@ -754,6 +757,7 @@ requests==2.32.5
     # via jupyterlab-server
     # via kubernetes
     # via multiurl
+    # via pooch
     # via pvlib
     # via pykube-ng
     # via requests-oauthlib
