@@ -25,7 +25,7 @@ class DeltaBackend(FileBackend):
     def write(self, data):
         """Write a pandas dataframe to a delta table."""
         if isinstance(data, dd.DataFrame):
-            logger.warn("""Warning: Dask datafame passed to delta backend. Will run `compute()`
+            logger.warning("""Warning: Dask datafame passed to delta backend. Will run `compute()`
                       on the dataframe prior to storage. This will fail if the dataframe
                       does not fit in memory. Use `backend=parquet` to handle parallel writing of dask dataframes.""")
             write_data = data.compute()

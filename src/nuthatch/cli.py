@@ -19,7 +19,7 @@ import pandas as pd
 @click.group()
 @click.version_option(version="0.1.0", prog_name="nuthatch")
 def cli():
-    """Nuthatch - Intelligent caching system for data science workflows.
+    """Nuthatch - Caching and recalling big data pipelines.
 
     This CLI provides tools for managing cache entries, inspecting backends,
     and configuring the nuthatch system.

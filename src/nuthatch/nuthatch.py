@@ -13,6 +13,7 @@ from .memoizer import save_to_memory, recall_from_memory
 import logging
 
 logger = logging.getLogger(__name__)
+logger.setLevel(logging.INFO)
 logging.basicConfig(level=logging.INFO)
 
 # Global variables for caching configuration
@@ -67,16 +68,8 @@ def check_if_nested_fn():
     return False
 
 
-def sync_local_remote(cache, local_cache):
-    """Sync a local cache mirror to a remote cache.
 
-    Args:
-        backend (NuthatchBackend): The backend to use for the cache
-        local_backend (NuthatchBackend): The backend to use for the local cache
-    """
-    local_cache.sync(cache)
-
-def get_cache_args(passed_kwargs, default_cache_kwargs, nonlocals):
+def get_cache_args(passed_kwargs, default_cache_kwargs, decorator_args):
     """Extract the cache arguments from the kwargs and return them."""
     cache_args = {}
     for k in default_cache_kwargs:
@@ -87,23 +80,23 @@ def get_cache_args(passed_kwargs, default_cache_kwargs, nonlocals):
             cache_args[k] = default_cache_kwargs[k]
 
     if cache_args['cache'] is None:
-        cache_args['cache'] = nonlocals['cache']
+        cache_args['cache'] = decorator_args['cache']
     if cache_args['namespace'] is None:
-        cache_args['namespace'] = nonlocals['namespace']
+        cache_args['namespace'] = decorator_args['namespace']
     if cache_args['engine'] is None:
-        cache_args['engine'] = nonlocals['engine']
+        cache_args['engine'] = decorator_args['engine']
     if cache_args['memoize'] is None:
-        cache_args['memoize'] = nonlocals['memoize']
+        cache_args['memoize'] = decorator_args['memoize']
     if cache_args['backend'] is None:
-        cache_args['backend'] = nonlocals['backend']
+        cache_args['backend'] = decorator_args['backend']
 
     if 'backend_kwargs' in cache_args and isinstance(cache_args['backend_kwargs'], dict):
-        cache_args['backend_kwargs'] = cache_args['backend_kwargs'].update(nonlocals['backend_kwargs'])
+        cache_args['backend_kwargs'] = cache_args['backend_kwargs'].update(decorator_args['backend_kwargs'])
     elif 'backend_kwargs' in cache_args and cache_args['backend_kwargs'] is None:
-        cache_args['backend_kwargs'] = nonlocals['backend_kwargs']
+        cache_args['backend_kwargs'] = decorator_args['backend_kwargs']
 
     if cache_args['cache_local'] is None:
-        cache_args['cache_local'] = nonlocals['cache_local']
+        cache_args['cache_local'] = decorator_args['cache_local']
 
     return cache_args
 
@@ -143,7 +136,7 @@ def check_cache_disable_if(cache_disable_if, cache_arg_values):
         ]
         # Within a cache disable if dict, if all keys match, disable the cache
         if all(key_match):
-            print(f"Caching disabled for arg values {d}")
+            logger.info(f"Caching disabled for arg values {d}")
             return False
 
     # Keep the cache enabled - we didn't find a match
@@ -255,6 +248,7 @@ def cache(cache=True,
     """Decorator for caching function results.
 
     Args:
+        namespace(str): The namespace in which to store the cache
         cache_args(list): The arguments to use as the cache key.
         backend_kwargs(dict): A dictionary of backend-specific arguments that will be passed to
             and used back the backend for writign and reading
@@ -298,6 +292,9 @@ def cache(cache=True,
         "fail_if_no_cache": False,
     }
 
+
+    # By resetting nonlocals to locals here we can ensure that the default
+    # values of the variables for the decorate are set on every call
     nonlocals = locals()
 
     def create_cacheable(func):
@@ -352,7 +349,7 @@ def cache(cache=True,
                     if func.__name__ in global_memoize or global_memoize == '_all':
                         memoize = True
 
-            # The the function parameters and their values
+            # The function parameters and their values
             params = signature(func).parameters
             cache_arg_values = extract_cache_arg_values(cache_args, args, params, passed_kwargs)
 
@@ -373,17 +370,17 @@ def cache(cache=True,
                 if not read_caches['local']:
                     raise ValueError("Local filesystem must be configured if local caching is requested.")
 
-                sync_local_remote(read_caches['root'], read_caches['local'])
+                read_caches['local'].sync(read_caches['root'])
             else:
-                # If local isn't set we shuldn't use it even if it's configured
+                # If local isn't set we shouldn't use it even if it's configured
                 read_caches['local'] = None
 
 
             # Try the memoizer first
-            if not recompute and not upsert and cache and memoize:
+            if not recompute and not upsert and (cache or memoize):
                 ds = recall_from_memory(cache_key)
                 if ds:
-                    print(f"Found cache for {cache_key} in memory.")
+                    logger.info(f"Found cache for {cache_key} in memory.")
                     compute_result = False
 
             # Try to read from the cache in priority locations
@@ -396,9 +393,9 @@ def cache(cache=True,
 
                     # First check if it's null
                     if read_cache.is_null():
-                        print(f"Found null cache for {cache_key} in {location} cache.")
+                        logger.info(f"Found null cache for {cache_key} in {location} cache.")
                         if retry_null_cache:
-                            print("Retry null cache set. Recomputing.")
+                            logger.info("Retry null cache set. Recomputing.")
                             read_cache.delete_null()
                             break
                         else:
@@ -406,7 +403,7 @@ def cache(cache=True,
 
                     # If it's not null see if it exists
                     if read_cache.exists():
-                        print(f"Found cache for {cache_key} with backend {read_cache.get_backend()} in {location} cache")
+                        logger.info(f"Found cache for {cache_key} with backend {read_cache.get_backend()} in {location} cache")
 
                         used_read_backend = read_cache.get_backend()
                         if filepath_only:
@@ -415,7 +412,7 @@ def cache(cache=True,
                             ds = read_cache.read(engine=engine)
 
                             if memoize:
-                                print(f"Memoizing {cache_key}.")
+                                logger.info(f"Memoizing {cache_key}.")
                                 save_to_memory(cache_key, ds)
 
                             compute_result = False
@@ -424,9 +421,9 @@ def cache(cache=True,
             # If the cache doesn't exist or we are recomputing, compute the result
             if compute_result:
                 if recompute:
-                    print(f"Recompute for {cache_key} requested. Not checking for cached result.")
+                    logger.info(f"Recompute for {cache_key} requested. Not checking for cached result.")
                 elif upsert:
-                    print(f"Computing {cache_key} to enable data upsert.")
+                    logger.info(f"Computing {cache_key} to enable data upsert.")
                 elif not cache:
                     # The function isn't cacheable, recomputing
                     pass
@@ -435,14 +432,14 @@ def cache(cache=True,
                         raise RuntimeError(f"""Computation has been disabled by
                                             `fail_if_no_cache` and cache doesn't exist for {cache_key}.""")
 
-                    print(f"Cache doesn't exist for {cache_key}. Running function")
+                    logger.info(f"Cache doesn't exist for {cache_key}. Running function")
 
                 ##### IF NOT EXISTS ######
                 ds = func(*args, **passed_kwargs)
                 ##########################
 
                 if memoize:
-                    print(f"Memoizing {cache_key}.")
+                    logger.info(f"Memoizing {cache_key}.")
                     save_to_memory(cache_key, ds)
 
 
@@ -470,7 +467,7 @@ def cache(cache=True,
                     if not upsert:
                         write_cache.set_null()
                     else:
-                        print("Null result not cached in upsert mode.")
+                        logger.info("Null result not cached in upsert mode.")
 
                     return None
 
@@ -486,11 +483,11 @@ def cache(cache=True,
                     write = True
 
                 if write:
-                    print(f"Caching result for {cache_key} in {write_cache.get_backend()}.")
+                    logger.info(f"Caching result for {cache_key} in {write_cache.get_backend()}.")
                     if upsert:
-                        write_cache.upsert(ds, upsert_keys=upsert_keys)
+                        ds = write_cache.upsert(ds, upsert_keys=upsert_keys)
                     else:
-                        write_cache.write(ds)
+                        ds = write_cache.write(ds)
 
             if filepath_only:
                 return write_cache.get_file_path()

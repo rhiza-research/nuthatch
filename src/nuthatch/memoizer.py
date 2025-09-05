@@ -1,8 +1,12 @@
 """The memoizer is a module that memoizes data in memory."""
 import sys
+import copy
 import xarray as xr
 import dask.dataframe as dd
 from .config import get_config
+
+import logging
+logger = logging.getLogger(__name__)
 
 memoized_objects = {}
 cache_key_lru = []
@@ -28,16 +32,18 @@ def save_to_memory(cache_key, data):
     if 'maximum_memory_usage' in max_size:
         max_size = max_size['maximum_memory_usage']
     else:
+        # 100MB Default
         max_size = 100*10^6
 
     if(sys.getsizeof(data) > max_size):
-        print("WARNING: Data too large to memoize.")
+        logger.warning("WARNING: Data too large to memoize.")
+        return
 
     while(sys.getsizeof(memoized_objects) + sys.getsizeof(data) > max_size):
         del memoized_objects[cache_key_lru[0]]
         del cache_key_lru[0]
 
-    memoized_objects[cache_key] = data
+    memoized_objects[cache_key] = copy.deepcopy(data)
 
     if cache_key in cache_key_lru:
         cache_key_lru.remove(cache_key)

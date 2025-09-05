@@ -66,6 +66,8 @@ class Metastore(ABC):
 class DeltaMetastore(Metastore):
     """Deltalake metastore."""
 
+    # Class variables for keeping the delta table in memory
+    # slightly improves performance
     delta_tables = {}
     delta_table_configs = {}
 
@@ -320,7 +322,9 @@ class SQLMetastore(Metastore):
 
 
 class Cache():
-    """The cache class is the main class that manages the cache.
+    """The cache class interacts with the metastore and the backends to store the
+    data itself and information about cache state. Currently delta and sql
+    metastores are implemented.
 
     It is responsible for:
     - Instantiating the correct backend
@@ -602,7 +606,6 @@ class Cache():
         if self.backend:
             self._set_metadata_pending()
             ds = self.backend.write(ds)
-            print("Committing")
             self._commit_metadata()
             return ds
         else:

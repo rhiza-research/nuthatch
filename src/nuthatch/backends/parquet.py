@@ -27,8 +27,9 @@ class ParquetBackend(FileBackend):
             part = data.cache_partition
 
         if isinstance(data, dd.DataFrame):
+            data = data.persist()
             self._write_parquet_helper(data, self.path, part)
-            return self.read(engine=dd.DataFrame)
+            return data
         elif isinstance(data, pd.DataFrame):
             data.to_parquet(self.path, partition_cols=part, engine='pyarrow')
             return data

@@ -131,9 +131,9 @@ class ZarrBackend(FileBackend):
 
     def write(self, data):
         if isinstance(data, xr.Dataset):
+            data = data.persist()
             self.chunk_to_zarr(data, self.path)
-            return xr.open_dataset(self.path, engine='zarr',
-                                   chunks={}, decode_timedelta=True)
+            return data
         else:
             raise NotImplementedError("Zarr backend only supports caching of xarray datasets.")
 
@@ -197,10 +197,10 @@ class ZarrBackend(FileBackend):
             chunk_size, chunk_with_labels = get_chunk_size(ds)
 
             if chunk_size > self.chunk_size_upper_limit_mb or chunk_size < self.chunk_size_lower_limit_mb:
-                logger.warn(f"WARNING: Chunk size is {chunk_size}MB. Target approx 100MB.")
-                logger.warn(chunk_with_labels)
+                logger.warning(f"WARNING: Chunk size is {chunk_size}MB. Target approx 100MB.")
+                logger.warning(chunk_with_labels)
         except ValueError:
-            logger.warn("Failed to get chunks size! Continuing with unknown chunking...")
+            logger.warning("Failed to get chunks size! Continuing with unknown chunking...")
 
         ds.to_zarr(store=path, mode='w')
 
