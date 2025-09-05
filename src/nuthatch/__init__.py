@@ -9,6 +9,4 @@ from .nuthatch import cache
 # Trigger backend registration
 import nuthatch.backends #noqa
 
-__version__ = "0.1.0"
-
-__all__ = ["config_parameter", "cache", "__version__", "cli"]
+__all__ = ["config_parameter", "cache"]

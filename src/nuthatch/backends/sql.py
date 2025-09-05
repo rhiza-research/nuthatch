@@ -1,14 +1,13 @@
-from nuthatch.backend import DatabaseBackend, register_backend
-from os.path import join
+import os
+import uuid
 import hashlib
 import sqlalchemy
-import uuid
 import pandas as pd
 import dask.dataframe as dd
+from nuthatch.backend import DatabaseBackend, register_backend
 
-def hashed_table_name(table_name):
-    """Return a qualified postgres table name."""
-    return hashlib.md5(table_name.encode()).hexdigest()
+import logging
+logger = logging.getLogger(__name__)
 
 @register_backend
 class SQLBackend(DatabaseBackend):
@@ -20,32 +19,32 @@ class SQLBackend(DatabaseBackend):
 
     backend_name = "sql"
 
-    def __init__(self, cacheable_config, cache_key, namespace, args, backend_kwargs):
+    def __init__(self, cacheable_config, cache_key, namespace, args, backend_kwargs={}):
         super().__init__(cacheable_config, cache_key, namespace, args, backend_kwargs)
 
-        if backend_kwargs and 'hash_table_name' in backend_kwargs:
-            self.table_name = hashed_table_name(cache_key)
+        if backend_kwargs.get('hash_table_name', False):
+            self.table_name = self._hashed_table_name(cache_key)
         else:
             self.table_name = cache_key
+
+        self.write_index = backend_kwargs.get('write_index', False)
+        self.chunk_size = backend_kwargs.get('chunk_size', 10000)
 
         if namespace:
             self.table_name = namespace + '.' + self.table_name
 
-            if not self.write_engine.dialect.has_schema(self.write_engine, namespace):
-                self.write_engine.execute(sqlalchemy.schema.CreateSchema(namespace))
+            if not self.write_connection.dialect.has_schema(self.write_connection, namespace):
+                self.write_connection.execute(sqlalchemy.schema.CreateSchema(namespace))
 
+    def upsert(self, data, upsert_keys=None):
+        primary_keys = upsert_keys
 
-
-    def write(self, data, upsert=False, primary_keys=None):
-        if upsert and self.exists():
+        if self.exists():
             if primary_keys is None or not isinstance(primary_keys, list):
                 raise ValueError("Upsert may only be performed with primary keys specified as a list.")
 
-            if not isinstance(data, dd.DataFrame):
-                raise RuntimeError("Upsert is only supported by dask dataframes for parquet")
-
-            with self.engine.begin() as conn:
-                print("SQL cache exists for upsert.")
+            with self.connection.begin() as conn:
+                logger.info("SQL cache exists for upsert.")
                 # If it already exists...
 
                 # Extract the primary key columns for SQL constraint
@@ -57,11 +56,11 @@ class SQLBackend(DatabaseBackend):
                 temp_table_name = f"temp_{uuid.uuid4().hex[:6]}"
 
                 if isinstance(data, pd.DataFrame):
-                    data.to_sql(temp_table_name, self.engine, index=False)
+                    data.to_sql(temp_table_name, self.write_connection, index=self.write_index)
                 elif isinstance(data, dd.DataFrame):
-                    data.to_sql(temp_table_name, uri=self.engine.url.render_as_string(hide_password=False), index=False, parallel=True, chunksize=10000)
+                    data.to_sql(temp_table_name, uri=self.write_connection.url.render_as_string(hide_password=False), index=self.write_index, parallel=True, chunksize=self.chunk_size)
                 else:
-                    raise RuntimeError("Did not return dataframe type.")
+                    raise RuntimeError("SQL backend only support pandas and dask dataframes")
 
                 index_sql_txt = ", ".join([f'"{i}"' for i in primary_keys])
                 columns = list(data.columns)
@@ -83,7 +82,7 @@ class SQLBackend(DatabaseBackend):
                 ALTER TABLE "{self.table_name}" DROP CONSTRAINT IF EXISTS unique_constraint_for_{constraint_id} CASCADE;
                 """
 
-                print("Adding a unique to contraint to table if it doesn't exist.")
+                logger.info("Adding a unique to contraint to table if it doesn't exist.")
                 conn.exec_driver_sql(query_pk)
 
                 query_pk = f"""
@@ -98,30 +97,32 @@ class SQLBackend(DatabaseBackend):
                                    ON CONFLICT ({index_sql_txt}) DO UPDATE
                                    SET {update_column_stmt};
                                    """
-                print("Upserting.")
+                logger.info("Upserting.")
                 conn.exec_driver_sql(query_upsert)
                 conn.exec_driver_sql(f"DROP TABLE {temp_table_name}")
+                return self.read(engine=type(data))
         else:
-            try:
-                if isinstance(data, pd.DataFrame):
-                    data.to_sql(self.table_name, self.write_engine, if_exists='replace', index=False)
-                    return data
-                elif isinstance(data, dd.DataFrame):
-                    data.to_sql(self.table_name, self.engine.url.render_as_string(hide_password=False), if_exists='replace', index=False, parallel=True, chunksize=10000)
-                else:
-                    raise RuntimeError("Did not return dataframe type.")
+            return self.write(data)
 
-                # Also log the table name in the tables table
-                pd_name = {'table_name': [self.cache_key], 'table_key': [self.table_name], 'created_at': [pd.Timestamp.now()]}
-                pd_name = pd.DataFrame(pd_name)
-                pd_name.to_sql('cache_tables', self.write_engine, if_exists='append')
-            except sqlalchemy.exc.InterfaceError:
-                raise RuntimeError("Error connecting to database.")
+
+    def write(self, data):
+        try:
+            if isinstance(data, pd.DataFrame):
+                data.to_sql(self.table_name, self.write_connection, if_exists='replace', index=self.write_index)
+                return data
+            elif isinstance(data, dd.DataFrame):
+                data.to_sql(self.table_name, self.connection.url.render_as_string(hide_password=False), if_exists='replace', index=self.write_index, parallel=True, chunksize=self.chunk_size)
+                return self.read(engine=dd.DataFrame)
+            else:
+                raise RuntimeError("SQL Backend can only write pandas and dask dataframes.")
+        except sqlalchemy.exc.InterfaceError:
+            raise RuntimeError("Error connecting to database.")
+
 
     def read(self, engine=None):
         if engine == 'pandas' or engine == pd.DataFrame or engine =='dask' or engine == dd.DataFrame or engine is None:
             try:
-                data = pd.read_sql_query(f'select * from "{self.table_name}"', con=self.engine)
+                data = pd.read_sql_query(f'select * from "{self.table_name}"', con=self.connection)
                 if engine == 'dask' or engine == dd.DataFrame:
                     return dd.from_pandas(data)
                 else:
@@ -129,19 +130,27 @@ class SQLBackend(DatabaseBackend):
             except sqlalchemy.exc.InterfaceError:
                 raise RuntimeError("Error connecting to database.")
         else:
-            raise RuntimeError("SQL backend only supports pandas engine.")
+            raise RuntimeError("SQL backend only supports pandas and dask engines.")
+
 
     def exists(self):
         try:
-            insp = sqlalchemy.inspect(self.engine)
+            insp = sqlalchemy.inspect(self.connection)
             return insp.has_table(self.table_name)
         except sqlalchemy.exc.InterfaceError:
             raise RuntimeError("Error connecting to database.")
 
-    def get_file_path(self):
-        return join(self.engine.url.render_as_string(), self.table_name)
+
+    def get_uri(self):
+        return os.path.join(self.connection.url.render_as_string(), self.table_name)
+
 
     def delete(self):
         metadata = sqlalchemy.MetaData()
         table = sqlalchemy.Table(self.table_name, metadata)
-        table.drop(self.engine, checkfirst=True)
+        table.drop(self.connection, checkfirst=True)
+
+    def _hashed_table_name(self, table_name):
+        """Return a qualified postgres table name."""
+        return hashlib.md5(table_name.encode()).hexdigest()
+

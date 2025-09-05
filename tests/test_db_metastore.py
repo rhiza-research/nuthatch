@@ -19,8 +19,8 @@ local_config = get_config(location='root', requested_parameters=Cache.config_par
 
 
 def test_meta_init():
-    cache = Cache(local_config, "test_key", "test", {}, 'root', None, None)
-    assert cache.db_table is not None
+    cache = Cache(local_config, "test_key", "test", {}, 'root', None, {})
+    assert cache.metastore.db_table is not None
 
 def test_requested_backend():
     cache = Cache(local_config, "test_key", "test", {}, 'root', 'basic', None)

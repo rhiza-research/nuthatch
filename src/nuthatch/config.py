@@ -1,4 +1,11 @@
-"""The config module is used to get the config for a given location and backend."""
+"""
+The config module is used to get the config for a given location and backend.
+
+For instance you can set parameters for the `root` location, a `local` local
+for lower latency caching or a number of `mirror` locations, and you can
+set specific parameters for specific backends (i.e. terracotta and zarr
+could leverage different filesystems if specified)
+"""
 from pathlib import Path
 import os
 import tomllib
@@ -10,8 +17,9 @@ def config_parameter(parameter_name, location='root', backend=None, secret=False
 
     Args:
         parameter_name (str): The name of the parameter.
-        location (str, optional): The location to register the parameter.
+        location (str, optional): The location to register the parameter. One of 'local', 'root', or 'mirror'
         backend (str, optional): The backend to register the parameter.
+        secret (bool): whether the parameter is secret
     """
     def decorator(function):
         if location not in dynamic_parameters:
@@ -33,11 +41,12 @@ def get_config(location='root', requested_parameters=[], backend_name=None, mask
     """Get the config for a given location and backend.
 
     Args:
-        location (str, optional): The location to get the config for.
+        location (str, optional): The location to get the config for. One of 'local', 'root', or 'mirror'
         requested_parameters (list, optional): The parameters to get the config for.
         backend_name (str, optional): The backend to get the config for.
+        mask_secrets (bool): Whether to hide secret parameters. Useful for printing.
     """
-    #Find pyproject.toml or nuthatch.ini
+    #Find pyproject.toml
     current_directory = Path.cwd()
 
     config_file = None
@@ -52,7 +61,7 @@ def get_config(location='root', requested_parameters=[], backend_name=None, mask
     with open(config_file, "rb") as f:
         config = tomllib.load(f)
 
-    # If it's root allow the base parameters to be used and root to be set
+    # Assume all parameters set without a location specified apply to root and all backends
     location_params = {}
     if location == 'root':
         location_params = config['tool']['nuthatch']
@@ -75,6 +84,7 @@ def get_config(location='root', requested_parameters=[], backend_name=None, mask
     # Now call all the relevant config registrations and add them
     for p in requested_parameters:
         if location in dynamic_parameters:
+            # If a dynamic parameter has been set call it and use it to override any static config
             if backend_name in dynamic_parameters[location] and p in dynamic_parameters[location][backend_name]:
                 secret = dynamic_parameters[location][backend_name][p][1]
                 param = dynamic_parameters[location][backend_name][p][0]()

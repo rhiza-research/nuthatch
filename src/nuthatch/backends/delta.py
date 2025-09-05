@@ -1,8 +1,11 @@
-from nuthatch.backend import FileBackend, register_backend
-from deltalake import DeltaTable, write_deltalake
-import dask.dataframe as dd
 import pandas as pd
+import dask.dataframe as dd
 import dask_deltatable as ddt
+from deltalake import DeltaTable, write_deltalake
+from nuthatch.backend import FileBackend, register_backend
+
+import logging
+logger = logging.getLogger(__name__)
 
 @register_backend
 class DeltaBackend(FileBackend):
@@ -16,16 +19,13 @@ class DeltaBackend(FileBackend):
     default_for_type = pd.DataFrame
 
     def __init__(self, cacheable_config, cache_key, namespace, args, backend_kwargs):
-        super().__init__(cacheable_config, cache_key, namespace, args, backend_kwargs, 'delta')
+        super().__init__(cacheable_config, cache_key, namespace, args, backend_kwargs, extension='delta')
 
 
-    def write(self, data, upsert=False, primary_keys=None):
+    def write(self, data):
         """Write a pandas dataframe to a delta table."""
-        if upsert:
-            raise ValueError("Delta backend does not support upsert.")
-
         if isinstance(data, dd.DataFrame):
-            print("""Warning: Dask datafame passed to delta backend. Will run `compute()`
+            logger.warning("""Warning: Dask datafame passed to delta backend. Will run `compute()`
                       on the dataframe prior to storage. This will fail if the dataframe
                       does not fit in memory. Use `backend=parquet` to handle parallel writing of dask dataframes.""")
             write_data = data.compute()
@@ -35,6 +35,11 @@ class DeltaBackend(FileBackend):
             raise RuntimeError("Delta backend only supports dask and pandas engines.")
 
         write_deltalake(self.path, write_data, mode='overwrite', schema_mode='overwrite')
+        return data
+
+
+    def upsert(self, data, upsert_keys=None):
+        raise NotImplementedError("Delta backend does not support upsert.")
 
 
     def read(self, engine=None):

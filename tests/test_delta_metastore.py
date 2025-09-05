@@ -9,9 +9,8 @@ test_config = {
 def test_meta_init():
     local_config = test_config
     local_config['filesystem'] = test_config['filesystem'] + str(uuid.uuid4())
-    cache = Cache(local_config, "test_key", "test", {}, 'root', None, None)
-    assert cache.dt
-    assert cache.dt.metadata()
+    cache = Cache(local_config, "test_key", "test", {}, 'root', None, {})
+    assert cache.metastore.dt is not None
 
 def test_requested_backend():
     local_config = test_config

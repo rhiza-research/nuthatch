@@ -1,10 +1,14 @@
 [project]
 name = "nuthatch"
 version = "0.1.0"
-description = "Add your description here"
+description = "Cacheable big data pipelines"
 authors = [
-    { name = "Joshua Adkins", email = "josh@rhizaresearch.org" }
+    { name = "Joshua Adkins", email = "josh@rhizaresearch.org" },
+    { name = "Genevieve Flaspohler", email = "geneviee@rhizaresearch.org" }
 ]
+
+# TODO: Make backend submodules so that their
+# dependencies can be installed independently
 dependencies = [
     "fsspec",
     "sqlalchemy",
@@ -27,12 +31,13 @@ requires-python = ">= 3.12"
 nuthatch = "nuthatch.cli:main"
 
 [build-system]
-requires = ["hatchling"]
+requires = ["hatchling==1.26.3"]
 build-backend = "hatchling.build"
 
 [tool.rye]
 managed = true
 dev-dependencies = [
+    "pooch",
     "google-cloud-secret-manager",
     "gcsfs",
     "pytest",
