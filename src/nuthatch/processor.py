@@ -81,9 +81,3 @@ class NuthatchProcessor(ABC):
             True if the data is valid, False otherwise.
         """
         return True
-
-# example use of nutach processor
-#def my_dec_factory(param1, param2):
-#    def decorator(func):
-#         return MyDecorator(func, param1, param2)
-#    return decorator
