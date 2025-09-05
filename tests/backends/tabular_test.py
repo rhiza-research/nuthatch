@@ -30,11 +30,11 @@ def dask_df(name='bob'):
 def multi_tab_test_pandas(backend):
     """Test the tabular function."""
     data = pandas_df('josh', backend=backend, recompute=True, force_overwrite=True)
-    data2 = pandas_df('josh', backend=backend)
+    data2 = pandas_df('josh', backend=backend, engine='pandas')
     pd.testing.assert_frame_equal(data,data2)
 
     data3 = pandas_df('josh', recompute=True, backend=backend, force_overwrite=True)
-    data4 = pandas_df('josh', backend=backend)
+    data4 = pandas_df('josh', backend=backend, engine='pandas')
     try:
         pd.testing.assert_frame_equal(data, data3)
     except AssertionError:

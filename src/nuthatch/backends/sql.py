@@ -22,14 +22,13 @@ class SQLBackend(DatabaseBackend):
     def __init__(self, cacheable_config, cache_key, namespace, args, backend_kwargs={}):
         super().__init__(cacheable_config, cache_key, namespace, args, backend_kwargs)
 
-        if backend_kwargs.get('hash_table_name', default=False):
+        if backend_kwargs.get('hash_table_name', False):
             self.table_name = self._hashed_table_name(cache_key)
         else:
             self.table_name = cache_key
 
-        self.write_index = backend_kwargs.get('write_index', default=False)
-        self.chunk_size = backend_kwargs.get('chunk_size', default=10000)
-
+        self.write_index = backend_kwargs.get('write_index', False)
+        self.chunk_size = backend_kwargs.get('chunk_size', 10000)
 
         if namespace:
             self.table_name = namespace + '.' + self.table_name
@@ -112,7 +111,7 @@ class SQLBackend(DatabaseBackend):
                 data.to_sql(self.table_name, self.write_connection, if_exists='replace', index=self.write_index)
                 return data
             elif isinstance(data, dd.DataFrame):
-                data.to_sql(self.table_name, self.connection.url.render_as_string(hide_password=False), if_exists='replace', index=self.write_idnex, parallel=True, chunksize=self.chunk_size)
+                data.to_sql(self.table_name, self.connection.url.render_as_string(hide_password=False), if_exists='replace', index=self.write_index, parallel=True, chunksize=self.chunk_size)
                 return self.read(engine=dd.DataFrame)
             else:
                 raise RuntimeError("SQL Backend can only write pandas and dask dataframes.")

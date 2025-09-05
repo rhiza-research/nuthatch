@@ -1,14 +1,323 @@
-from deltalake import DeltaTable, write_deltalake, QueryBuilder
 from os.path import join
 import copy
-import git
-import getpass
 import datetime
-from .backend import get_backend_by_name
-from .config import get_config
+import getpass
+from abc import ABC, abstractmethod
+
+import git
 import pyarrow as pa
 import pandas as pd
 import sqlalchemy
+from deltalake import DeltaTable, write_deltalake, QueryBuilder
+
+from .backend import get_backend_by_name
+from .config import get_config
+
+import logging
+logger = logging.getLogger(__name__)
+
+class Metastore(ABC):
+    """The base class for a cache metastore. Must basically implement schema and table
+    create, check conditional row existence, row insert, row, select, row update, and row delete.
+    """
+    def __init__(self, config, schema):
+        """Must create a metastore of the specified schema.
+
+        Arguments:
+            schema (dict): column_name: python type
+        """
+        pass
+
+    @abstractmethod
+    def check_row_exists(self, where):
+        """Check if metastore row exists based on where condition.
+
+        Arguments:
+            where (dict): dict of key/value pairs to check
+
+        Returns:
+            True if exists, false otherwise
+        """
+        pass
+
+    @abstractmethod
+    def select_row(self, columns, where):
+        """Return columns for rows matching the where clause.
+
+        Arguments:
+            columns (str or list(str)): columns to select
+            where (dict): key/value pairse to match
+
+        Returns:
+            list(dict) of matching row values
+        """
+        pass
+
+    @abstractmethod
+    def upsert(self, values, where):
+        """Updates or creates a row of values that matches the were clause.
+
+        Arguments:
+            values (dict): key values to upsert
+            where (dict): conditions on which to upsert
+        """
+        pass
+
+class DeltaMetastore(Metastore):
+    """Deltalake metastore."""
+
+    delta_tables = {}
+    delta_table_configs = {}
+
+    def __init__(self, config, backend_location, schema):
+        base_path = config['filesystem']
+        table_path = join(base_path, 'nuthatch_metadata.delta')
+
+        options = None
+        if 'filesystem_options' in config:
+            options = config['filesystem_options']
+            for key, value in options.items():
+                options[key] = str(value)
+
+        if (backend_location in self.__class__.delta_tables and
+            self.__class__.delta_table_configs[backend_location] == config):
+            self.dt = self.__class__.delta_tables[backend_location]
+        else:
+            # Create pyarrow schema to match schema
+            schema_list = []
+            for key, value in schema.items():
+                if value is str:
+                    schema_list.append(pa.field(key, pa.string()))
+                elif value is int:
+                    schema_list.append(pa.field(key, pa.int64()))
+
+
+            # Instantiate a delta table that matches schema if it does not exist
+            if not DeltaTable.is_deltatable(table_path, storage_options=options):
+                logger.info("Instantiating empty delta table.")
+                DeltaTable.create(table_path,
+                                  schema=pa.schema(schema_list),
+                                  storage_options=options)
+
+            self.dt = DeltaTable(table_path, storage_options=options)
+            self.__class__.delta_tables[backend_location] = self.dt
+            self.__class__.delta_table_configs[backend_location] = config
+
+
+    def check_row_exists(self, where):
+        """Check if metastore row exists based on where condition.
+
+        Arguments:
+            where (dict): dict of key/value pairs to check
+
+        Returns:
+            True if exists, false otherwise
+        """
+        base = """select * from metadata"""
+
+        first = True
+        for key, value in where.items():
+            if first:
+                base += f" where {key} = '{value}'"
+                first = False
+            else:
+                base += f" AND {key} = '{value}'"
+
+        rows = QueryBuilder().register('metadata', self.dt).execute(base).read_all()
+
+        if len(rows) > 0:
+            return True
+        else:
+            return False
+
+
+    def select_row(self, columns, where={}, like={}):
+        """Return columns for rows matching the where clause.
+
+        Arguments:
+            columns (str or list(str)): columns to select
+            where (dict): key/value pairs to match
+            like (dict): key/value pairs to like match
+
+        Returns:
+            list(dict) of matching row values
+        """
+        if isinstance(columns, str):
+            columns = [columns]
+
+        base = f"""select {', '.join(f'"{s}"' for s in columns)} from metadata"""
+
+        first = True
+        for key, value in where.items():
+            if first:
+                base += f" where {key} = '{value}'"
+                first = False
+            else:
+                base += f" AND {key} = '{value}'"
+
+        for key, value in like.items():
+            if first:
+                base += f" where {key} LIKE '{value}'"
+                first = False
+            else:
+                base += f" AND {key} LIKE '{value}'"
+
+
+        rows = QueryBuilder().register('metadata', self.dt).execute(base).read_all()
+
+        return rows.to_struct_array().to_pylist()
+
+
+    def upsert(self, values, where):
+        """Updates or creates a row of values that matches the were clause.
+
+        Arguments:
+            values (dict): key values to upsert
+            where (dict): conditions on which to upsert
+        """
+        for key, value in values.items():
+            if value is None:
+                values[key] = str(value)
+
+
+        if self.check_row_exists(where):
+            base = ""
+            first = True
+            for key, value in where.items():
+                if first:
+                    base += f"{key} = '{value}'"
+                    first = False
+                else:
+                    base += f" AND {key} = '{value}'"
+
+            self.dt.update(predicate=base, new_values=values)
+        else:
+            df = pd.DataFrame([values])
+            write_deltalake(self.dt, df, mode='append')
+
+    def delete(self, where):
+        base = ""
+        first = True
+        for key, value in where.items():
+            if first:
+                base += f"{key} = '{value}'"
+                first = False
+            else:
+                base += f" AND {key} = '{value}'"
+
+        self.dt.delete(predicate=base)
+
+
+class SQLMetastore(Metastore):
+    """SQL metastore."""
+
+    def __init__(self, config, schema):
+        # Create sqlalchemy schema to match schema
+        schema_list = []
+        for key, value in schema.items():
+            if value is str:
+                schema_list.append(sqlalchemy.Column(key, sqlalchemy.String))
+            elif value is int:
+                schema_list.append(sqlalchemy.Column(key, sqlalchemy.BigInteger))
+
+        # This is a database type
+        database_url = sqlalchemy.URL.create(config['driver'],
+                                             username = config['username'],
+                                             password = config['password'],
+                                             host = config['host'],
+                                             port = config['port'],
+                                             database = config['database'])
+        self.engine = sqlalchemy.create_engine(database_url)
+
+        metadata = sqlalchemy.MetaData()
+        self.db_table = sqlalchemy.Table('nuthatch_metadata', metadata, *schema_list)
+
+        metadata.create_all(self.engine, checkfirst=True)
+
+
+    def check_row_exists(self, where):
+        """Check if metastore row exists based on where condition.
+
+        Arguments:
+            where (dict): dict of key/value pairs to check
+
+        Returns:
+            True if exists, false otherwise
+        """
+        statement = sqlalchemy.select(sqlalchemy.func.count())
+
+        for key, value in where.items():
+            statement = statement.where(self.db_table.c[key] == value)
+
+        with self.engine.connect() as conn:
+            num = conn.execute(statement)
+            if num.fetchone()[0] > 0:
+                return True
+            else:
+                return False
+
+
+    def select_row(self, columns, where={}, like={}):
+        """Return columns for rows matching the where clause.
+
+        Arguments:
+            columns (str or list(str)): columns to select
+            where (dict): key/value pairs to match
+            like (dict): key/value pairs to like match
+
+        Returns:
+            list(dict) of matching row values
+        """
+        if isinstance(columns, str):
+            columns = [columns]
+
+        statement = sqlalchemy.select(self.db_table.c[*columns])
+
+        for key, value in where.items():
+            statement = statement.where(self.db_table.c[key] == value)
+
+        for key, value in like.items():
+            statement = statement.where(self.db_table.c[key].like(value))
+
+
+        with self.engine.connect() as conn:
+            rows = conn.execute(statement)
+            return rows.mappings().all()
+
+
+    def upsert(self, values, where):
+        """Updates or creates a row of values that matches the were clause.
+
+        Arguments:
+            values (dict): key values to upsert
+            where (dict): conditions on which to upsert
+        """
+        if self.check_row_exists(where):
+            statement = sqlalchemy.update(self.db_table)
+
+            for key, value in where.items():
+                statement = statement.where(self.db_table.c[key] == value)
+
+            statement = statement.values(values)
+        else:
+            statement = sqlalchemy.insert(self.db_table).values(values)
+
+        with self.engine.connect() as conn:
+            conn.execute(statement)
+            conn.commit()
+
+
+    def delete(self, where):
+        """Delete items from the cache metastore matching the where clause."""
+        statement = sqlalchemy.delete(self.db_table)
+
+        for key, value in where.items():
+            statement = statement.where(self.db_table.c[key] == value)
+
+        with self.engine.connect() as conn:
+            conn.execute(statement)
+            conn.commit()
+
 
 class Cache():
     """The cache class is the main class that manages the cache.
@@ -21,8 +330,6 @@ class Cache():
     database_parameters = ["driver", "host", "port", "database", "username", "password"]
     config_parameters = ['filesystem', 'filesystem_options', 'metadata_location'] + database_parameters
     backend_name = "cache_metadata"
-    delta_tables = {}
-    delta_table_configs = {}
 
     def __init__(self, config, cache_key, namespace, args, backend_location, requested_backend, backend_kwargs):
         self.cache_key = cache_key
@@ -30,68 +337,29 @@ class Cache():
         self.namespace = namespace
         self.location = backend_location
         self.args = args
-        self. backend_kwargs = backend_kwargs
+        self.backend_kwargs = backend_kwargs
+
+        schema = {
+            'cache_key': str,
+            'backend': str,
+            'namespace': str,
+            'state': str,
+            'last_modified': int,
+            'commit_hash': str,
+            'user': str,
+            'path': str
+        }
 
         # Either instantiate a delta table or a postgres table
         if (('metadata_location' in config and config['metadata_location'] == 'filesystem') or
             ('metadata_location' not in config and 'filesystem' in config) or
             (any(param not in config for param in self.__class__.database_parameters))):
-            # This is a delta/filesystem type
-            base_path = self.config['filesystem']
-            table_path = join(base_path, 'nuthatch_metadata.delta')
-
-            options = None
-            if 'filesystem_options' in self.config:
-                options = self.config['filesystem_options']
-                for key, value in options.items():
-                    options[key] = str(value)
-
-            self.store = 'delta'
-            if (backend_location in self.__class__.delta_tables and
-                self.__class__.delta_table_configs[backend_location] == config):
-                self.dt = self.__class__.delta_tables[backend_location]
-            else:
-                # Instantiate the metadata store here so that _get_backend_from_metadata() works
-                if not DeltaTable.is_deltatable(table_path, storage_options=options):
-                    print("Instantiating empty delta table.")
-                    DeltaTable.create(table_path,
-                                      schema=pa.schema(
-                                        [pa.field("cache_key", pa.string()), pa.field("backend", pa.string()),
-                                         pa.field("namespace", pa.string()), pa.field("state", pa.string()),
-                                         pa.field("last_modified", pa.int64()), pa.field("commit_hash", pa.string()),
-                                         pa.field("user", pa.string()), pa.field("path", pa.string())]
-                                      ),
-                                      storage_options=options,
-                                      partition_by="cache_key")
-
-                self.dt = DeltaTable(table_path, storage_options=options)
-                self.__class__.delta_tables[backend_location] = self.dt
-                self.__class__.delta_table_configs[backend_location] = config
+            logger.debug(f"Using Delta Metastore for {backend_location}")
+            self.metastore = DeltaMetastore(config, backend_location, schema)
         else:
-            # This is a database type
-            database_url = sqlalchemy.URL.create(self.config['driver'],
-                                                 username = self.config['username'],
-                                                 password = self.config['password'],
-                                                 host = self.config['host'],
-                                                 port = self.config['port'],
-                                                 database = self.config['database'])
-            self.engine = sqlalchemy.create_engine(database_url)
-            metadata = sqlalchemy.MetaData()
+            logger.debug(f"Using SQL Metastore for {backend_location}")
+            self.metastore = SQLMetastore(config, schema)
 
-            self.db_table = sqlalchemy.Table(
-                'nuthatch_metadata', metadata,
-                sqlalchemy.Column('cache_key', sqlalchemy.String),
-                sqlalchemy.Column('backend', sqlalchemy.String),
-                sqlalchemy.Column('namespace', sqlalchemy.String),
-                sqlalchemy.Column('state', sqlalchemy.String),
-                sqlalchemy.Column('last_modified', sqlalchemy.BigInteger),
-                sqlalchemy.Column('commit_hash', sqlalchemy.String),
-                sqlalchemy.Column('user', sqlalchemy.String),
-                sqlalchemy.Column('path', sqlalchemy.String)
-            )
-
-            metadata.create_all(self.engine, checkfirst=True)
-            self.store = 'database'
 
         self.backend = None
         self.backend_name = None
@@ -112,53 +380,6 @@ class Cache():
             if backend_config:
                 self.backend = backend_class(backend_config, cache_key, namespace, args, copy.deepcopy(backend_kwargs))
 
-    def _delta_check_exists(self, state=None, include_backend=False):
-        """Check if the metadata exists in the delta table.
-
-        Args:
-            state (str, optional): The state of the metadata to check for.
-            include_backend (bool, optional): Whether to include the backend in the check.
-
-        Returns:
-            bool: True if the metadata exists in the delta table, False otherwise.
-        """
-        base = f"""select * from metadata where cache_key = '{self.cache_key}' AND namespace = '{self.namespace}'"""
-        if include_backend:
-            base += f" AND backend = '{self.backend_name}'"
-        if state:
-            base += f" AND state = '{state}'"
-
-        rows = QueryBuilder().register('metadata', self.dt).execute(base).read_all()
-
-        if len(rows) > 0:
-            return True
-        else:
-            return False
-
-    def _sql_check_exists(self, state=None, include_backend=False):
-        """Check if the metadata exists in the database.
-
-        Args:
-            state (str, optional): The state of the metadata to check for.
-            include_backend (bool, optional): Whether to include the backend in the check.
-
-        Returns:
-            bool: True if the metadata exists in the database, False otherwise.
-        """
-        statement = sqlalchemy.select(sqlalchemy.func.count(self.db_table.c.cache_key)).where(self.db_table.c.cache_key == self.cache_key)\
-                                                                    .where(self.db_table.c.namespace == self.namespace)
-        if state:
-            statement = statement.where(self.db_table.c.state == state)
-        if include_backend:
-            statement = statement.where(self.db_table.c.backend == self.backend_name)
-
-        with self.engine.connect() as conn:
-            num = conn.execute(statement)
-            if num.fetchone()[0] > 0:
-                return True
-            else:
-                return False
-
     def _check_row_exists(self, state=None, include_backend=False):
         """Check if the metadata exists in the database or delta table.
 
@@ -169,55 +390,18 @@ class Cache():
         Returns:
             bool: True if the metadata exists in the database or delta table, False otherwise.
         """
-        if self.store == 'delta':
-            return self._delta_check_exists(state, include_backend)
-        else:
-            return self._sql_check_exists(state, include_backend)
+        where = {
+            'cache_key': self.cache_key,
+            'namespace': self.namespace
+        }
 
-    def _sql_get_row(self, select, include_backend=False):
-        """Get a row from the database.
-
-        Args:
-            select (str): The column to select.
-            include_backend (bool, optional): Whether to include the backend in the check.
-
-        Returns:
-            The row from the database.
-        """
-        if isinstance(select, str):
-            select = [select]
-
-        statement = sqlalchemy.select(self.db_table.c[*select]).where(self.db_table.c.namespace == self.namespace)\
-                                                               .where(self.db_table.c.cache_key.like(self.cache_key))
+        if state:
+            where['state'] = state
 
         if include_backend:
-            statement = statement.where(self.db_table.c.backend == self.backend_name)
+            where['backend']: self.backend
 
-        with self.engine.connect() as conn:
-            rows = conn.execute(statement)
-            return rows.mappings().all()
-
-    def _delta_get_row(self, select, include_backend=False):
-        """Get a row from the delta table.
-
-        Args:
-            select (str): The column to select.
-            include_backend (bool, optional): Whether to include the backend in the check.
-
-        Returns:
-            The row from the delta table.
-        """
-        if isinstance(select, str):
-            select = [select]
-
-        base = f"""select {', '.join(f'"{s}"' for s in select)} from metadata where namespace = '{self.namespace}' AND
-                                                                  cache_key LIKE '{self.cache_key}'"""
-        if include_backend:
-            base += f" AND backend = '{self.backend_name}'"
-
-        rows = QueryBuilder().register('metadata', self.dt).execute(base).read_all()
-
-        return rows.to_struct_array().to_pylist()
+        return self.metastore.check_row_exists(where)
 
     def _get_row(self, select, include_backend=False):
         """Get a row from the database or delta table.
@@ -229,31 +413,18 @@ class Cache():
         Returns:
             The row from the database or delta table.
         """
-        if self.store == 'delta':
-            return self._delta_get_row(select, include_backend)
-        else:
-            return self._sql_get_row(select, include_backend)
+        where = {
+            'namespace': self.namespace
+        }
 
-    def list(self, cache_key):
-        #convert cache_key glob to valid sql pattern matching
-        if not self.cache_key:
-            cache_key = cache_key.replace('*', '%')
-            cache_key = cache_key.replace('?', '_')
-            self.cache_key = cache_key
+        like = {
+            'cache_key': self.cache_key,
+        }
 
-        if self.backend_name:
-            include_backend = True
-        else:
-            include_backend = False
+        if include_backend:
+            where['backend'] = self.backend_name
 
-        return self._get_row(['cache_key',
-                              'namespace',
-                              'backend',
-                              'state',
-                              'last_modified',
-                              'user',
-                              'commit_hash',
-                              'path'], include_backend=include_backend)
+        return self.metastore.select_row(select, where, like)
 
     def is_null(self):
         """Check if the metadata is null.
@@ -278,24 +449,21 @@ class Cache():
         Args:
             null (bool, optional): Whether to delete the metadata that is null.
         """
-        if self.store == 'delta':
-            if null:
-                self.dt.delete(predicate=f"cache_key = '{self.cache_key}' AND namespace = '{self.namespace}' AND state = 'null'")
-            else:
-                if self.backend_name:
-                    self.dt.delete(predicate=f"cache_key = '{self.cache_key}' AND namespace = '{self.namespace}' AND backend = '{self.backend_name}'")
-                else:
-                    raise RuntimeError("Can only delete non-null metadata with a valid backend")
+
+        where = {
+            'cache_key': self.cache_key,
+            'namespace': self.namespace
+        }
+
+        if null:
+            where['state'] = 'null'
         else:
-            statement = sqlalchemy.delete(self.db_table).where(self.db_table.c.cache_key == self.cache_key)\
-                                                        .where(self.db_table.c.namespace == self.namespace)
-            if null:
-                statement = statement.where(self.db_table.c.state == 'null')
+            if self.backend_name:
+                where['backend'] = self.backend_name
             else:
-                statement = statement.where(self.db_table.c.backend == self.backend_name)
-            with self.engine.connect() as conn:
-                conn.execute(statement)
-                conn.commit()
+                raise RuntimeError("Can only delete non-null metadata with a valid backend")
+
+        self.metastore.delete(where)
 
 
     def _metadata_confirmed(self):
@@ -365,50 +533,29 @@ class Cache():
 
         path = 'None'
         if self.backend:
-            path = self.backend.get_file_path()
+            path = self.backend.get_uri()
 
-        if self.store == 'delta':
-            if self._metadata_exists():
-                values = {'state': state, 'last_modified': datetime.datetime.now(datetime.timezone.utc).timestamp() * 1000000,
-                          'commit_hash': sha, 'user': getpass.getuser(), 'path': path}
-                if state == 'null':
-                    self.dt.update(predicate=f"cache_key = '{self.cache_key}' AND namespace = '{self.namespace}'",
-                                   new_values = values)
-                else:
-                    self.dt.update(predicate=f"cache_key = '{self.cache_key}' AND namespace = '{self.namespace}' AND backend = '{self.backend_name}'",
-                                   new_values= values)
-            else:
-                df = pd.DataFrame({'cache_key': [self.cache_key],
-                                   'namespace': [str(self.namespace)],
-                                   'backend': [self.backend_name],
-                                   'commit_hash': [sha],
-                                   'user': [getpass.getuser()],
-                                   'path' : [path],
-                                   'state': [state],
-                                   'last_modified': [datetime.datetime.now(datetime.timezone.utc).timestamp() * 1000000]})
+        values = {
+            'cache_key': self.cache_key,
+            'namespace': self.namespace,
+            'backend': self.backend_name,
+            'state': state,
+            'last_modified': datetime.datetime.now(datetime.timezone.utc).timestamp() * 1000000,
+            'commit_hash': sha,
+            'user': getpass.getuser(),
+            'path': path
+        }
 
-                write_deltalake(self.dt, df, mode='append')
-        else:
-            if self._metadata_exists():
-                statement = sqlalchemy.update(self.db_table).where(self.db_table.c.cache_key == self.cache_key)\
-                                                            .where(self.db_table.c.namespace == self.namespace)
+        where = {
+            'cache_key': self.cache_key,
+            'namespace': self.namespace
+        }
 
-                if state != 'null':
-                    statement = statement.where(self.db_table.c.backend == self.backend_name)
+        if state != 'null':
+            where['backend'] = self.backend_name
 
-                statement = statement.values(state=state, last_modified=datetime.datetime.now(datetime.timezone.utc).timestamp()*1000000,
-                                             commit_hash=sha, user=getpass.getuser(), path=path)
-            else:
-                statement = sqlalchemy.insert(self.db_table).values(state=state,
-                                                                    last_modified=datetime.datetime.now(datetime.timezone.utc).timestamp()*1000000,
-                                                                    commit_hash=sha, user=getpass.getuser(), path=path,
-                                                                    backend=self.backend_name,
-                                                                    cache_key=self.cache_key,
-                                                                    namespace=self.namespace)
+        self.metastore.upsert(values, where)
 
-            with self.engine.connect() as conn:
-                conn.execute(statement)
-                conn.commit()
 
     def get_backend(self):
         """Get the backend name.
@@ -417,6 +564,7 @@ class Cache():
             The backend name.
         """
         return self.backend.backend_name
+
 
     def exists(self):
         """Check if the metadata exists, is confirmed, and the data exists in the backend.
@@ -441,7 +589,8 @@ class Cache():
         else:
             raise ValueError("Inconsistent and unknown cache state.")
 
-    def write(self, ds, upsert=False, primary_keys=None):
+
+    def write(self, ds):
         """Write data to the backend.
 
         First we set the metadata to pending, then we write the data to the backend,
@@ -449,15 +598,26 @@ class Cache():
 
         Args:
             ds (any): The data to write to the backend.
-            upsert (bool, optional): Whether to upsert the data.
-            primary_keys (list, optional): The primary keys to use for upsert.
         """
         if self.backend:
             self._set_metadata_pending()
-            self.backend.write(ds, upsert, primary_keys)
+            ds = self.backend.write(ds)
+            print("Committing")
             self._commit_metadata()
+            return ds
         else:
             raise RuntimeError("Cannot not write to an uninitialized backend")
+
+
+    def upsert(self, ds, upsert_keys=None):
+        if self.backend:
+            self._set_metadata_pending()
+            ds = self.backend.upsert(ds, upsert_keys)
+            self._commit_metadata()
+            return ds
+        else:
+            raise RuntimeError("Cannot not upsert to an uninitialized backend")
+
 
     def read(self, engine=None):
         """Read data from the backend.
@@ -481,14 +641,14 @@ class Cache():
 
         self._delete_metadata()
 
-    def get_file_path(self):
+    def get_uri(self):
         """Get the file path of the data in the backend.
 
         Returns:
             The file path of the data in the backend.
         """
         if self.backend:
-            return self.backend.get_file_path()
+            return self.backend.get_uri()
         else:
             raise RuntimeError("Cannot not get file path for an uninitialized backend")
 

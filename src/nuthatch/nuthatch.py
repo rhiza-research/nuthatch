@@ -12,8 +12,8 @@ from .config import get_config
 from .memoizer import save_to_memory, recall_from_memory
 import logging
 
-
 logger = logging.getLogger(__name__)
+logging.basicConfig(level=logging.INFO)
 
 # Global variables for caching configuration
 global_recompute = None
@@ -246,12 +246,12 @@ def cache(cache=True,
           cache_disable_if=None,
           engine=None,
           backend=None,
-          backend_kwargs=None,
+          backend_kwargs={},
           storage_backend=None,
-          storage_backend_kwargs=None,
+          storage_backend_kwargs={},
           cache_local=False,
           memoize=False,
-          primary_keys=None):
+          upsert_keys=None):
     """Decorator for caching function results.
 
     Args:
@@ -277,7 +277,7 @@ def cache(cache=True,
         cache_local (bool): If True, will mirror the result locally, at the location
             specified by the LOCAL_CACHE_ROOT_DIR variable. Default is False.
         memoize(bool): Whether to memoize the result in memory. Default is False.
-        primary_keys (list(str)): Column names of the primary keys to user for upsert.
+        upsert_keys (list(str)): Column names of the primary keys to user for upsert.
     """
     # Valid configuration kwargs for the cacheable decorator
     default_cache_kwargs = {
@@ -324,7 +324,7 @@ def cache(cache=True,
             fail_if_no_cache = final_cache_config['fail_if_no_cache']
             cache_args = nonlocals['cache_args']
             cache_disable_if = nonlocals['cache_disable_if']
-            primary_keys = nonlocals['primary_keys']
+            upsert_keys = nonlocals['upsert_keys']
 
             # Check if this is a nested cacheable function
             if not check_if_nested_fn():
@@ -487,7 +487,10 @@ def cache(cache=True,
 
                 if write:
                     print(f"Caching result for {cache_key} in {write_cache.get_backend()}.")
-                    write_cache.write(ds, upsert=upsert, primary_keys=primary_keys)
+                    if upsert:
+                        write_cache.upsert(ds, upsert_keys=upsert_keys)
+                    else:
+                        write_cache.write(ds)
 
             if filepath_only:
                 return write_cache.get_file_path()
