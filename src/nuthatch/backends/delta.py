@@ -4,6 +4,9 @@ import dask_deltatable as ddt
 from deltalake import DeltaTable, write_deltalake
 from nuthatch.backend import FileBackend, register_backend
 
+import logging
+logger = logging.getLogger(__name__)
+
 @register_backend
 class DeltaBackend(FileBackend):
     """
@@ -22,7 +25,7 @@ class DeltaBackend(FileBackend):
     def write(self, data):
         """Write a pandas dataframe to a delta table."""
         if isinstance(data, dd.DataFrame):
-            print("""Warning: Dask datafame passed to delta backend. Will run `compute()`
+            logger.warn("""Warning: Dask datafame passed to delta backend. Will run `compute()`
                       on the dataframe prior to storage. This will fail if the dataframe
                       does not fit in memory. Use `backend=parquet` to handle parallel writing of dask dataframes.""")
             write_data = data.compute()

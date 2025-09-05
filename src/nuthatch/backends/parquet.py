@@ -3,6 +3,8 @@ from pandas.api.types import is_datetime64_any_dtype as is_datetime
 import dask.dataframe as dd
 from nuthatch.backend import FileBackend, register_backend
 
+import logging
+logger = logging.getLogger(__name__)
 
 @register_backend
 class ParquetBackend(FileBackend):
@@ -46,12 +48,12 @@ class ParquetBackend(FileBackend):
             raise RuntimeError("Parquet backend only supports upsert for dask dataframes.")
 
         if self.fs.exists(self.path):
-            print("Found existing cache for upsert.")
+            logger.info("Found existing cache for upsert.")
             if primary_keys is None:
                 raise ValueError("Upsert may only be performed with primary keys specified")
 
             if isinstance(df, pd.DataFrame):
-                print("Auto converting pandas to dask dataframe.")
+                logger.info("Auto converting pandas to dask dataframe.")
                 df = dd.from_pandas(df)
 
             if not isinstance(df, dd.DataFrame):
@@ -91,12 +93,12 @@ class ParquetBackend(FileBackend):
 
                 # Coearce dtypes and make the columns the same order
 
-                print("Copying cache for ``consistent'' upsert.")
+                logger.info("Copying cache for ``consistent'' upsert.")
                 if self.fs.exists(self.temp_cache_path):
                     self.fs.rm(self.temp_cache_path, recursive=True)
 
                 self._write_parquet_helper(final_df, self.temp_cache_path, part)
-                print("Successfully appended rows to temp parquet. Overwriting existing cache.")
+                logger.info("Successfully appended rows to temp parquet. Overwriting existing cache.")
 
                 if self.fs.exists(self.path):
                     self.fs.rm(self.path, recursive=True)
@@ -106,7 +108,7 @@ class ParquetBackend(FileBackend):
                 return self.read(engine=dd.DataFrame)
 
             else:
-                print("No rows to upsert.")
+                logger.info("No rows to upsert.")
         else:
             return self.write(data)
 

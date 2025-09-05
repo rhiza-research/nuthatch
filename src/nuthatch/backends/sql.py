@@ -6,6 +6,8 @@ import pandas as pd
 import dask.dataframe as dd
 from nuthatch.backend import DatabaseBackend, register_backend
 
+import logging
+logger = logging.getLogger(__name__)
 
 @register_backend
 class SQLBackend(DatabaseBackend):
@@ -43,7 +45,7 @@ class SQLBackend(DatabaseBackend):
                 raise ValueError("Upsert may only be performed with primary keys specified as a list.")
 
             with self.connection.begin() as conn:
-                print("SQL cache exists for upsert.")
+                logger.info("SQL cache exists for upsert.")
                 # If it already exists...
 
                 # Extract the primary key columns for SQL constraint
@@ -81,7 +83,7 @@ class SQLBackend(DatabaseBackend):
                 ALTER TABLE "{self.table_name}" DROP CONSTRAINT IF EXISTS unique_constraint_for_{constraint_id} CASCADE;
                 """
 
-                print("Adding a unique to contraint to table if it doesn't exist.")
+                logger.info("Adding a unique to contraint to table if it doesn't exist.")
                 conn.exec_driver_sql(query_pk)
 
                 query_pk = f"""
@@ -96,7 +98,7 @@ class SQLBackend(DatabaseBackend):
                                    ON CONFLICT ({index_sql_txt}) DO UPDATE
                                    SET {update_column_stmt};
                                    """
-                print("Upserting.")
+                logger.info("Upserting.")
                 conn.exec_driver_sql(query_upsert)
                 conn.exec_driver_sql(f"DROP TABLE {temp_table_name}")
                 return self.read(engine=type(data))

@@ -2,8 +2,8 @@ from nuthatch.backend import FileBackend, register_backend
 import xarray as xr
 import numpy as np
 
-CHUNK_SIZE_UPPER_LIMIT_MB = 300
-CHUNK_SIZE_LOWER_LIMIT_MB = 30
+import logging
+logger = logging.getLogger(__name__)
 
 
 def get_chunk_size(ds, size_in='MB'):
@@ -43,7 +43,6 @@ def merge_chunk_by_arg(chunking, chunk_by_arg, kwargs):
     return chunking
 
 
-#TODO Why was this the way it was in sheerwater???
 def prune_chunking_dimensions(ds, chunking):
     """Prune the chunking dimensions to only those that exist in the dataset.
 
@@ -111,34 +110,35 @@ class ZarrBackend(FileBackend):
             on the value of the 'grid' argument. If multiple cache arguments specify
             modifiers for the same chunking dimension, the last one specified will prevail.
         auto_rechunk(bool): If True will aggressively rechunk a cache on load.
+        chunk_size_upper_limit_mb (int): upper limit chunk size to print warnings
+        chunk_size_lower_limit_mb (int): lower limit chunk size to print warnings
     """
 
     backend_name = 'zarr'
     default_for_type = xr.Dataset
 
-    def __init__(self, cacheable_config, cache_key, namespace, args, backend_kwargs):
-        super().__init__(cacheable_config, cache_key, namespace, args, backend_kwargs, 'zarr')
+    def __init__(self, cacheable_config, cache_key, namespace, args, backend_kwargs={}):
+        super().__init__(cacheable_config, cache_key, namespace, args, backend_kwargs, extension='zarr')
 
-        if backend_kwargs and 'chunking' in backend_kwargs and 'chunk_by_arg' in backend_kwargs:
+        if 'chunking' in backend_kwargs and 'chunk_by_arg' in backend_kwargs:
             self.chunking = merge_chunk_by_arg(self.backend_kwargs['chunking'], self.backend_kwargs['chunk_by_arg'], args)
-        elif backend_kwargs and 'chunking' in backend_kwargs:
-            self.chunking = backend_kwargs['chunking']
         else:
-            self.chunking = 'auto'
+            self.chunking = backend_kwargs.get('chunking', 'auto')
 
-        if backend_kwargs and 'auto_rechunk' in backend_kwargs and backend_kwargs['auto_rechunk']:
-            self.auto_rechunk = True
-        else:
-            self.auto_rechunk = False
+        self.auto_rechunk = backend_kwargs.get('auto_rechunk', False)
+        self.chunk_size_upper_limit_mb = backend_kwargs.get('chunk_size_upper_limit_mb', 300)
+        self.chunk_size_lower_limit_mb = backend_kwargs.get('chunk_size_upper_limit_mb', 30)
 
-    def write(self, data, upsert=False, primary_keys=None):
-        if upsert:
-            raise NotImplementedError("Zarr backend does not support upsert.")
-
+    def write(self, data):
         if isinstance(data, xr.Dataset):
             self.chunk_to_zarr(data, self.path)
+            return xr.open_dataset(self.path, engine='zarr',
+                                   chunks={}, decode_timedelta=True)
         else:
             raise NotImplementedError("Zarr backend only supports caching of xarray datasets.")
+
+    def upsert(self, data, upsert_keys=None):
+        raise NotImplementedError("Zarr backend does not support upsert.")
 
     def read(self, engine):
         if engine == 'xarray' or engine == xr.Dataset or engine is None:
@@ -154,7 +154,7 @@ class ZarrBackend(FileBackend):
 
                 # Compare the dict to the rechunk dict
                 if not chunking_compare(ds_remote, self.chunking):
-                    print("Rechunk was passed and cached chunks do not match rechunk request. "
+                    logger.info("Rechunk was passed and cached chunks do not match rechunk request. "
                           "Performing rechunking.")
 
                     # write to a temp cache map
@@ -196,11 +196,11 @@ class ZarrBackend(FileBackend):
         try:
             chunk_size, chunk_with_labels = get_chunk_size(ds)
 
-            if chunk_size > CHUNK_SIZE_UPPER_LIMIT_MB or chunk_size < CHUNK_SIZE_LOWER_LIMIT_MB:
-                print(f"WARNING: Chunk size is {chunk_size}MB. Target approx 100MB.")
-                print(chunk_with_labels)
+            if chunk_size > self.chunk_size_upper_limit_mb or chunk_size < self.chunk_size_lower_limit_mb:
+                logger.warn(f"WARNING: Chunk size is {chunk_size}MB. Target approx 100MB.")
+                logger.warn(chunk_with_labels)
         except ValueError:
-            print("Failed to get chunks size! Continuing with unknown chunking...")
+            logger.warn("Failed to get chunks size! Continuing with unknown chunking...")
 
         ds.to_zarr(store=path, mode='w')
 
