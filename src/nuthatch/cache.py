@@ -1,4 +1,4 @@
-from os.path import join
+import os
 import copy
 import datetime
 import getpass
@@ -74,7 +74,7 @@ class DeltaMetastore(Metastore):
 
     def __init__(self, config, backend_location, schema):
         base_path = config['filesystem']
-        table_path = join(base_path, 'nuthatch_metadata.delta')
+        table_path = os.path.expanduser(os.path.join(base_path, 'nuthatch_metadata.delta'))
         self.table_path = table_path
         self.backend_location = backend_location
 
