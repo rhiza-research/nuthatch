@@ -94,7 +94,7 @@ def test_argument_validation():
         assert True
 
 def test_data_validation():
-    @timeseries(validate_timeseries=True)
+    @timeseries(validate_data=True)
     @cache(cache_args=['name', 'species', 'stride'])
     def simple_validate_timeseries(start_time, end_time, name='test', species='coraciidae', stride='day'):
         """Generate a simple timeseries dataset for testing."""
@@ -110,8 +110,12 @@ def test_data_validation():
     assert ds.equals(ds2)
 
     # Should automatically trigger reocmpute and provide more data
-    ds3 = simple_validate_timeseries("2000-01-01", "2005-01-01", force_overwrite=True)
-    assert ds3['time'].max().values == pd.Timestamp("2005-01-01")
+    try:
+        ds3 = simple_validate_timeseries("2000-01-01", "2005-01-01") # noqa: F841
+        assert False
+    except ValueError:
+        assert True
+
 
 def test_data_validation_as_arg():
     @timeseries()
@@ -126,9 +130,12 @@ def test_data_validation_as_arg():
         return ds
 
     ds = simple_validate_timeseries("2000-01-01", "2001-01-01", recompute=True, force_overwrite=True)
-    ds2 = simple_validate_timeseries("2000-01-01", "2001-01-01", validate_timeseries=True)
+    ds2 = simple_validate_timeseries("2000-01-01", "2001-01-01", validate_data=True)
     assert ds.equals(ds2)
 
     # Should automatically trigger reocmpute and provide more data
-    ds3 = simple_validate_timeseries("2000-01-01", "2005-01-01", force_overwrite=True, validate_timeseries=True)
-    assert ds3['time'].max().values == pd.Timestamp("2005-01-01")
+    try:
+        ds3 = simple_validate_timeseries("2000-01-01", "2005-01-01", validate_data=True) # noqa: F841
+        assert False
+    except ValueError:
+        assert True

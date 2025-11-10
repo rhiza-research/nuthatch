@@ -15,17 +15,15 @@ class TimeseriesProcessor(NuthatchProcessor):
 
     It supports xarray datasets and pandas/dask dataframes.
     """
-    def __init__(self, func, timeseries, validate_timeseries):
+    def __init__(self, func, timeseries, **kwargs):
         """
         Initialize the timeseries processor.
 
         Args:
             func: The function to wrap.
             timeseries: The name of the timeseries dimension.
-            validate_timeseries: Whether to validate the timeseries data.
         """
-        self.func = func
-        self.validate_timeseries = validate_timeseries
+        super().__init__(func, **kwargs)
         self.timeseries = timeseries
 
     def post_process(self, ds):
@@ -84,12 +82,6 @@ class TimeseriesProcessor(NuthatchProcessor):
         return ds
 
     def process_arguments(self, params, args, kwargs):
-        if 'validate_timeseries' in kwargs:
-            passed_validate_timeseries = kwargs['validate_timeseries']
-            if passed_validate_timeseries:
-                self.validate_timeseries = passed_validate_timeseries
-            del kwargs['validate_timeseries']
-
         # Validate time series params
         self.start_time = None
         self.end_time = None
@@ -112,46 +104,45 @@ class TimeseriesProcessor(NuthatchProcessor):
         return args, kwargs
 
 
-    def validate_data(self, ds):
+    def validate(self, ds):
         start_time = self.start_time
         end_time = self.end_time
-        if self.validate_timeseries:
-            if isinstance(ds, xr.Dataset):
-                # Check to see if the dataset extends roughly the full time series set
-                match_time = [t for t in self.timeseries if t in ds.dims]
-                if len(match_time) == 0:
-                    raise RuntimeError("Timeseries array functions must return "
-                                       "a time dimension for slicing. "
-                                       "This could be an invalid cache. "
-                                       "Try running with recompute=True to reset the cache.")
-                else:
-                    time_col = match_time[0]
-
-                    # Assign start and end times if None are passed
-                    st = dateparser.parse(start_time) if start_time is not None \
-                        else pd.Timestamp(ds[time_col].min().values)
-                    et = dateparser.parse(end_time) if end_time is not None \
-                        else pd.Timestamp(ds[time_col].max().values)
-
-                    # Check if within 1 year at least
-                    if (pd.Timestamp(ds[time_col].min().values) <
-                        st + datetime.timedelta(days=365) and
-                            pd.Timestamp(ds[time_col].max().values) >
-                            et - datetime.timedelta(days=365)):
-                        return True
-                    else:
-                        print("""WARNING: The cached array does not have data within
-                              1 year of your start or end time. Triggering recompute.
-                              If you do not want to recompute the result set
-                              `validate_cache_timeseries=False`""")
-                        return False
+        if isinstance(ds, xr.Dataset):
+            # Check to see if the dataset extends roughly the full time series set
+            match_time = [t for t in self.timeseries if t in ds.dims]
+            if len(match_time) == 0:
+                raise RuntimeError("Timeseries array functions must return "
+                                   "a time dimension for slicing. "
+                                   "This could be an invalid cache. "
+                                   "Try running with recompute=True to reset the cache.")
             else:
-                raise RuntimeError(f"Cannot validate timeseries for data type {type(ds)}")
+                time_col = match_time[0]
+
+                # Assign start and end times if None are passed
+                st = dateparser.parse(start_time) if start_time is not None \
+                    else pd.Timestamp(ds[time_col].min().values)
+                et = dateparser.parse(end_time) if end_time is not None \
+                    else pd.Timestamp(ds[time_col].max().values)
+
+                # Check if within 1 year at least
+                if (pd.Timestamp(ds[time_col].min().values) <
+                    st + datetime.timedelta(days=365) and
+                        pd.Timestamp(ds[time_col].max().values) >
+                        et - datetime.timedelta(days=365)):
+                    return True
+                else:
+                    print("""WARNING: The cached array does not have data within
+                          1 year of your start or end time. Triggering recompute.
+                          If you do not want to recompute the result set
+                          `validate_data=False`""")
+                    return False
+        else:
+            raise RuntimeError(f"Cannot validate timeseries for data type {type(ds)}")
 
         return True
 
-def timeseries(timeseries='time', validate_timeseries=False):
+def timeseries(timeseries='time', **kwargs):
     def decorator(func):
-         return TimeseriesProcessor(func, timeseries, validate_timeseries)
+         return TimeseriesProcessor(func, timeseries, **kwargs)
     return decorator
 
