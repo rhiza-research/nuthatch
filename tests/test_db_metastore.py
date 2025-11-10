@@ -16,19 +16,19 @@ def postgres_write_password():
     return key
 
 local_config = get_config(location='root', requested_parameters=Cache.config_parameters)
-
+local_config['metadata_location'] = 'database'
 
 def test_meta_init():
-    cache = Cache(local_config, "test_key", "test", {}, 'root', None, {})
+    cache = Cache(local_config, "test_key", "test", None, {}, 'root', None, {})
     assert cache.metastore.db_table is not None
 
 def test_requested_backend():
-    cache = Cache(local_config, "test_key", "test", {}, 'root', 'basic', None)
+    cache = Cache(local_config, "test_key", "test", None, {}, 'root', 'basic', None)
     assert cache.get_backend() == 'basic'
 
 
 def test_write_exists():
-    cache = Cache(local_config, "test_key", "test", {}, 'root', 'basic', None)
+    cache = Cache(local_config, "test_key", "test", None, {}, 'root', 'basic', None)
 
     a = 5
     cache.write(a)
@@ -36,17 +36,17 @@ def test_write_exists():
     assert cache.exists()
 
 def test_infer_backend():
-    cache = Cache(local_config, "test_key", "test", {}, 'root', 'basic', None)
+    cache = Cache(local_config, "test_key", "test", None, {}, 'root', 'basic', None)
 
     a = 5
     cache.write(a)
 
-    cache = Cache(local_config, "test_key", "test", {}, 'root', None, None)
+    cache = Cache(local_config, "test_key", "test", None, {}, 'root', None, None)
     assert cache.get_backend() == 'basic'
 
 
 def test_write_read():
-    cache = Cache(local_config, "test_key", "test", {}, 'root', 'basic', None)
+    cache = Cache(local_config, "test_key", "test", None, {}, 'root', 'basic', None)
 
     a = 5
     cache.write(a)
@@ -57,7 +57,7 @@ def test_write_read():
     assert data == a
 
 def test_overwrite():
-    cache = Cache(local_config, "test_key", "test", {}, 'root', 'basic', None)
+    cache = Cache(local_config, "test_key", "test", None, {}, 'root', 'basic', None)
 
     a = 5
     cache.write(a)
@@ -71,13 +71,13 @@ def test_overwrite():
 
 
 def test_set_recall_null():
-    cache = Cache(local_config, "test_key", "test", {}, 'root', 'basic', None)
+    cache = Cache(local_config, "test_key", "test", None, {}, 'root', 'basic', None)
 
     cache.set_null()
     assert cache.is_null()
 
 def test_delete():
-    cache = Cache(local_config, "test_key", "test", {}, 'root', 'basic', None)
+    cache = Cache(local_config, "test_key", "test", None, {}, 'root', 'basic', None)
 
     a = 5
     cache.write(a)
@@ -88,7 +88,7 @@ def test_delete():
     assert not cache.exists()
 
 def test_delete_null():
-    cache = Cache(local_config, "test_key", "test", {}, 'root', 'basic', None)
+    cache = Cache(local_config, "test_key", "test", None, {}, 'root', 'basic', None)
 
     cache.set_null()
     assert cache.is_null()

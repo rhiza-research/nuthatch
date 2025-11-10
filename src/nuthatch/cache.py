@@ -6,9 +6,10 @@ from abc import ABC, abstractmethod
 
 import git
 import pyarrow as pa
-import pandas as pd
 import sqlalchemy
-from deltalake import DeltaTable, write_deltalake, QueryBuilder
+import polars as ps
+from deltalake import DeltaTable
+import deltalake
 
 from .backend import get_backend_by_name
 from .config import get_config
@@ -74,6 +75,8 @@ class DeltaMetastore(Metastore):
     def __init__(self, config, backend_location, schema):
         base_path = config['filesystem']
         table_path = join(base_path, 'nuthatch_metadata.delta')
+        self.table_path = table_path
+        self.backend_location = backend_location
 
         options = None
         if 'filesystem_options' in config:
@@ -81,29 +84,41 @@ class DeltaMetastore(Metastore):
             for key, value in options.items():
                 options[key] = str(value)
 
+        # Create pyarrow schema to match schema
+        schema_list = []
+        for key, value in schema.items():
+            if value is str:
+                schema_list.append(pa.field(key, pa.string()))
+            elif value is int:
+                schema_list.append(pa.field(key, pa.int64()))
+
         if (backend_location in self.__class__.delta_tables and
             self.__class__.delta_table_configs[backend_location] == config):
-            self.dt = self.__class__.delta_tables[backend_location]
+            logger.debug("Loading delta table from cache.")
+            self.pscan = self.__class__.delta_tables[backend_location]
         else:
-            # Create pyarrow schema to match schema
-            schema_list = []
-            for key, value in schema.items():
-                if value is str:
-                    schema_list.append(pa.field(key, pa.string()))
-                elif value is int:
-                    schema_list.append(pa.field(key, pa.int64()))
-
-
-            # Instantiate a delta table that matches schema if it does not exist
-            if not DeltaTable.is_deltatable(table_path, storage_options=options):
+            try:
+                self.pscan = ps.scan_delta(table_path).collect()
+                logging.debug("Opened delta table.")
+            except deltalake.exceptions.TableNotFoundError:
                 logger.info("Instantiating empty delta table.")
                 DeltaTable.create(table_path,
                                   schema=pa.schema(schema_list),
                                   storage_options=options)
 
-            self.dt = DeltaTable(table_path, storage_options=options)
-            self.__class__.delta_tables[backend_location] = self.dt
-            self.__class__.delta_table_configs[backend_location] = config
+                self.pscan = ps.scan_delta(table_path).collect()
+            except FileNotFoundError:
+                logger.info("Instantiating empty delta table.")
+                DeltaTable.create(table_path,
+                                  schema=pa.schema(schema_list),
+                                  storage_options=options)
+
+                self.pscan = ps.scan_delta(table_path).collect()
+
+            # Read the table for easy caching
+            self.__class__.delta_tables[backend_location] = self.pscan
+            self.__class__.delta_table_configs[backend_location] = copy.deepcopy(config)
+            logger.debug(f"Cached delta table with config {config} at backend_location {backend_location}")
 
 
     def check_row_exists(self, where):
@@ -115,7 +130,9 @@ class DeltaMetastore(Metastore):
         Returns:
             True if exists, false otherwise
         """
-        base = """select * from metadata"""
+        # Try this in polars instead?
+
+        base = """select cache_key from metadata"""
 
         first = True
         for key, value in where.items():
@@ -125,7 +142,11 @@ class DeltaMetastore(Metastore):
             else:
                 base += f" AND {key} = '{value}'"
 
-        rows = QueryBuilder().register('metadata', self.dt).execute(base).read_all()
+        logging.info("start query")
+        rows = self.pscan.sql(base, table_name = "metadata")
+        logging.info("end query")
+
+        #rows = QueryBuilder().register('metadata', self.dt).execute(base).read_all()
 
         if len(rows) > 0:
             return True
@@ -164,10 +185,8 @@ class DeltaMetastore(Metastore):
             else:
                 base += f" AND {key} LIKE '{value}'"
 
-
-        rows = QueryBuilder().register('metadata', self.dt).execute(base).read_all()
-
-        return rows.to_struct_array().to_pylist()
+        rows = self.pscan.sql(base, table_name = "metadata")
+        return rows.to_dicts()
 
 
     def upsert(self, values, where):
@@ -182,32 +201,50 @@ class DeltaMetastore(Metastore):
                 values[key] = str(value)
 
 
-        if self.check_row_exists(where):
-            base = ""
-            first = True
-            for key, value in where.items():
-                if first:
-                    base += f"{key} = '{value}'"
-                    first = False
-                else:
-                    base += f" AND {key} = '{value}'"
+        base = ""
+        first = True
+        for key, value in where.items():
+            if first:
+                base += f"s.{key} = '{value}'"
+                first = False
+            else:
+                base += f" AND s.{key} = '{value}'"
 
-            self.dt.update(predicate=base, new_values=values)
-        else:
-            df = pd.DataFrame([values])
-            write_deltalake(self.dt, df, mode='append')
+        df = ps.DataFrame(values)
+        df.write_delta(
+            self.table_path,
+            mode="merge",
+            delta_merge_options={
+                "predicate": base,
+                "source_alias": "t",
+                "target_alias": "s",
+            },
+        ).when_matched_update_all().when_not_matched_insert_all().execute()
+        self.pscan = ps.scan_delta(self.table_path).collect()
+        self.__class__.delta_tables[self.backend_location] = self.pscan
 
     def delete(self, where):
         base = ""
         first = True
         for key, value in where.items():
             if first:
-                base += f"{key} = '{value}'"
+                base += f"s.{key} = '{value}'"
                 first = False
             else:
-                base += f" AND {key} = '{value}'"
+                base += f" AND s.{key} = '{value}'"
 
-        self.dt.delete(predicate=base)
+        self.pscan.write_delta(
+            self.table_path,
+            mode="merge",
+            delta_merge_options={
+                "predicate": base,
+                "source_alias": "t",
+                "target_alias": "s",
+            },
+        ).when_matched_delete().execute()
+
+        self.pscan = ps.scan_delta(self.table_path).collect()
+        self.__class__.delta_tables[self.backend_location] = self.pscan
 
 
 class SQLMetastore(Metastore):
@@ -581,19 +618,20 @@ class Cache():
         Returns:
             bool: True if the metadata exists, False otherwise.
         """
-        if self._metadata_confirmed() and not self.backend:
+        confirmed = self._metadata_confirmed()
+        if confirmed and not self.backend:
             raise RuntimeError("If metadata exists then there should be a backend. Inconsistent state error.")
         elif not self.backend:
             # We just aren't initialized yet
             return False
-        elif self._metadata_confirmed() and self.backend.exists():
+        elif confirmed and self.backend.exists():
             # Both exists!
             return True
-        elif self._metadata_confirmed() and not self.backend.exists():
+        elif confirmed and not self.backend.exists():
             # The data doesn't exist in the backend, so delete the metadata
             self._delete_metadata()
             return False
-        elif not self._metadata_confirmed():
+        elif not confirmed:
             return False
         else:
             raise ValueError("Inconsistent and unknown cache state.")

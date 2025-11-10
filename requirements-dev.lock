@@ -609,6 +609,10 @@ plotly==6.3.0
     # via sheerwater-benchmarking
 pluggy==1.6.0
     # via pytest
+polars==1.35.2
+    # via nuthatch
+polars-runtime-32==1.35.2
+    # via polars
 pooch==1.8.2
 prometheus-client==0.22.1
     # via coiled
@@ -815,7 +819,7 @@ shapely==2.1.1
     # via cartopy
     # via geopandas
     # via terracotta
-sheerwater-benchmarking @ git+https://github.com/rhiza-research/sheerwater-benchmarking@422430c565b2dc09a2d78a58cd9fd37b1beade92
+sheerwater-benchmarking @ git+https://github.com/rhiza-research/sheerwater-benchmarking@95697b23e61717bfb7fa2129bd5e68436d479829
 simpervisor==1.0.0
     # via jupyter-server-proxy
 six==1.17.0
@@ -924,7 +928,7 @@ urllib3==2.5.0
     # via requests
 wcwidth==0.2.13
     # via prompt-toolkit
-weatherbench2 @ git+https://github.com/rhiza-research/weatherbench2@3c95b54a74a0fc92193901310f75014dcef9f448
+weatherbench2 @ git+https://github.com/rhiza-research/weatherbench2@600f6ad63752378914991ae675cf0848500742f4
     # via sheerwater-benchmarking
 webcolors==24.11.1
     # via jsonschema
