@@ -9,20 +9,20 @@ test_config = {
 def test_meta_init():
     local_config = test_config
     local_config['filesystem'] = test_config['filesystem'] + str(uuid.uuid4())
-    cache = Cache(local_config, "test_key", "test", {}, 'root', None, {})
-    assert cache.metastore.dt is not None
+    cache = Cache(local_config, "test_key", "test", None, {}, 'root', None, {})
+    assert cache.metastore.pscan is not None
 
 def test_requested_backend():
     local_config = test_config
     local_config['filesystem'] = test_config['filesystem'] + str(uuid.uuid4())
-    cache = Cache(local_config, "test_key", "test", {}, 'root', 'basic', None)
+    cache = Cache(local_config, "test_key", "test", None, {}, 'root', 'basic', None)
     assert cache.get_backend() == 'basic'
 
 
 def test_write_exists():
     local_config = test_config
     local_config['filesystem'] = test_config['filesystem'] + str(uuid.uuid4())
-    cache = Cache(local_config, "test_key", "test", {}, 'root', 'basic', None)
+    cache = Cache(local_config, "test_key", "test", None, {}, 'root', 'basic', None)
 
     a = 5
     cache.write(a)
@@ -32,19 +32,19 @@ def test_write_exists():
 def test_infer_backend():
     local_config = test_config
     local_config['filesystem'] = test_config['filesystem'] + str(uuid.uuid4())
-    cache = Cache(local_config, "test_key", "test", {}, 'root', 'basic', None)
+    cache = Cache(local_config, "test_key", "test", None, {}, 'root', 'basic', None)
 
     a = 5
     cache.write(a)
 
-    cache = Cache(local_config, "test_key", "test", {}, 'root', None, None)
+    cache = Cache(local_config, "test_key", "test", None, {}, 'root', None, None)
     assert cache.get_backend() == 'basic'
 
 
 def test_write_read():
     local_config = test_config
     local_config['filesystem'] = test_config['filesystem'] + str(uuid.uuid4())
-    cache = Cache(local_config, "test_key", "test", {}, 'root', 'basic', None)
+    cache = Cache(local_config, "test_key", "test", None, {}, 'root', 'basic', None)
 
     a = 5
     cache.write(a)
@@ -57,7 +57,7 @@ def test_write_read():
 def test_overwrite():
     local_config = test_config
     local_config['filesystem'] = test_config['filesystem'] + str(uuid.uuid4())
-    cache = Cache(local_config, "test_key", "test", {}, 'root', 'basic', None)
+    cache = Cache(local_config, "test_key", "test", None, {}, 'root', 'basic', None)
 
     a = 5
     cache.write(a)
@@ -73,7 +73,7 @@ def test_overwrite():
 def test_set_recall_null():
     local_config = test_config
     local_config['filesystem'] = test_config['filesystem'] + str(uuid.uuid4())
-    cache = Cache(local_config, "test_key", "test", {}, 'root', 'basic', None)
+    cache = Cache(local_config, "test_key", "test", None, {}, 'root', 'basic', None)
 
     cache.set_null()
     assert cache.is_null()
@@ -81,7 +81,7 @@ def test_set_recall_null():
 def test_delete():
     local_config = test_config
     local_config['filesystem'] = test_config['filesystem'] + str(uuid.uuid4())
-    cache = Cache(local_config, "test_key", "test", {}, 'root', 'basic', None)
+    cache = Cache(local_config, "test_key", "test", None, {}, 'root', 'basic', None)
 
     a = 5
     cache.write(a)
@@ -94,7 +94,7 @@ def test_delete():
 def test_delete_null():
     local_config = test_config
     local_config['filesystem'] = test_config['filesystem'] + str(uuid.uuid4())
-    cache = Cache(local_config, "test_key", "test", {}, 'root', 'basic', None)
+    cache = Cache(local_config, "test_key", "test", None, {}, 'root', 'basic', None)
 
     cache.set_null()
     assert cache.is_null()

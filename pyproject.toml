@@ -22,7 +22,8 @@ dependencies = [
     "gitpython",
     "psycopg2",
     "zarr",
-    "click"
+    "click",
+    "polars"
 ]
 readme = "README.md"
 requires-python = ">= 3.12"
@@ -53,6 +54,11 @@ exclude = [
     "src/nuthatch/test_secrets.py" # Exclude a specific file
 ]
 
+[tool.pytest.ini_options]
+log_cli = true
+log_cli_level = "DEBUG"
+log_cli_format = "%(asctime)s.%(msecs)03d %(levelname)s %(filename)s:%(lineno)s %(message)s"
+
 [tool.nuthatch]
 filesystem = "gs://sheerwater-datalake/caches"
 host = "postgres.sheerwater.rhizaresearch.org"
@@ -61,7 +67,7 @@ database = "postgres"
 username = "write"
 driver = "postgresql"
 raster_store = "gs://terracotta-files"
-metadata_location = "database"
+metadata_location = "filesystem"
 dynamic_config_path = "nuthatch.test_secrets"
 
 [tool.nuthatch.filesystem_options]

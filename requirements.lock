@@ -112,6 +112,10 @@ partd==1.4.2
     # via dask
 pillow==11.3.0
     # via terracotta
+polars==1.35.2
+    # via nuthatch
+polars-runtime-32==1.35.2
+    # via polars
 psycopg2==2.9.10
     # via nuthatch
 pyarrow==21.0.0

@@ -223,7 +223,7 @@ class FileBackend(NuthatchBackend):
     def __init__(self, cacheable_config, cache_key, namespace, args, backend_kwargs, extension=None):
         super().__init__(cacheable_config, cache_key, namespace, args, backend_kwargs)
 
-        self.base_path = self.config['filesystem']
+        self.base_path = os.path.expanduser(self.config['filesystem'])
 
         if namespace:
             self.raw_cache_path = os.path.join(self.base_path, namespace, cache_key)

@@ -1,7 +1,7 @@
 from nuthatch import cache
 import numpy as np
 
-@cache(cache_args=['number'])
+@cache(cache_args=['number'], version="test")
 def num(number=5):
     """Test function for tabular data."""
     return np.random.randint(1000)
