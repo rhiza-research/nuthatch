@@ -196,12 +196,13 @@ def get_cache_key(func, cache_arg_values):
     return func.__name__ + '/' + '_'.join(flat_values)
 
 
-def instantiate_read_caches(cache_key, namespace, cache_arg_values, requested_backend, backend_kwargs):
+def instantiate_read_caches(cache_key, namespace, version, cache_arg_values, requested_backend, backend_kwargs):
     """Returns a priority ordered list of caches to read from.
 
     Args:
         cache_key (str): The cache key.
         namespace (str): The namespace.
+        version (str): The cache version.
         cache_arg_values (dict): The cache arguments.
         requested_backend (str): The requested backend.
         backend_kwargs (dict): The backend kwargs.
@@ -223,7 +224,7 @@ def instantiate_read_caches(cache_key, namespace, cache_arg_values, requested_ba
         cache = None
         cache_config = get_config(location=location, requested_parameters=Cache.config_parameters)
         if cache_config:
-            cache = Cache(cache_config, cache_key, namespace, cache_arg_values,
+            cache = Cache(cache_config, cache_key, namespace, version, cache_arg_values,
                           location, requested_backend, backend_kwargs)
         elif location == 'root':
             raise ValueError("At least a root filesystem for metadata storage must be configured. No configuration found.")
@@ -235,6 +236,7 @@ def instantiate_read_caches(cache_key, namespace, cache_arg_values, requested_ba
 
 def cache(cache=True,
           namespace=None,
+          version=None,
           cache_args=[],
           cache_disable_if=None,
           engine=None,
@@ -249,6 +251,7 @@ def cache(cache=True,
 
     Args:
         namespace(str): The namespace in which to store the cache
+        vesion(str): A cache version tag. Useful for invalidating old results on change.
         cache_args(list): The arguments to use as the cache key.
         backend_kwargs(dict): A dictionary of backend-specific arguments that will be passed to
             and used back the backend for writign and reading
@@ -322,6 +325,7 @@ def cache(cache=True,
             cache_args = nonlocals['cache_args']
             cache_disable_if = nonlocals['cache_disable_if']
             upsert_keys = nonlocals['upsert_keys']
+            version = nonlocals['version']
 
             # Check if this is a nested cacheable function
             if not check_if_nested_fn():
@@ -363,7 +367,7 @@ def cache(cache=True,
             ds = None
             compute_result = True
 
-            read_caches = instantiate_read_caches(cache_key, namespace, cache_arg_values, backend, backend_kwargs)
+            read_caches = instantiate_read_caches(cache_key, namespace, version, cache_arg_values, backend, backend_kwargs)
 
             # Try to sync local/remote only once on read. All syncing is done lazily
             if cache_local:
@@ -457,7 +461,7 @@ def cache(cache=True,
                         storage_backend = backend
                         storage_backend_kwargs = backend_kwargs
 
-                    write_cache = Cache(write_cache_config, cache_key, namespace,
+                    write_cache = Cache(write_cache_config, cache_key, namespace, version,
                                         cache_arg_values, 'root', storage_backend, storage_backend_kwargs)
                 else:
                     raise ValueError("At least a root filesystem for metadata storage must be configured. No configuration found.")

@@ -335,10 +335,11 @@ class Cache():
     config_parameters = ['filesystem', 'filesystem_options', 'metadata_location'] + database_parameters
     backend_name = "cache_metadata"
 
-    def __init__(self, config, cache_key, namespace, args, backend_location, requested_backend, backend_kwargs):
+    def __init__(self, config, cache_key, namespace, version, args, backend_location, requested_backend, backend_kwargs):
         self.cache_key = cache_key
         self.config = config
         self.namespace = namespace
+        self.version = version
         self.location = backend_location
         self.args = args
         self.backend_kwargs = backend_kwargs
@@ -347,6 +348,7 @@ class Cache():
             'cache_key': str,
             'backend': str,
             'namespace': str,
+            'version': str,
             'state': str,
             'last_modified': int,
             'commit_hash': str,
@@ -396,7 +398,8 @@ class Cache():
         """
         where = {
             'cache_key': self.cache_key,
-            'namespace': self.namespace
+            'namespace': self.namespace,
+            'version': self.version
         }
 
         if state:
@@ -418,7 +421,8 @@ class Cache():
             The row from the database or delta table.
         """
         where = {
-            'namespace': self.namespace
+            'namespace': self.namespace,
+            'version': self.version
         }
 
         like = {
@@ -542,6 +546,7 @@ class Cache():
         values = {
             'cache_key': self.cache_key,
             'namespace': self.namespace,
+            'version': self.version,
             'backend': self.backend_name,
             'state': state,
             'last_modified': datetime.datetime.now(datetime.timezone.utc).timestamp() * 1000000,
