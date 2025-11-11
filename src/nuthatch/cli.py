@@ -109,12 +109,12 @@ def import_data(cache_key, namespace, backend, location):
 def list_helper(cache_key, namespace, backend, location):
     """List all cache entries."""
     config = get_config(location=location, requested_parameters=Cache.config_parameters)
-    cache = Cache(config, None, namespace, None, location, backend, {})
+    cache = Cache(config, None, namespace, None, None, location, backend, {})
 
     if cache_key is None:
-        cache_key = '*'
+        cache_key = '%'
 
-    caches = cache.list(cache_key)
+    caches = cache.metastore.select_row("*", {"namespace": namespace}, {"cache_key": cache_key})
 
     return caches
 
@@ -134,9 +134,10 @@ def list_caches(cache_key, namespace, backend, location, long):
         caches = '\n'.join(caches)
     else:
         caches = pd.DataFrame(caches)
-        caches['last_modified'] = pd.to_datetime(caches['last_modified'], unit='us').dt.floor('s')
-        caches = caches[['cache_key', 'namespace', 'backend', 'state', 'last_modified', 'user', 'commit_hash', 'path']]
-        caches = caches.to_string()
+        if len(caches) > 0:
+            caches['last_modified'] = pd.to_datetime(caches['last_modified'], unit='us').dt.floor('s')
+            caches = caches[['cache_key', 'namespace', 'backend', 'state', 'last_modified', 'user', 'commit_hash', 'path']]
+            caches = caches.to_string()
 
 
     if pager:
@@ -160,7 +161,7 @@ def delete_cache(cache_key, namespace, backend, location, force, metadata_only):
     click.confirm(f"Are you sure you want to delete {len(caches)} cache entries?", abort=True)
 
     for cache in caches:
-        cache = Cache(config, cache.cache_key, cache.namespace, None, location, cache.backend, {})
+        cache = Cache(config, cache['cache_key'], cache['namespace'], None, None, location, cache['backend'], {})
         click.echo(f"Deleting {cache.cache_key} from {cache.location} with backend {cache.backend_name}.")
         if metadata_only:
             cache._delete_metadata()
