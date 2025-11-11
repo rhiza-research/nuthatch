@@ -113,6 +113,8 @@ def list_helper(cache_key, namespace, backend, location):
 
     if cache_key is None:
         cache_key = '%'
+    else:
+        cache_key = cache_key.replace('*', '%')
 
     caches = cache.metastore.select_row("*", {"namespace": namespace}, {"cache_key": cache_key})
 
