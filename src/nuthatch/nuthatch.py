@@ -58,7 +58,7 @@ def check_if_nested_fn():
     # Get the current frame
     stack = inspect.stack()
     # skip the first two frames (this function and the current cacheable function)
-    for frame_info in stack[2:]:
+    for frame_info in stack[3:]:
         frame = frame_info.frame
         func_name = frame.f_code.co_name
         if func_name == "cacheable_wrapper":
@@ -69,7 +69,7 @@ def check_if_nested_fn():
 
 
 
-def get_cache_args(passed_kwargs, default_cache_kwargs, decorator_args):
+def get_cache_args(passed_kwargs, default_cache_kwargs, decorator_args, func_name):
     """Extract the cache arguments from the kwargs and return them."""
     cache_args = {}
     for k in default_cache_kwargs:
@@ -97,6 +97,32 @@ def get_cache_args(passed_kwargs, default_cache_kwargs, decorator_args):
 
     if cache_args['cache_local'] is None:
         cache_args['cache_local'] = decorator_args['cache_local']
+
+    # Check if this is a nested cacheable function
+    if not check_if_nested_fn():
+        # This is a top level cacheable function, reset global cache variables
+        set_global_cache_variables(recompute=cache_args['recompute'], memoize=cache_args['memoize'],
+                                   force_overwrite=cache_args['force_overwrite'],
+                                   retry_null_cache=cache_args['retry_null_cache'])
+        if isinstance(cache_args['recompute'], list) or isinstance(cache_args['recompute'], str) or cache_args['recompute'] == '_all':
+            cache_args['recompute'] = True
+        if isinstance(cache_args['memoize'], list) or isinstance(cache_args['memoize'], str) or cache_args['memoize'] == '_all':
+            cache_args['memoize'] = True
+    else:
+        # Inherit global cache variables
+        global global_recompute, global_memoize, global_force_overwrite, global_retry_null_cache
+
+        # Set all global variables
+        if global_force_overwrite is not None:
+            cache_args['force_overwrite'] = global_force_overwrite
+        if global_retry_null_cache is not None:
+            cache_args['retry_null_cache'] = global_retry_null_cache
+        if global_recompute:
+            if func_name in global_recompute or global_recompute == '_all':
+                cache_args['recompute'] = True
+        if global_memoize:
+            if func_name in global_memoize or global_memoize == '_all':
+                cache_args['memoize'] = True
 
     return cache_args
 
@@ -304,7 +330,7 @@ def cache(cache=True,
 
         @wraps(func)
         def cacheable_wrapper(*args, **passed_kwargs):
-            final_cache_config = get_cache_args(passed_kwargs, default_cache_kwargs, nonlocals)
+            final_cache_config = get_cache_args(passed_kwargs, default_cache_kwargs, nonlocals, func.__name__)
 
             # Set all the final cache config variables
             cache = final_cache_config['cache']
@@ -326,32 +352,6 @@ def cache(cache=True,
             cache_disable_if = nonlocals['cache_disable_if']
             upsert_keys = nonlocals['upsert_keys']
             version = nonlocals['version']
-
-            # Check if this is a nested cacheable function
-            if not check_if_nested_fn():
-                # This is a top level cacheable function, reset global cache variables
-                set_global_cache_variables(recompute=recompute, memoize=memoize,
-                                           force_overwrite=force_overwrite,
-                                           retry_null_cache=retry_null_cache)
-                if isinstance(recompute, list) or isinstance(recompute, str) or recompute == '_all':
-                    recompute = True
-                if isinstance(memoize, list) or isinstance(memoize, str) or memoize == '_all':
-                    memoize = True
-            else:
-                # Inherit global cache variables
-                global global_recompute, global_memoize, global_force_overwrite, global_retry_null_cache
-
-                # Set all global variables
-                if global_force_overwrite is not None:
-                    force_overwrite = global_force_overwrite
-                if global_retry_null_cache is not None:
-                    retry_null_cache = global_retry_null_cache
-                if global_recompute:
-                    if func.__name__ in global_recompute or global_recompute == '_all':
-                        recompute = True
-                if global_memoize:
-                    if func.__name__ in global_memoize or global_memoize == '_all':
-                        memoize = True
 
             # The function parameters and their values
             params = signature(func).parameters
