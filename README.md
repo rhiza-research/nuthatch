@@ -8,7 +8,7 @@ data types for caching.
 
 It also provides a framework for re-using and sharing data-type specific
 post-processing, and for these data type
-processors to pass hints to storage backends for more efficient storager and recall.
+processors to pass hints to storage backends for more efficient storage and recall.
 
 Nuthatch was created to alleviate the comon pattern of data processing pipelines manually
 specifying their output storage locations, and the requirements of pipeline builders to
@@ -120,4 +120,4 @@ Current limitations:
  - Arguments must be basic types, not objects to key caches
  - There is currently no mechansim to detect cache "staleness". Automatically tracking and detecting changes is planned for future work.
  - Expanded configurability (i.e. directly from environment variable) is not supported
- - The scalability of the file-type meta store is questionable. You should setup a database as the meta-store for better performance.
+ - Nuthatch's metastore (i.e. the database that tracks the caches and their versions) is still in flux. It adds a couple of seconds of write overhead for writing. Future work will try to eliminate this.
