@@ -436,7 +436,10 @@ def cache(cache=True,
                         raise RuntimeError(f"""Computation has been disabled by
                                             `fail_if_no_cache` and cache doesn't exist for {cache_key}.""")
 
-                    logger.info(f"Cache doesn't exist for {cache_key}. Running function")
+                    if namespace:
+                        logger.info(f"Cache doesn't exist for {cache_key} in namespace {namespace}. Running function")
+                    else:
+                        logger.info(f"Cache doesn't exist for {cache_key} in default namespace. Running function")
 
                 ##### IF NOT EXISTS ######
                 ds = func(*args, **passed_kwargs)
@@ -487,7 +490,11 @@ def cache(cache=True,
                     write = True
 
                 if write:
-                    logger.info(f"Caching result for {cache_key} in {write_cache.get_backend()}.")
+                    if namespace:
+                        logger.info(f"Caching result for {cache_key} in {write_cache.get_backend()} in namespace {namespace}.")
+                    else:
+                        logger.info(f"Caching result for {cache_key} in {write_cache.get_backend()} in default namespace.")
+
                     if upsert:
                         ds = write_cache.upsert(ds, upsert_keys=upsert_keys)
                     else:
