@@ -17,6 +17,14 @@ jobs:
     steps:
     - uses: actions/checkout@v4
 
+    - name: Auth to Google Cloud
+      uses: google-github-actions/auth@v2
+      with:
+        token_format: 'access_token'
+        workload_identity_provider: "projects/730596460290/locations/global/workloadIdentityPools/rhiza-github/providers/rhiza-github"
+        service_account: "rhiza-github-action@rhiza-shared.iam.gserviceaccount.com"
+        export_environment_variables: true
+
     - name: Set up Python ${{ matrix.python-version }}
       uses: actions/setup-python@v5
       with:
