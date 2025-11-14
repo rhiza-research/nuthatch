@@ -32,9 +32,35 @@ dependencies = [
 [project.scripts]
 nuthatch = "nuthatch.cli:main"
 
+
+[project.optional-dependencies]
+dev = [
+    "pooch",
+    "google-cloud-secret-manager",
+    "gcsfs",
+    "pytest>=7.0.0",
+    "pytest-cov>=4.0.0",
+    "pytest-mock>=3.10.0",
+    "ruff>=0.1.0",
+    "sheerwater-benchmarking @ git+https://github.com/rhiza-research/sheerwater-benchmarking",
+]
+
 [build-system]
 requires = ["hatchling==1.26.3", "hatch-vcs"]
 build-backend = "hatchling.build"
+
+[tool.hatch.version]
+ source = "vcs"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/nuthatch"]
+exclude = [
+    "src/nuthatch/test_secrets.py" # Exclude a specific file
+]
+
+[tool.hatch.metadata]
+allow-direct-references = true
+
 
 [tool.uv]
 managed = true
@@ -49,17 +75,6 @@ dev-dependencies = [
     "sheerwater-benchmarking @ git+https://github.com/rhiza-research/sheerwater-benchmarking",
 ]
 
-[tool.hatch.metadata]
-allow-direct-references = true
-
-[tool.hatch.version]
- source = "vcs"
-
-[tool.hatch.build.targets.wheel]
-packages = ["src/nuthatch"]
-exclude = [
-    "src/nuthatch/test_secrets.py" # Exclude a specific file
-]
 
 [tool.pytest.ini_options]
 log_cli = true
