@@ -33,7 +33,7 @@ dependencies = [
 nuthatch = "nuthatch.cli:main"
 
 [build-system]
-requires = ["hatchling==1.26.3"]
+requires = ["hatchling==1.26.3", "hatch-vcs"]
 build-backend = "hatchling.build"
 
 [tool.uv]
