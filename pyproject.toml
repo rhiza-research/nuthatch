@@ -1,11 +1,13 @@
 [project]
 name = "nuthatch"
-version = "0.1.0"
+dynamic = ["version"]
 description = "Cacheable big data pipelines"
 authors = [
     { name = "Joshua Adkins", email = "josh@rhizaresearch.org" },
     { name = "Genevieve Flaspohler", email = "geneviee@rhizaresearch.org" }
 ]
+readme = "README.md"
+license = {text = "MIT"}
 
 # TODO: Make backend submodules so that their
 # dependencies can be installed independently
@@ -41,7 +43,10 @@ dev-dependencies = [
     "pooch",
     "google-cloud-secret-manager",
     "gcsfs",
-    "pytest",
+    "pytest>=7.0.0",
+    "pytest-cov>=4.0.0",
+    "pytest-mock>=3.10.0",
+    "ruff>=0.1.0",
     "sheerwater-benchmarking @ git+https://github.com/rhiza-research/sheerwater-benchmarking",
 ]
 
@@ -58,6 +63,27 @@ exclude = [
 log_cli = true
 log_cli_level = "DEBUG"
 log_cli_format = "%(asctime)s.%(msecs)03d %(levelname)s %(filename)s:%(lineno)s %(message)s"
+addopts = [
+    "--strict-markers",
+    "--cov=nuthatch",
+    "--cov-report=term-missing",
+    "--cov-report=html",
+    "--cov-report=xml",
+]
+
+[tool.coverage.run]
+source = ["src/nuthatch"]
+omit = ["*/tests/*", "*/__pycache__/*"]
+
+[tool.coverage.report]
+exclude_lines = [
+    "pragma: no cover",
+    "def __repr__",
+    "if __name__ == .__main__.:",
+    "raise AssertionError",
+    "raise NotImplementedError",
+]
+
 
 [tool.nuthatch]
 filesystem = "gs://sheerwater-datalake/caches"

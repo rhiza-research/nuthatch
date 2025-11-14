@@ -1,5 +1,7 @@
 # Nuthatch
 
+[![Tests](https://github.com/rhiza-research/nuthatch/actions/workflows/test.yml/badge.svg)](https://github.com/rhiza-research/nuthatch/actions/workflows/test.yml)
+
 Nuthatch is a tool for building pure-python big data pipelines. At its core it
 enables the transparent multi-level caching and recall of results in formats that 
 are efficient for each data type. It supports a variety of 
