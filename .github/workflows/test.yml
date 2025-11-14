@@ -26,6 +26,7 @@ jobs:
         workload_identity_provider: "projects/730596460290/locations/global/workloadIdentityPools/rhiza-github/providers/rhiza-github"
         service_account: "rhiza-github-action@rhiza-shared.iam.gserviceaccount.com"
         export_environment_variables: true
+        create_credentials_file: false
 
     - name: Set up Python ${{ matrix.python-version }}
       uses: actions/setup-python@v5
