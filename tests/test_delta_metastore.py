@@ -3,7 +3,6 @@ import uuid
 
 test_config = {
     'filesystem':'gs://sheerwater-datalake/temp/',
-    'filesystem_options':{'token':'google_default'}
 }
 
 def test_meta_init():
