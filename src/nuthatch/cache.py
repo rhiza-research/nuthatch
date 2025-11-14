@@ -118,7 +118,7 @@ class DeltaMetastore(Metastore):
             # Read the table for easy caching
             self.__class__.delta_tables[backend_location] = self.pscan
             self.__class__.delta_table_configs[backend_location] = copy.deepcopy(config)
-            logger.debug(f"Cached delta table with config {config} at backend_location {backend_location}")
+            logger.debug(f"Cached delta metadata table at {table_path} for backend_location {backend_location}")
 
 
     def check_row_exists(self, where):
