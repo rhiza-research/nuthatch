@@ -7,6 +7,7 @@ authors = [
     { name = "Genevieve Flaspohler", email = "geneviee@rhizaresearch.org" }
 ]
 readme = "README.md"
+requires-python = ">= 3.10"
 license = {text = "MIT"}
 
 # TODO: Make backend submodules so that their
@@ -27,8 +28,6 @@ dependencies = [
     "click",
     "polars"
 ]
-readme = "README.md"
-requires-python = ">= 3.12"
 
 [project.scripts]
 nuthatch = "nuthatch.cli:main"
