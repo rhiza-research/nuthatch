@@ -251,12 +251,12 @@ def instantiate_read_caches(cache_key, namespace, version, cache_arg_values, req
         cache = None
         cache_config = get_config(location=location, requested_parameters=Cache.config_parameters)
         if cache_config:
-            if isinstance(cache_config, list):
-                for i, c_config in cache_config:
+            if location == 'mirror':
+                for key, c_config in cache_config.items():
                     cache = Cache(c_config, cache_key, namespace, version, cache_arg_values,
-                                  location, requested_backend, backend_kwargs)
+                                  location, requested_backend, backend_kwargs, config_from=key)
 
-                    caches[f"{location}{i}"] = cache
+                    caches[f"{location}-{key}"] = cache
                     found_cache=True
             else:
                 cache = Cache(cache_config, cache_key, namespace, version, cache_arg_values,

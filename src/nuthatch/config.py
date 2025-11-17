@@ -107,8 +107,30 @@ def extract_params(config, location, requested_parameters, backend_name):
 
     return filtered_config
 
+def extract_dynamic_params(existing_params, location, requested_parameters, backend_name, mask_secrets=False):
+    # Now call all the relevant config registrations and add them
+    for p in requested_parameters:
+        if location in dynamic_parameters:
+            # If a dynamic parameter has been set call it and use it to override any static config
+            if backend_name in dynamic_parameters[location] and p in dynamic_parameters[location][backend_name]:
+                secret = dynamic_parameters[location][backend_name][p][1]
+                param = dynamic_parameters[location][backend_name][p][0]()
+                if secret and mask_secrets:
+                    existing_params[p] = '*'*len(param)
+                else:
+                    existing_params[p] = param
+            elif p in dynamic_parameters[location]:
+                secret = dynamic_parameters[location][p][1]
+                param = dynamic_parameters[location][p][0]()
+                if secret and mask_secrets:
+                    existing_params[p] = '*'*len(param)
+                else:
+                    existing_params[p] = param
 
-def get_config(location='root', requested_parameters=[], backend_name=None, mask_secrets=False):
+    return existing_params
+
+
+def get_config(location='root', requested_parameters=[], backend_name=None, mask_secrets=False, config_from=None):
     """Get the config for a given location and backend.
 
     Args:
@@ -143,33 +165,71 @@ def get_config(location='root', requested_parameters=[], backend_name=None, mask
             if current_params:
                 final_config.update(current_params)
 
-        # Now call all the relevant config registrations and add them
-        for p in requested_parameters:
-            if location in dynamic_parameters:
-                # If a dynamic parameter has been set call it and use it to override any static config
-                if backend_name in dynamic_parameters[location] and p in dynamic_parameters[location][backend_name]:
-                    secret = dynamic_parameters[location][backend_name][p][1]
-                    param = dynamic_parameters[location][backend_name][p][0]()
-                    if secret and mask_secrets:
-                        final_config[p] = '*'*len(param)
-                    else:
-                        final_config[p] = param
-                elif p in dynamic_parameters[location]:
-                    secret = dynamic_parameters[location][p][1]
-                    param = dynamic_parameters[location][p][0]()
-                    if secret and mask_secrets:
-                        final_config[p] = '*'*len(param)
-                    else:
-                        final_config[p] = param
+        final_config = extract_dynamic_params(final_config, location, requested_parameters, backend_name, mask_secrets)
 
         return final_config
 
     elif location == "mirror":
+        # Mirrors require a different approach, because we are trying to build a set of them
+        mirror_configs = {}
+
+        # First get an global mirrors
+        global_config_file = get_global_config()
+        if global_config_file:
+            logger.debug(f"Found global config file: {global_config_file}")
+            with open(global_config_file, "rb") as f:
+                global_config = tomllib.load(f)
+
+            global_params = extract_params(global_config, location, requested_parameters, backend_name)
+
+            if global_params:
+                mirror_configs['global'] = global_params
+
+        # Get the caller's config to check if it's the same
         caller_config_file = get_callers_pyproject()
         logger.debug(f"Callers pyrpoject path is: {caller_config_file}")
 
-        config_file = get_current_pyproject()
-        logger.debug(f"Current pyrpoject path is: {config_file}")
+        # Now get any mirrors from the current project
+        current_config_file = get_current_pyproject()
+        logger.debug(f"Current pyrpoject path is: {current_config_file}")
+
+        if current_config_file:
+            with open(current_config_file, "rb") as f:
+                current_config = tomllib.load(f)
+
+            current_params = extract_params(current_config, location, requested_parameters, backend_name)
+
+            # If the current and caller are the same update the current with dynamics (since it is the one that is imported)
+            if current_config_file == caller_config_file:
+                current_params = extract_dynamic_params(current_params, location, requested_parameters, backend_name, mask_secrets)
+
+            if current_params:
+                mirror_configs['current'] = current_params
+
+        if caller_config_file and caller_config_file != current_config_file:
+            # For the caller extract both mirror and root locations as mirros and update with dynamic parameters
+            with open(caller_config_file, "rb") as f:
+                caller_config = tomllib.load(f)
+
+            caller_root_params = extract_params(caller_config, 'root', requested_parameters, backend_name)
+            caller_root_params = extract_dynamic_params(caller_root_params, 'root', requested_parameters, backend_name, mask_secrets)
+
+            if caller_root_params:
+                mirror_configs['caller_root'] = caller_root_params
+
+            caller_mirror_params = extract_params(caller_config, 'mirror', requested_parameters, backend_name)
+            caller_mirror_params = extract_dynamic_params(caller_mirror_params, 'mirror', requested_parameters, backend_name, mask_secrets)
+
+            if caller_mirror_params:
+                mirror_configs['caller_mirror'] = caller_mirror_params
+
+        if len(mirror_configs) > 0:
+            if config_from:
+                return mirror_configs[config_from]
+            else:
+                return mirror_configs
+        else:
+            return None
     else:
         raise ValueError("Location must be one of 'root', 'local', or 'mirror'.")
 

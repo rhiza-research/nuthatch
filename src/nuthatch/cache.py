@@ -372,7 +372,7 @@ class Cache():
     config_parameters = ['filesystem', 'filesystem_options', 'metadata_location'] + database_parameters
     backend_name = "cache_metadata"
 
-    def __init__(self, config, cache_key, namespace, version, args, backend_location, requested_backend, backend_kwargs):
+    def __init__(self, config, cache_key, namespace, version, args, backend_location, requested_backend, backend_kwargs, config_from=None):
         self.cache_key = cache_key
         self.config = config
         self.namespace = namespace
@@ -380,6 +380,7 @@ class Cache():
         self.location = backend_location
         self.args = args
         self.backend_kwargs = backend_kwargs
+        self.config_from=config_from
 
         schema = {
             'cache_key': str,
@@ -397,7 +398,7 @@ class Cache():
         if (('metadata_location' in config and config['metadata_location'] == 'filesystem') or
             ('metadata_location' not in config and 'filesystem' in config) or
             (any(param not in config for param in self.__class__.database_parameters))):
-            logger.debug(f"Using Delta Metastore for {backend_location}")
+            logger.debug(f"Using Delta Metastore for {backend_location} at {config['filesystem']}")
             self.metastore = DeltaMetastore(config, backend_location, schema)
         else:
             logger.debug(f"Using SQL Metastore for {backend_location}")
@@ -419,7 +420,7 @@ class Cache():
 
         if backend_class and self.cache_key:
             backend_config = get_config(location=backend_location, requested_parameters=backend_class.config_parameters,
-                                        backend_name=backend_class.backend_name)
+                                        backend_name=backend_class.backend_name, config_from=config_from)
             if backend_config:
                 self.backend = backend_class(backend_config, cache_key, namespace, args, copy.deepcopy(backend_kwargs))
 
@@ -721,7 +722,7 @@ class Cache():
                 # We don't exist at all. Setup backend and write
                 backend_class = get_backend_by_name(from_cache.backend_name)
                 backend_config = get_config(location=self.location, requested_parameters=backend_class.config_parameters,
-                                            backend_name=backend_class.backend_name)
+                                            backend_name=backend_class.backend_name, config_from=self.config_from)
                 if backend_config:
                     self.backend = backend_class(backend_config, self.cache_key, self.namespace, self.args, copy.deepcopy(self.backend_kwargs))
                     self.backend_name = backend_class.backend_name
