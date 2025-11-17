@@ -372,7 +372,7 @@ class Cache():
     config_parameters = ['filesystem', 'filesystem_options', 'metadata_location'] + database_parameters
     backend_name = "cache_metadata"
 
-    def __init__(self, config, cache_key, namespace, version, args, backend_location, requested_backend, backend_kwargs, config_from=None):
+    def __init__(self, config, cache_key, namespace, version, args, backend_location, requested_backend, backend_kwargs, config_from=None, wrapped_path=None):
         self.cache_key = cache_key
         self.config = config
         self.namespace = namespace
@@ -381,6 +381,7 @@ class Cache():
         self.args = args
         self.backend_kwargs = backend_kwargs
         self.config_from=config_from
+        self.wrapped_path=wrapped_path
 
         schema = {
             'cache_key': str,
@@ -420,7 +421,7 @@ class Cache():
 
         if backend_class and self.cache_key:
             backend_config = get_config(location=backend_location, requested_parameters=backend_class.config_parameters,
-                                        backend_name=backend_class.backend_name, config_from=config_from)
+                                        backend_name=backend_class.backend_name, config_from=config_from, wrapped_path=self.wrapped_path)
             if backend_config:
                 self.backend = backend_class(backend_config, cache_key, namespace, args, copy.deepcopy(backend_kwargs))
 
@@ -722,7 +723,7 @@ class Cache():
                 # We don't exist at all. Setup backend and write
                 backend_class = get_backend_by_name(from_cache.backend_name)
                 backend_config = get_config(location=self.location, requested_parameters=backend_class.config_parameters,
-                                            backend_name=backend_class.backend_name, config_from=self.config_from)
+                                            backend_name=backend_class.backend_name, config_from=self.config_from, wrapped_path=self.wrapped_path)
                 if backend_config:
                     self.backend = backend_class(backend_config, self.cache_key, self.namespace, self.args, copy.deepcopy(self.backend_kwargs))
                     self.backend_name = backend_class.backend_name

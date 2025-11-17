@@ -222,7 +222,7 @@ def get_cache_key(func, cache_arg_values):
     return func.__name__ + '/' + '_'.join(flat_values)
 
 
-def instantiate_read_caches(cache_key, namespace, version, cache_arg_values, requested_backend, backend_kwargs):
+def instantiate_read_caches(cache_key, namespace, version, cache_arg_values, requested_backend, backend_kwargs, wrapped_path):
     """Returns a priority ordered list of caches to read from.
 
     Args:
@@ -249,12 +249,12 @@ def instantiate_read_caches(cache_key, namespace, version, cache_arg_values, req
 
     for location in resolution_list:
         cache = None
-        cache_config = get_config(location=location, requested_parameters=Cache.config_parameters)
+        cache_config = get_config(location=location, requested_parameters=Cache.config_parameters, wrapped_path=wrapped_path)
         if cache_config:
             if location == 'mirror':
                 for key, c_config in cache_config.items():
                     cache = Cache(c_config, cache_key, namespace, version, cache_arg_values,
-                                  location, requested_backend, backend_kwargs, config_from=key)
+                                  location, requested_backend, backend_kwargs, config_from=key, wrapped_path=wrapped_path)
 
                     caches[f"{location}-{key}"] = cache
                     found_cache=True
@@ -381,7 +381,7 @@ def cache(cache=True,
             ds = None
             compute_result = True
 
-            read_caches = instantiate_read_caches(cache_key, namespace, version, cache_arg_values, backend, backend_kwargs)
+            read_caches = instantiate_read_caches(cache_key, namespace, version, cache_arg_values, backend, backend_kwargs, inspect.getmodule(func).__file__)
 
             # Try to sync local/remote only once on read. All syncing is done lazily
             if cache_local:

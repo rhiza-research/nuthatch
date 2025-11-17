@@ -8,7 +8,6 @@ could leverage different filesystems if specified)
 """
 from pathlib import Path
 import os
-import inspect
 import tomllib
 
 import logging
@@ -30,32 +29,19 @@ def find_pyproject(start_dir):
 
     config_file = None
     while not _is_fs_root(current_directory):
-        if current_directory.joinpath('pyproject.toml').exists():
+        if current_directory.joinpath('pyproject.toml').exists() :
             config_file = current_directory.joinpath('pyproject.toml')
+
+        if current_directory.joinpath('nuthatch.toml').exists() :
+            config_file = current_directory.joinpath('nuthatch.toml')
 
         current_directory = current_directory.parent
 
     return config_file
 
-def get_callers_pyproject():
-
-    # Get two frames back
-
-    frame = inspect.currentframe().f_back
-    module = inspect.getmodule(frame)
-    while module is not None:
-        logger.debug(f"Found module: {module.__name__}")
-        logger.debug(f"Found module: {module.__file__}")
-        if module.__name__.split('.')[0] == 'nuthatch':
-            frame = frame.f_back
-            module = inspect.getmodule(frame)
-        else:
-            path = os.path.dirname(module.__file)
-            logger.debug(f"Returning path {path}")
-            return path
-
-    logger.debug("Did not find other module.")
-    return None
+def get_callers_pyproject(wrapped_path):
+    logger.debug(f"Looking for caller's config starting at: {wrapped_path}")
+    return find_pyproject(wrapped_path)
 
 def get_global_config():
     expanded = os.path.expanduser('~/nuthatch.toml')
@@ -63,7 +49,6 @@ def get_global_config():
         return expanded
     else:
         return None
-
 
 def get_current_pyproject():
     current_directory = Path.cwd()
@@ -139,7 +124,7 @@ def extract_dynamic_params(existing_params, location, requested_parameters, back
     return existing_params
 
 
-def get_config(location='root', requested_parameters=[], backend_name=None, mask_secrets=False, config_from=None):
+def get_config(location='root', requested_parameters=[], backend_name=None, mask_secrets=False, config_from=None, wrapped_path=None):
     """Get the config for a given location and backend.
 
     Args:
@@ -195,7 +180,7 @@ def get_config(location='root', requested_parameters=[], backend_name=None, mask
                 mirror_configs['global'] = global_params
 
         # Get the caller's config to check if it's the same
-        caller_config_file = get_callers_pyproject()
+        caller_config_file = get_callers_pyproject(wrapped_path)
         logger.debug(f"Callers pyrpoject path is: {caller_config_file}")
 
         # Now get any mirrors from the current project
