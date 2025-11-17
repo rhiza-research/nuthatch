@@ -8,9 +8,49 @@ could leverage different filesystems if specified)
 """
 from pathlib import Path
 import os
+import inspect
 import tomllib
 
+import logging
+logger = logging.getLogger(__name__)
+
+
 dynamic_parameters = {}
+
+def _is_fs_root(p):
+    """Check if a path is the root of a filesystem."""
+    return os.path.splitdrive(str(p))[1] == os.sep
+
+def find_pyproject(start_dir):
+
+    if isinstance(start_dir, str):
+        start_dir = Path(start_dir)
+
+    current_directory = start_dir
+
+    config_file = None
+    while not _is_fs_root(current_directory):
+        if current_directory.joinpath('pyproject.toml').exists():
+            config_file = current_directory.joinpath('pyproject.toml')
+
+        current_directory = current_directory.parent
+
+    return config_file
+
+def get_callers_pyproject():
+
+    # Get two frames back
+    frame = inspect.currentframe().f_back.f_back
+
+    # Get the module object from the caller's globals
+    module = inspect.getmodule(frame)
+
+    path = os.path.dirname(module.__file__)
+    return find_pyproject(path)
+
+def get_current_pyproject():
+    current_directory = Path.cwd()
+    return find_pyproject(current_directory)
 
 def config_parameter(parameter_name, location='root', backend=None, secret=False):
     """A decorator to register a function as a dynamic parameter.
@@ -33,9 +73,6 @@ def config_parameter(parameter_name, location='root', backend=None, secret=False
             dynamic_parameters[location][parameter_name] = (function, secret)
     return decorator
 
-def _is_fs_root(p):
-    """Check if a path is the root of a filesystem."""
-    return os.path.splitdrive(str(p))[1] == os.sep
 
 def get_config(location='root', requested_parameters=[], backend_name=None, mask_secrets=False):
     """Get the config for a given location and backend.
@@ -46,17 +83,12 @@ def get_config(location='root', requested_parameters=[], backend_name=None, mask
         backend_name (str, optional): The backend to get the config for.
         mask_secrets (bool): Whether to hide secret parameters. Useful for printing.
     """
-    #Find pyproject.toml
-    current_directory = Path.cwd()
 
-    config_file = None
-    while not _is_fs_root(current_directory):
-        if current_directory.joinpath('pyproject.toml').exists():
-            config_file = current_directory.joinpath('pyproject.toml')
-
-        current_directory = current_directory.parent
+    logger.debug(f"Callers pyrpoject path is: {get_callers_pyproject()}")
 
     #TODO: enable ini and environment variable configuration
+    config_file = get_current_pyproject()
+    logger.debug(f"Current pyrpoject path is: {config_file}")
 
     with open(config_file, "rb") as f:
         config = tomllib.load(f)
