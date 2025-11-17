@@ -31,9 +31,11 @@ def find_pyproject(start_dir):
     while not _is_fs_root(current_directory):
         if current_directory.joinpath('pyproject.toml').exists() :
             config_file = current_directory.joinpath('pyproject.toml')
+            break
 
         if current_directory.joinpath('nuthatch.toml').exists() :
             config_file = current_directory.joinpath('nuthatch.toml')
+            break
 
         current_directory = current_directory.parent
 
