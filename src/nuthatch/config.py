@@ -40,10 +40,12 @@ def find_pyproject(start_dir):
 def get_callers_pyproject():
 
     # Get two frames back
-    frame = inspect.currentframe().f_back.f_back
+    frame = inspect.currentframe().f_back
 
     # Get the module object from the caller's globals
     module = inspect.getmodule(frame)
+
+    logger.debug(f"Found module: {module.__name__}")
 
     path = os.path.dirname(module.__file__)
     return find_pyproject(path)
