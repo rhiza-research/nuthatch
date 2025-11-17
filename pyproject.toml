@@ -7,11 +7,9 @@ authors = [
     { name = "Genevieve Flaspohler", email = "geneviee@rhizaresearch.org" }
 ]
 readme = "README.md"
-requires-python = ">= 3.10"
+requires-python = ">= 3.12"
 license = {text = "MIT"}
 
-# TODO: Make backend submodules so that their
-# dependencies can be installed independently
 dependencies = [
     "fsspec",
     "sqlalchemy",
@@ -29,11 +27,9 @@ dependencies = [
     "polars"
 ]
 
-[project.scripts]
-nuthatch = "nuthatch.cli:main"
-
-
-[project.optional-dependencies]
+# TODO: Make backend submodules so that their
+# dependencies can be installed independently
+[dependency-groups]
 dev = [
     "pooch",
     "google-cloud-secret-manager",
@@ -44,6 +40,13 @@ dev = [
     "ruff>=0.1.0",
     "sheerwater-benchmarking @ git+https://github.com/rhiza-research/sheerwater-benchmarking",
 ]
+
+[project.scripts]
+nuthatch = "nuthatch.cli:main"
+
+
+[project.optional-dependencies]
+
 
 [build-system]
 requires = ["hatchling==1.26.3", "hatch-vcs"]
@@ -61,20 +64,8 @@ exclude = [
 [tool.hatch.metadata]
 allow-direct-references = true
 
-
 [tool.uv]
 managed = true
-dev-dependencies = [
-    "pooch",
-    "google-cloud-secret-manager",
-    "gcsfs",
-    "pytest>=7.0.0",
-    "pytest-cov>=4.0.0",
-    "pytest-mock>=3.10.0",
-    "ruff>=0.1.0",
-    "sheerwater-benchmarking @ git+https://github.com/rhiza-research/sheerwater-benchmarking",
-]
-
 
 [tool.pytest.ini_options]
 log_cli = true
