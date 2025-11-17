@@ -40,40 +40,22 @@ def find_pyproject(start_dir):
 def get_callers_pyproject():
 
     # Get two frames back
+
     frame = inspect.currentframe().f_back
     module = inspect.getmodule(frame)
+    while module is not None:
+        logger.debug(f"Found module: {module.__name__}")
+        logger.debug(f"Found module: {module.__file__}")
+        if module.__name__.split('.')[0] == 'nuthatch':
+            frame = frame.f_back
+            module = inspect.getmodule(frame)
+        else:
+            path = os.path.dirname(module.__file)
+            logger.debug(f"Returning path {path}")
+            return path
 
-    logger.debug(f"Found module: {module.__name__}")
-    logger.debug(f"Found module: {module.__file__}")
-
-    frame2 = inspect.currentframe().f_back.f_back
-    module2 = inspect.getmodule(frame2)
-
-    logger.debug(f"Found module: {module2.__name__}")
-    logger.debug(f"Found module: {module2.__file__}")
-
-    frame3 = inspect.currentframe().f_back.f_back.f_back
-    module3 = inspect.getmodule(frame3)
-    logger.debug(f"Found module: {module3.__name__}")
-    logger.debug(f"Found module: {module3.__file__}")
-
-    frame4 = inspect.currentframe().f_back.f_back.f_back.f_back
-    module4 = inspect.getmodule(frame4)
-    logger.debug(f"Found module: {module4.__name__}")
-    logger.debug(f"Found module: {module4.__file__}")
-
-    frame5 = inspect.currentframe().f_back.f_back.f_back.f_back.f_back
-    module5 = inspect.getmodule(frame5)
-    logger.debug(f"Found module: {module5.__name__}")
-    logger.debug(f"Found module: {module5.__file__}")
-
-    frame6 = inspect.currentframe().f_back.f_back.f_back.f_back.f_back.f_back
-    module6 = inspect.getmodule(frame6)
-    logger.debug(f"Found module: {module6.__name__}")
-    logger.debug(f"Found module: {module6.__file__}")
-
-    path = os.path.dirname(module.__file__)
-    return find_pyproject(path)
+    logger.debug("Did not find other module.")
+    return None
 
 def get_global_config():
     expanded = os.path.expanduser('~/nuthatch.toml')
