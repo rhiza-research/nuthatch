@@ -245,17 +245,31 @@ def instantiate_read_caches(cache_key, namespace, version, cache_arg_values, req
     # then do our best to instantiate the backends themselves
     resolution_list = ['local', 'root', 'mirror']
     caches = {}
+    found_cache = False
 
     for location in resolution_list:
         cache = None
         cache_config = get_config(location=location, requested_parameters=Cache.config_parameters)
         if cache_config:
-            cache = Cache(cache_config, cache_key, namespace, version, cache_arg_values,
-                          location, requested_backend, backend_kwargs)
-        elif location == 'root':
-            raise ValueError("At least a root filesystem for metadata storage must be configured. No configuration found.")
+            if isinstance(cache_config, list):
+                for i, c_config in cache_config:
+                    cache = Cache(c_config, cache_key, namespace, version, cache_arg_values,
+                                  location, requested_backend, backend_kwargs)
 
-        caches[location] = cache
+                    caches[f"{location}{i}"] = cache
+                    found_cache=True
+            else:
+                cache = Cache(cache_config, cache_key, namespace, version, cache_arg_values,
+                              location, requested_backend, backend_kwargs)
+
+                caches[location] = cache
+                found_cache=True
+
+    if not found_cache:
+        raise RuntimeError("""No Nuthach configuration has been found globally, in the current project, or in the module you have called.
+                                    -> If you are developing a Nuthatch project, please configure nuthatch in your pyproject.toml
+                                    -> If you are calling a project that uses nuthatch, it should just work! Please contact the project's maintainer
+                           """)
 
     return caches
 
@@ -435,6 +449,14 @@ def cache(cache=True,
                     if fail_if_no_cache:
                         raise RuntimeError(f"""Computation has been disabled by
                                             `fail_if_no_cache` and cache doesn't exist for {cache_key}.""")
+
+                    if not get_config(location='root', requested_parameters=Cache.config_parameters):
+                        inp = input("""A pre-existing cache was not found, and no root cache has been configured.
+                                        Would you still like to compute the result? (y/n)""")
+                        if inp == 'y' or inp == 'Y':
+                            pass
+                        else:
+                            raise RuntimeError("Root cache not configured to store cache output. Exiting.")
 
                     if namespace:
                         logger.info(f"Cache doesn't exist for {cache_key} in namespace {namespace}. Running function")

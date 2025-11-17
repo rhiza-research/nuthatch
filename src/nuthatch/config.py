@@ -48,6 +48,14 @@ def get_callers_pyproject():
     path = os.path.dirname(module.__file__)
     return find_pyproject(path)
 
+def get_global_config():
+    expanded = os.path.expanduser('~/nuthatch.toml')
+    if os.path.exists(expanded):
+        return expanded
+    else:
+        return None
+
+
 def get_current_pyproject():
     current_directory = Path.cwd()
     return find_pyproject(current_directory)
@@ -73,27 +81,11 @@ def config_parameter(parameter_name, location='root', backend=None, secret=False
             dynamic_parameters[location][parameter_name] = (function, secret)
     return decorator
 
-
-def get_config(location='root', requested_parameters=[], backend_name=None, mask_secrets=False):
-    """Get the config for a given location and backend.
-
-    Args:
-        location (str, optional): The location to get the config for. One of 'local', 'root', or 'mirror'
-        requested_parameters (list, optional): The parameters to get the config for.
-        backend_name (str, optional): The backend to get the config for.
-        mask_secrets (bool): Whether to hide secret parameters. Useful for printing.
-    """
-
-    logger.debug(f"Callers pyrpoject path is: {get_callers_pyproject()}")
-
-    #TODO: enable ini and environment variable configuration
-    config_file = get_current_pyproject()
-    logger.debug(f"Current pyrpoject path is: {config_file}")
-
-    with open(config_file, "rb") as f:
-        config = tomllib.load(f)
-
+def extract_params(config, location, requested_parameters, backend_name):
     # Assume all parameters set without a location specified apply to root and all backends
+    if 'tool' not in config or 'nuthatch' not in config['tool']:
+        return None
+
     location_params = {}
     if location == 'root':
         location_params = config['tool']['nuthatch']
@@ -113,24 +105,71 @@ def get_config(location='root', requested_parameters=[], backend_name=None, mask
 
     filtered_config = {k: merged_config[k] for k in merged_config if k in requested_parameters}
 
-    # Now call all the relevant config registrations and add them
-    for p in requested_parameters:
-        if location in dynamic_parameters:
-            # If a dynamic parameter has been set call it and use it to override any static config
-            if backend_name in dynamic_parameters[location] and p in dynamic_parameters[location][backend_name]:
-                secret = dynamic_parameters[location][backend_name][p][1]
-                param = dynamic_parameters[location][backend_name][p][0]()
-                if secret and mask_secrets:
-                    filtered_config[p] = '*'*len(param)
-                else:
-                    filtered_config[p] = param
-            elif p in dynamic_parameters[location]:
-                secret = dynamic_parameters[location][p][1]
-                param = dynamic_parameters[location][p][0]()
-                if secret and mask_secrets:
-                    filtered_config[p] = '*'*len(param)
-                else:
-                    filtered_config[p] = param
-
-
     return filtered_config
+
+
+def get_config(location='root', requested_parameters=[], backend_name=None, mask_secrets=False):
+    """Get the config for a given location and backend.
+
+    Args:
+        location (str, optional): The location to get the config for. One of 'local', 'root', or 'mirror'
+        requested_parameters (list, optional): The parameters to get the config for.
+        backend_name (str, optional): The backend to get the config for.
+        mask_secrets (bool): Whether to hide secret parameters. Useful for printing.
+    """
+    # If we are root or local we must try and find a config from either our current project or a global project
+    if location == 'root' or location == 'local':
+        # Lowest priority - global
+        final_config = {}
+        global_config_file = get_global_config()
+        if global_config_file:
+            logger.debug(f"Found global config file: {global_config_file}")
+            with open(global_config_file, "rb") as f:
+                global_config = tomllib.load(f)
+
+            global_params = extract_params(global_config, location, requested_parameters, backend_name)
+
+            if global_params:
+                final_config.update(global_params)
+
+        current_config_file = get_current_pyproject()
+        logger.debug(f"Current pyrpoject path is: {current_config_file}")
+
+        if current_config_file:
+            with open(current_config_file, "rb") as f:
+                current_config = tomllib.load(f)
+
+            current_params = extract_params(current_config, location, requested_parameters, backend_name)
+            if current_params:
+                final_config.update(current_params)
+
+        # Now call all the relevant config registrations and add them
+        for p in requested_parameters:
+            if location in dynamic_parameters:
+                # If a dynamic parameter has been set call it and use it to override any static config
+                if backend_name in dynamic_parameters[location] and p in dynamic_parameters[location][backend_name]:
+                    secret = dynamic_parameters[location][backend_name][p][1]
+                    param = dynamic_parameters[location][backend_name][p][0]()
+                    if secret and mask_secrets:
+                        final_config[p] = '*'*len(param)
+                    else:
+                        final_config[p] = param
+                elif p in dynamic_parameters[location]:
+                    secret = dynamic_parameters[location][p][1]
+                    param = dynamic_parameters[location][p][0]()
+                    if secret and mask_secrets:
+                        final_config[p] = '*'*len(param)
+                    else:
+                        final_config[p] = param
+
+        return final_config
+
+    elif location == "mirror":
+        caller_config_file = get_callers_pyproject()
+        logger.debug(f"Callers pyrpoject path is: {caller_config_file}")
+
+        config_file = get_current_pyproject()
+        logger.debug(f"Current pyrpoject path is: {config_file}")
+    else:
+        raise ValueError("Location must be one of 'root', 'local', or 'mirror'.")
+
