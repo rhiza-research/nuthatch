@@ -99,16 +99,16 @@ class DeltaMetastore(Metastore):
         else:
             try:
                 self.pscan = ps.scan_delta(table_path).collect()
-                logging.debug("Opened delta table.")
+                logger.debug("Opened delta table.")
             except deltalake.exceptions.TableNotFoundError:
-                logger.info("Instantiating empty delta table.")
+                logger.info("Instantiating empty nuthatch metastore in delta at {table_path}.")
                 DeltaTable.create(table_path,
                                   schema=pa.schema(schema_list),
                                   storage_options=options)
 
                 self.pscan = ps.scan_delta(table_path).collect()
             except FileNotFoundError:
-                logger.info("Instantiating empty delta table.")
+                logger.info("Instantiating empty nuthatch metastore in delta at {table_path}.")
                 DeltaTable.create(table_path,
                                   schema=pa.schema(schema_list),
                                   storage_options=options)
@@ -142,9 +142,9 @@ class DeltaMetastore(Metastore):
             else:
                 base += f" AND {key} = '{value}'"
 
-        logging.info("start query")
+        logger.debug("start delta query")
         rows = self.pscan.sql(base, table_name = "metadata")
-        logging.info("end query")
+        logger.debug("end delta query")
 
         #rows = QueryBuilder().register('metadata', self.dt).execute(base).read_all()
 
