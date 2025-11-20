@@ -37,34 +37,34 @@ def cli():
 @cli.command('import')
 @click.argument('cache_key')
 @click.option('--namespace', help='Namespace for the cache')
+@click.option('--version', help='Version of the imported cache')
 @click.option('--backend', help='Backend to use', required=True)
 @click.option('--location', help='Location to search', default='root')
-def import_data(cache_key, namespace, backend, location):
+def import_data(cache_key, namespace, version, backend, location):
     """Import data from a glob pattern."""
 
-    def get_cache_key(self, path):
-        if path.endswith('.' + self.extension):
-            path = path[:-len('.' + self.extension)]
+    def get_cache_key(path, base_path, extension):
+        if path.endswith('.' + extension):
+            path = path[:-len('.' + extension)]
 
-        if path.startswith(self.base_path):
-            path = path[len(self.base_path):]
+        if path.startswith(base_path):
+            path = path[len(base_path):]
 
-        stripped = fsspec.core.strip_protocol(self.base_path)
+        stripped = fsspec.core.strip_protocol(base_path)
         if path.startswith(stripped):
             path = path[len(stripped):]
 
         if path.startswith('/'):
             path = path[1:]
 
-        if self.namespace:
-            if path.startswith(self.namespace):
-                path = path[len(self.namespace):]
+        if namespace:
+            if path.startswith(namespace):
+                path = path[len(namespace):]
 
         if path.startswith('/'):
             path = path[1:]
 
         return path
-
 
 
     # First instantiate the backend based on the passed backend
@@ -77,7 +77,7 @@ def import_data(cache_key, namespace, backend, location):
     if hasattr(backend, 'fs') and backend.fs is not None:
         paths = backend.fs.glob(backend.path)
         for path in paths:
-            cache_keys.append(backend.get_cache_key(path))
+            cache_keys.append(get_cache_key(path, backend.base_path, backend.extension))
 
     if len(cache_keys) > 0:
         click.confirm(f"Are you sure you want to import {len(paths)} cache entries?", abort=True)
@@ -89,7 +89,7 @@ def import_data(cache_key, namespace, backend, location):
 
         if backend_name == 'null':
             config = get_config(location=location, requested_parameters=Cache.config_parameters)
-            cache = Cache(config, key, namespace, None, location, None, {})
+            cache = Cache(config, key, namespace, None, version, location, None, {})
             if cache.is_null():
                 print(f"{key} already in cache as null!")
             elif cache.exists():
@@ -99,7 +99,7 @@ def import_data(cache_key, namespace, backend, location):
                 print(f"Set {key} successfully to null.")
         else:
             config = get_config(location=location, requested_parameters=Cache.config_parameters)
-            cache = Cache(config, key, namespace, None, location, backend_name, {})
+            cache = Cache(config, key, namespace, None, version, location, backend_name, {})
             if not cache.exists():
                 cache._commit_metadata()
                 print(f"Imported {key} successfully.")
