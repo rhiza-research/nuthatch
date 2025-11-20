@@ -425,7 +425,7 @@ def cache(cache=True,
 
                         used_read_backend = read_cache.get_backend()
                         if filepath_only:
-                            return read_cache.get_file_path()
+                            return read_cache.get_uri()
                         else:
                             ds = read_cache.read(engine=engine)
 
@@ -523,7 +523,7 @@ def cache(cache=True,
                         ds = write_cache.write(ds)
 
             if filepath_only:
-                return write_cache.get_file_path()
+                return write_cache.get_uri()
             else:
                 return ds
 

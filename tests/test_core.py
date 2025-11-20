@@ -33,6 +33,10 @@ def test_core():
     data6 = num(11)
     assert data6 != data
 
+def test_filepath():
+    data = num(10, filepath_only=True)
+    assert data.endswith('.pkl')
+
 def test_local_sync():
     data = num(10, recompute=True, force_overwrite=True)
 
