@@ -106,7 +106,7 @@ def import_data(cache_key, namespace, backend, location):
             else:
                 print(f"{key} already in cache!")
 
-def list_helper(cache_key, namespace, backend, location):
+def list_helper(cache_key, namespace, backend, location, show_pending):
     """List all cache entries."""
     config = get_config(location=location, requested_parameters=Cache.config_parameters)
     cache = Cache(config, None, namespace, None, None, location, backend, {})
@@ -116,7 +116,10 @@ def list_helper(cache_key, namespace, backend, location):
     else:
         cache_key = cache_key.replace('*', '%')
 
-    caches = cache.metastore.select_row("*", {"namespace": namespace}, {"cache_key": cache_key})
+    if show_pending:
+        caches = cache.metastore.select_row("*", {"namespace": namespace}, {"cache_key": cache_key})
+    else:
+        caches = cache.metastore.select_row("*", {"namespace": namespace, "state": "confirmed"}, {"cache_key": cache_key})
 
     return caches
 
@@ -126,9 +129,10 @@ def list_helper(cache_key, namespace, backend, location):
 @click.option('--backend', help='Backend filter')
 @click.option('--location', help='Location to search', default='root')
 @click.option('--long', '-l', is_flag=True, help='List all information about the cache')
-def list_caches(cache_key, namespace, backend, location, long):
+@click.option('--show-pending', is_flag=True, help='Include files that are not confirmed')
+def list_caches(cache_key, namespace, backend, location, long, show_pending):
 
-    caches = list_helper(cache_key, namespace, backend, location)
+    caches = list_helper(cache_key, namespace, backend, location, show_pending)
     pager = len(caches) > shutil.get_terminal_size()[0]
 
     if not long:
