@@ -572,10 +572,10 @@ class Cache():
         Args:
             state (str, optional): The state to update the metadata to.
         """
-        repo = git.Repo(search_parent_directories=True)
-        if repo:
+        try:
+            repo = git.Repo(search_parent_directories=True)
             sha = repo.head.object.hexsha
-        else:
+        except:
             sha = 'no_git_repo'
 
         path = 'None'
