@@ -51,11 +51,12 @@ def prune_chunking_dimensions(ds, chunking):
         chunking (dict): The chunking dimensions to prune.
     """
     # Drop any dimensions that don't exist in the ds_chunks
+    new_chunks = {}
     for dim in chunking:
-        if dim not in ds.dims:
-            del chunking[dim]
+        if dim in ds.dims:
+            new_chunks[dim] = chunking[dim]
 
-    return chunking
+    return new_chunks
 
 
 def chunking_compare(ds, chunking):
