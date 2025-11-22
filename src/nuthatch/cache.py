@@ -64,6 +64,18 @@ class Metastore(ABC):
         """
         pass
 
+
+    @abstractmethod
+    def append(self, values):
+        """Updates or creates a row of values that matches the were clause.
+
+        Arguments:
+            values (dict): key values to upsert
+            where (dict): conditions on which to upsert
+        """
+        pass
+
+
 class DeltaMetastore(Metastore):
     """Deltalake metastore."""
 
@@ -187,6 +199,22 @@ class DeltaMetastore(Metastore):
 
         rows = self.pscan.sql(base, table_name = "metadata")
         return rows.to_dicts()
+
+
+    def append(self, values):
+        for key, value in values.items():
+            if value is None:
+                values[key] = str(value)
+
+        df = ps.DataFrame(values)
+
+        df.write_delta(
+            self.table_path,
+            mode="append"
+        )
+
+        self.pscan = ps.scan_delta(self.table_path).collect()
+        self.__class__.delta_tables[self.backend_location] = self.pscan
 
 
     def upsert(self, values, where):
@@ -328,6 +356,8 @@ class SQLMetastore(Metastore):
             rows = conn.execute(statement)
             return rows.mappings().all()
 
+    def append(self, values):
+        pass
 
     def upsert(self, values, where):
         """Updates or creates a row of values that matches the were clause.
@@ -563,7 +593,7 @@ class Cache():
 
     def _set_metadata_pending(self):
         """Set the metadata to pending."""
-        self._update_metadata_state(state='pending')
+        #self._update_metadata_state(state='pending')
 
     def _commit_metadata(self):
         """Commit the metadata."""
@@ -607,7 +637,8 @@ class Cache():
         if state != 'null':
             where['backend'] = self.backend_name
 
-        self.metastore.upsert(values, where)
+        if state == 'null' or state == 'confirmed':
+            self.metastore.append(values)
 
 
     def get_backend(self):
