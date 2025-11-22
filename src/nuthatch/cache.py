@@ -211,15 +211,20 @@ class DeltaMetastore(Metastore):
                 base += f" AND s.{key} = '{value}'"
 
         df = ps.DataFrame(values)
-        df.write_delta(
-            self.table_path,
-            mode="merge",
-            delta_merge_options={
-                "predicate": base,
-                "source_alias": "t",
-                "target_alias": "s",
-            },
-        ).when_matched_update_all().when_not_matched_insert_all().execute()
+
+        try:
+            df.write_delta(
+                self.table_path,
+                mode="merge",
+                delta_merge_options={
+                    "predicate": base,
+                    "source_alias": "t",
+                    "target_alias": "s",
+                },
+            ).when_matched_update_all().when_not_matched_insert_all().execute()
+        except:
+            raise RuntimeError("Caught the delta exception!")
+
         self.pscan = ps.scan_delta(self.table_path).collect()
         self.__class__.delta_tables[self.backend_location] = self.pscan
 

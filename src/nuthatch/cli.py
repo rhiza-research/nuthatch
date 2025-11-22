@@ -161,7 +161,7 @@ def list_caches(cache_key, namespace, backend, location, long, show_pending):
 @click.option('--metadata-only', '-m', is_flag=True, help='Only delete the metadata for the cache, not the underlying data.')
 def delete_cache(cache_key, namespace, backend, location, force, metadata_only):
     """Clear cache entries."""
-    caches = list_helper(cache_key, namespace, backend, location)
+    caches = list_helper(cache_key, namespace, backend, location, show_pending=False)
     config = get_config(location=location, requested_parameters=Cache.config_parameters)
 
     click.confirm(f"Are you sure you want to delete {len(caches)} cache entries?", abort=True)
