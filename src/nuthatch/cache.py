@@ -5,11 +5,8 @@ import getpass
 from abc import ABC, abstractmethod
 
 import git
-import pyarrow as pa
-import sqlalchemy
+import fsspec
 import polars as ps
-from deltalake import DeltaTable
-import deltalake
 
 from .backend import get_backend_by_name
 from .config import get_config
@@ -21,16 +18,15 @@ class Metastore(ABC):
     """The base class for a cache metastore. Must basically implement schema and table
     create, check conditional row existence, row insert, row, select, row update, and row delete.
     """
-    def __init__(self, config, schema):
+    def __init__(self, config):
         """Must create a metastore of the specified schema.
 
         Arguments:
-            schema (dict): column_name: python type
         """
         pass
 
     @abstractmethod
-    def check_row_exists(self, where):
+    def cache_exists(self, cache_key, namespace):
         """Check if metastore row exists based on where condition.
 
         Arguments:
@@ -41,8 +37,9 @@ class Metastore(ABC):
         """
         pass
 
+
     @abstractmethod
-    def select_row(self, columns, where):
+    def get_cache(self, cache_key, namespace):
         """Return columns for rows matching the where clause.
 
         Arguments:
@@ -55,7 +52,7 @@ class Metastore(ABC):
         pass
 
     @abstractmethod
-    def upsert(self, values, where):
+    def write_cache(self, cache_key, namespace, values):
         """Updates or creates a row of values that matches the were clause.
 
         Arguments:
@@ -66,7 +63,7 @@ class Metastore(ABC):
 
 
     @abstractmethod
-    def append(self, values):
+    def delete_cache(self, cache_key, namespace):
         """Updates or creates a row of values that matches the were clause.
 
         Arguments:
@@ -75,322 +72,107 @@ class Metastore(ABC):
         """
         pass
 
+    @abstractmethod
+    def list_caches(self, cache_key, namespace, backend):
+        pass
 
-class DeltaMetastore(Metastore):
-    """Deltalake metastore."""
 
-    # Class variables for keeping the delta table in memory
-    # slightly improves performance
-    delta_tables = {}
-    delta_table_configs = {}
-
-    def __init__(self, config, backend_location, schema):
+class NuthatchMetastore(Metastore):
+    """Nuthatch custom metastore."""
+    def __init__(self, config, backend_location):
         base_path = config['filesystem']
-        table_path = os.path.expanduser(os.path.join(base_path, 'nuthatch_metadata.delta'))
+        table_path = os.path.expanduser(os.path.join(base_path, 'nuthatch_metadata.nut'))
         self.table_path = table_path
-        self.backend_location = backend_location
+        self.extension = 'parquet'
+        self.config = config
 
-        options = None
-        if 'filesystem_options' in config:
-            options = config['filesystem_options']
-            for key, value in options.items():
-                options[key] = str(value)
+        if 'filesystem_options' not in config:
+            self.config['filesystem_options'] = {}
 
-        # Create pyarrow schema to match schema
-        schema_list = []
-        for key, value in schema.items():
-            if value is str:
-                schema_list.append(pa.field(key, pa.string()))
-            elif value is int:
-                schema_list.append(pa.field(key, pa.int64()))
-
-        if (backend_location in self.__class__.delta_tables and
-            self.__class__.delta_table_configs[backend_location] == config):
-            logger.debug("Loading delta table from cache.")
-            self.pscan = self.__class__.delta_tables[backend_location]
+        # This instantiates an fsspec filesystem
+        if fsspec.utils.get_protocol(self.table_path) == 'file':
+            # If the protocol is a local filesystem, we need to create the directory if it doesn't exist
+            self.fs = fsspec.core.url_to_fs(self.table_path, auto_mkdir=True, **self.config['filesystem_options'])[0]
         else:
-            try:
-                self.pscan = ps.scan_delta(table_path).collect()
-                logger.debug("Opened delta table.")
-            except deltalake.exceptions.TableNotFoundError:
-                logger.info("Instantiating empty nuthatch metastore in delta at {table_path}.")
-                DeltaTable.create(table_path,
-                                  schema=pa.schema(schema_list),
-                                  storage_options=options)
+            self.fs = fsspec.core.url_to_fs(self.table_path, **self.config['filesystem_options'])[0]
 
-                self.pscan = ps.scan_delta(table_path).collect()
-            except FileNotFoundError:
-                logger.info("Instantiating empty nuthatch metastore in delta at {table_path}.")
-                DeltaTable.create(table_path,
-                                  schema=pa.schema(schema_list),
-                                  storage_options=options)
-
-                self.pscan = ps.scan_delta(table_path).collect()
-
-            # Read the table for easy caching
-            self.__class__.delta_tables[backend_location] = self.pscan
-            self.__class__.delta_table_configs[backend_location] = copy.deepcopy(config)
-            logger.debug(f"Cached delta metadata table at {table_path} for backend_location {backend_location}")
-
-
-    def check_row_exists(self, where):
-        """Check if metastore row exists based on where condition.
-
-        Arguments:
-            where (dict): dict of key/value pairs to check
-
-        Returns:
-            True if exists, false otherwise
-        """
-        # Try this in polars instead?
-
-        base = """select cache_key from metadata"""
-
-        first = True
-        for key, value in where.items():
-            if first:
-                base += f" where {key} = '{value}'"
-                first = False
-            else:
-                base += f" AND {key} = '{value}'"
-
-        logger.debug("start delta query")
-        rows = self.pscan.sql(base, table_name = "metadata")
-        logger.debug("end delta query")
-
-        #rows = QueryBuilder().register('metadata', self.dt).execute(base).read_all()
-
-        if len(rows) > 0:
-            return True
+    def is_null(self, cache_key, namespace):
+        if namespace:
+            null_path = os.path.join(self.table_path, cache_key, namespace) + '.null'
         else:
-            return False
+            null_path = os.path.join(self.table_path, cache_key) + '.null'
+        return self.fs.exists(null_path)
 
+    def set_null(self, cache_key, namespace):
+        if namespace:
+            null_path = os.path.join(self.table_path, cache_key, namespace) + '.null'
+        else:
+            null_path = os.path.join(self.table_path, cache_key) + '.null'
+        return self.fs.touch(null_path)
 
-    def select_row(self, columns, where={}, like={}):
-        """Return columns for rows matching the where clause.
+    def delete_null(self, cache_key, namespace):
+        if namespace:
+            null_path = os.path.join(self.table_path, cache_key, namespace) + '.null'
+        else:
+            null_path = os.path.join(self.table_path, cache_key) + '.null'
+        return self.fs.rm(null_path)
 
-        Arguments:
-            columns (str or list(str)): columns to select
-            where (dict): key/value pairs to match
-            like (dict): key/value pairs to like match
+    def cache_exists(self, cache_key, namespace, backend):
+        if namespace:
+            full_path = os.path.join(self.table_path, cache_key, namespace, backend) + '.' + self.extension
+        else:
+            full_path = os.path.join(self.table_path, cache_key, backend) + '.' + self.extension
+        return self.fs.exists(full_path)
 
-        Returns:
-            list(dict) of matching row values
-        """
-        if isinstance(columns, str):
-            columns = [columns]
+    def get_cache(self, cache_key, namespace, backend):
+        if namespace:
+            full_path = os.path.join(self.table_path, cache_key, namespace, backend) + '.' + self.extension
+        else:
+            full_path = os.path.join(self.table_path, cache_key, backend) + '.' + self.extension
+        df = ps.read_parquet(full_path)
+        return df.to_dicts()[0]
 
-        base = f"""select {', '.join(f'"{s}"' for s in columns)} from metadata"""
+    def get_backends(self, cache_key, namespace):
+        if namespace:
+            full_path = os.path.join(self.table_path, cache_key, namespace, '*') + '.' + self.extension
+        else:
+            full_path = os.path.join(self.table_path, cache_key, '*') + '.' + self.extension
+        blist = self.fs.glob(full_path)
+        return [b.split('/')[-1].split('.')[0] for b in blist]
 
-        first = True
-        for key, value in where.items():
-            if first:
-                base += f" where {key} = '{value}'"
-                first = False
-            else:
-                base += f" AND {key} = '{value}'"
-
-        for key, value in like.items():
-            if first:
-                base += f" where {key} LIKE '{value}'"
-                first = False
-            else:
-                base += f" AND {key} LIKE '{value}'"
-
-        rows = self.pscan.sql(base, table_name = "metadata")
-        return rows.to_dicts()
-
-
-    def append(self, values):
-        for key, value in values.items():
-            if value is None:
-                values[key] = str(value)
-
+    def write_cache(self, cache_key, namespace, backend, values):
+        if namespace:
+            full_path = os.path.join(self.table_path, cache_key, namespace, backend) + '.' + self.extension
+        else:
+            full_path = os.path.join(self.table_path, cache_key, backend) + '.' + self.extension
         df = ps.DataFrame(values)
+        df.write_parquet(full_path, mkdir=True)
 
-        df.write_delta(
-            self.table_path,
-            mode="append"
+    def delete_cache(self, cache_key, namespace, backend):
+        if namespace:
+            full_path = os.path.join(self.table_path, cache_key, namespace, backend) + '.' + self.extension
+        else:
+            full_path = os.path.join(self.table_path, cache_key, backend) + '.' + self.extension
+        self.fs.rm(full_path)
+
+    def list_caches(self, cache_key, namespace, backend):
+        if not cache_key:
+            cache_key = '*'
+
+        if not namespace:
+            namespace = '*'
+
+        if not backend:
+            backend = '*'
+
+        full_path = os.path.join(self.table_path, cache_key, namespace, backend) + '.' + self.extension
+        df = ps.scan_parquet(full_path)
+        df_casted = df.with_columns(
+            ps.col("last_modified").cast(ps.Int64)
         )
-
-        self.pscan = ps.scan_delta(self.table_path).collect()
-        self.__class__.delta_tables[self.backend_location] = self.pscan
+        return df_casted.collect()
 
 
-    def upsert(self, values, where):
-        """Updates or creates a row of values that matches the were clause.
-
-        Arguments:
-            values (dict): key values to upsert
-            where (dict): conditions on which to upsert
-        """
-        for key, value in values.items():
-            if value is None:
-                values[key] = str(value)
-
-
-        base = ""
-        first = True
-        for key, value in where.items():
-            if first:
-                base += f"s.{key} = '{value}'"
-                first = False
-            else:
-                base += f" AND s.{key} = '{value}'"
-
-        df = ps.DataFrame(values)
-
-        try:
-            df.write_delta(
-                self.table_path,
-                mode="merge",
-                delta_merge_options={
-                    "predicate": base,
-                    "source_alias": "t",
-                    "target_alias": "s",
-                },
-            ).when_matched_update_all().when_not_matched_insert_all().execute()
-        except:
-            raise RuntimeError("Caught the delta exception!")
-
-        self.pscan = ps.scan_delta(self.table_path).collect()
-        self.__class__.delta_tables[self.backend_location] = self.pscan
-
-    def delete(self, where):
-        base = ""
-        first = True
-        for key, value in where.items():
-            if first:
-                base += f"s.{key} = '{value}'"
-                first = False
-            else:
-                base += f" AND s.{key} = '{value}'"
-
-        self.pscan.write_delta(
-            self.table_path,
-            mode="merge",
-            delta_merge_options={
-                "predicate": base,
-                "source_alias": "t",
-                "target_alias": "s",
-            },
-        ).when_matched_delete().execute()
-
-        self.pscan = ps.scan_delta(self.table_path).collect()
-        self.__class__.delta_tables[self.backend_location] = self.pscan
-
-
-class SQLMetastore(Metastore):
-    """SQL metastore."""
-
-    def __init__(self, config, schema):
-        # Create sqlalchemy schema to match schema
-        schema_list = []
-        for key, value in schema.items():
-            if value is str:
-                schema_list.append(sqlalchemy.Column(key, sqlalchemy.String))
-            elif value is int:
-                schema_list.append(sqlalchemy.Column(key, sqlalchemy.BigInteger))
-
-        # This is a database type
-        database_url = sqlalchemy.URL.create(config['driver'],
-                                             username = config['username'],
-                                             password = config['password'],
-                                             host = config['host'],
-                                             port = config['port'],
-                                             database = config['database'])
-        self.engine = sqlalchemy.create_engine(database_url)
-
-        metadata = sqlalchemy.MetaData()
-        self.db_table = sqlalchemy.Table('nuthatch_metadata', metadata, *schema_list)
-
-        metadata.create_all(self.engine, checkfirst=True)
-
-
-    def check_row_exists(self, where):
-        """Check if metastore row exists based on where condition.
-
-        Arguments:
-            where (dict): dict of key/value pairs to check
-
-        Returns:
-            True if exists, false otherwise
-        """
-        statement = sqlalchemy.select(sqlalchemy.func.count())
-
-        for key, value in where.items():
-            statement = statement.where(self.db_table.c[key] == value)
-
-        with self.engine.connect() as conn:
-            num = conn.execute(statement)
-            if num.fetchone()[0] > 0:
-                return True
-            else:
-                return False
-
-
-    def select_row(self, columns, where={}, like={}):
-        """Return columns for rows matching the where clause.
-
-        Arguments:
-            columns (str or list(str)): columns to select
-            where (dict): key/value pairs to match
-            like (dict): key/value pairs to like match
-
-        Returns:
-            list(dict) of matching row values
-        """
-        if isinstance(columns, str):
-            columns = [columns]
-
-        statement = sqlalchemy.select(self.db_table.c[*columns])
-
-        for key, value in where.items():
-            statement = statement.where(self.db_table.c[key] == value)
-
-        for key, value in like.items():
-            statement = statement.where(self.db_table.c[key].like(value))
-
-
-        with self.engine.connect() as conn:
-            rows = conn.execute(statement)
-            return rows.mappings().all()
-
-    def append(self, values):
-        pass
-
-    def upsert(self, values, where):
-        """Updates or creates a row of values that matches the were clause.
-
-        Arguments:
-            values (dict): key values to upsert
-            where (dict): conditions on which to upsert
-        """
-        if self.check_row_exists(where):
-            statement = sqlalchemy.update(self.db_table)
-
-            for key, value in where.items():
-                statement = statement.where(self.db_table.c[key] == value)
-
-            statement = statement.values(values)
-        else:
-            statement = sqlalchemy.insert(self.db_table).values(values)
-
-        with self.engine.connect() as conn:
-            conn.execute(statement)
-            conn.commit()
-
-
-    def delete(self, where):
-        """Delete items from the cache metastore matching the where clause."""
-        statement = sqlalchemy.delete(self.db_table)
-
-        for key, value in where.items():
-            statement = statement.where(self.db_table.c[key] == value)
-
-        with self.engine.connect() as conn:
-            conn.execute(statement)
-            conn.commit()
 
 
 class Cache():
@@ -418,28 +200,9 @@ class Cache():
         self.config_from=config_from
         self.wrapped_path=wrapped_path
 
-        schema = {
-            'cache_key': str,
-            'backend': str,
-            'namespace': str,
-            'version': str,
-            'state': str,
-            'last_modified': int,
-            'commit_hash': str,
-            'user': str,
-            'path': str
-        }
-
         # Either instantiate a delta table or a postgres table
-        if (('metadata_location' in config and config['metadata_location'] == 'filesystem') or
-            ('metadata_location' not in config and 'filesystem' in config) or
-            (any(param not in config for param in self.__class__.database_parameters))):
-            logger.debug(f"Using Delta Metastore for {backend_location} at {config['filesystem']}")
-            self.metastore = DeltaMetastore(config, backend_location, schema)
-        else:
-            logger.debug(f"Using SQL Metastore for {backend_location}")
-            self.metastore = SQLMetastore(config, schema)
-
+        logger.debug(f"Using Nuthatch Metastore for {backend_location} at {config['filesystem']}")
+        self.metastore = NuthatchMetastore(config, backend_location)
 
         self.backend = None
         self.backend_name = None
@@ -460,93 +223,25 @@ class Cache():
             if backend_config:
                 self.backend = backend_class(backend_config, cache_key, namespace, args, copy.deepcopy(backend_kwargs))
 
-    def _check_row_exists(self, state=None, include_backend=False):
-        """Check if the metadata exists in the database or delta table.
-
-        Args:
-            state (str, optional): The state of the metadata to check for.
-            include_backend (bool, optional): Whether to include the backend in the check.
-
-        Returns:
-            bool: True if the metadata exists in the database or delta table, False otherwise.
-        """
-        where = {
-            'cache_key': self.cache_key,
-            'namespace': self.namespace,
-            'version': self.version
-        }
-
-        if state:
-            where['state'] = state
-
-        if include_backend:
-            where['backend']: self.backend
-
-        return self.metastore.check_row_exists(where)
-
-    def _get_row(self, select, include_backend=False):
-        """Get a row from the database or delta table.
-
-        Args:
-            select (str): The column to select.
-            include_backend (bool, optional): Whether to include the backend in the check.
-
-        Returns:
-            The row from the database or delta table.
-        """
-        where = {
-            'namespace': self.namespace,
-            'version': self.version
-        }
-
-        like = {
-            'cache_key': self.cache_key,
-        }
-
-        if include_backend:
-            where['backend'] = self.backend_name
-
-        return self.metastore.select_row(select, where, like)
-
     def is_null(self):
         """Check if the metadata is null.
 
         Returns:
             bool: True if the metadata is null, False otherwise.
         """
-        return self._check_row_exists(state='null', include_backend=False)
+        return self.metastore.is_null(self.cache_key, self.namespace)
 
     def set_null(self):
         """Set the metadata to null."""
-        self._update_metadata_state(state='null')
+        self.metastore.set_null(self.cache_key, self.namespace)
 
     def delete_null(self):
         """Delete the metadata that is null."""
         # Deleting a null is really just deleting a metadata
-        self._delete_metadata(null=True)
-
-    def _delete_metadata(self, null=False):
-        """Delete the metadata from the database or delta table.
-
-        Args:
-            null (bool, optional): Whether to delete the metadata that is null.
-        """
-
-        where = {
-            'cache_key': self.cache_key,
-            'namespace': self.namespace
-        }
-
-        if null:
-            where['state'] = 'null'
+        if self.is_null():
+            self.metastore.delete_null(self.cache_key, self.namespace)
         else:
-            if self.backend_name:
-                where['backend'] = self.backend_name
-            else:
-                raise RuntimeError("Can only delete non-null metadata with a valid backend")
-
-        self.metastore.delete(where)
-
+            raise RuntimeError("Trying to delete a null cache that is not null")
 
     def _metadata_confirmed(self):
         """Check if the metadata is confirmed.
@@ -557,15 +252,16 @@ class Cache():
         if not self.backend:
             return False
 
-        return self._check_row_exists(state='confirmed', include_backend=True)
+        if self.metastore.cache_exists(self.cache_key, self.namespace, self.backend_name):
+            c = self.metastore.get_cache(self.cache_key, self.namespace, self.backend_name)
+            print(c)
+            if (c['state'] == 'confirmed') and (c['version'] == self.version):
+                return True
 
-    def _metadata_exists(self):
-        """Check if the metadata exists.
+        return False
 
-        Returns:
-            bool: True if the metadata exists, False otherwise.
-        """
-        return self._check_row_exists(state=None, include_backend=True)
+    def _delete_metadata(self):
+        self.metastore.delete_cache(self.cache_key, self.namespace, self.backend_name)
 
     def _get_backend_from_metadata(self):
         """Get the backend from the metadata.
@@ -573,11 +269,11 @@ class Cache():
         Returns:
             The backend from the metadata.
         """
-        rows = self._get_row('backend', include_backend=False)
+        rows = self.metastore.get_backends(self.cache_key, self.namespace)
         if len(rows) == 0:
             return None
         else:
-            return rows[0]['backend']
+            return rows[0]
 
     def last_modified(self):
         """Get the last modified time of the metadata.
@@ -585,21 +281,13 @@ class Cache():
         Returns:
             The last modified time of the metadata.
         """
-        rows = self._get_row('last_modified', include_backend=True)
+        rows = self.metastore.get_cache(self.cache_key, self.namespace, self.backend_name)
         if len(rows) == 0:
             return None
         else:
-            return rows[0]['last_modified']
-
-    def _set_metadata_pending(self):
-        """Set the metadata to pending."""
-        #self._update_metadata_state(state='pending')
+            return rows['last_modified']
 
     def _commit_metadata(self):
-        """Commit the metadata."""
-        self._update_metadata_state(state='confirmed')
-
-    def _update_metadata_state(self, state=None):
         """Update the state of the metadata.
 
         If metadata doesn't exist, it will be created.
@@ -610,7 +298,7 @@ class Cache():
         try:
             repo = git.Repo(search_parent_directories=True)
             sha = repo.head.object.hexsha
-        except:
+        except: # noqa: E722
             sha = 'no_git_repo'
 
         path = 'None'
@@ -622,32 +310,14 @@ class Cache():
             'namespace': self.namespace,
             'version': self.version,
             'backend': self.backend_name,
-            'state': state,
+            'state': 'confirmed',
             'last_modified': datetime.datetime.now(datetime.timezone.utc).timestamp() * 1000000,
             'commit_hash': sha,
             'user': getpass.getuser(),
             'path': path
         }
 
-        where = {
-            'cache_key': self.cache_key,
-            'namespace': self.namespace
-        }
-
-        if state != 'null':
-            where['backend'] = self.backend_name
-
-        if state == 'null' or state == 'confirmed':
-            self.metastore.append(values)
-
-
-    def get_backend(self):
-        """Get the backend name.
-
-        Returns:
-            The backend name.
-        """
-        return self.backend.backend_name
+        self.metastore.write_cache(self.cache_key, self.namespace, self.backend_name, values)
 
 
     def exists(self):
@@ -685,7 +355,6 @@ class Cache():
             ds (any): The data to write to the backend.
         """
         if self.backend:
-            self._set_metadata_pending()
             ds = self.backend.write(ds)
             self._commit_metadata()
             return ds
@@ -695,7 +364,6 @@ class Cache():
 
     def upsert(self, ds, upsert_keys=None):
         if self.backend:
-            self._set_metadata_pending()
             ds = self.backend.upsert(ds, upsert_keys)
             self._commit_metadata()
             return ds
@@ -725,6 +393,10 @@ class Cache():
 
         self._delete_metadata()
 
+    def get_backend(self):
+        """Return the backend."""
+        return self.backend.backend_name
+
     def get_uri(self):
         """Get the file path of the data in the backend.
 
@@ -746,7 +418,6 @@ class Cache():
             if from_cache.exists():
                 # If we both exists, copy if last modified is before other cache
                 if self.last_modified() < from_cache.last_modified():
-                    self._set_metadata_pending()
                     self.backend.sync(from_cache.backend)
                     self._commit_metadata()
                 else:
@@ -766,7 +437,6 @@ class Cache():
                 else:
                     raise RuntimeError("Error finding backend config for syncing.")
 
-                self._set_metadata_pending()
                 self.backend.sync(from_cache.backend)
                 self._commit_metadata()
             else:

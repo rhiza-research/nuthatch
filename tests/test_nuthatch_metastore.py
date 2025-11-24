@@ -9,7 +9,7 @@ def test_meta_init():
     local_config = test_config
     local_config['filesystem'] = test_config['filesystem'] + str(uuid.uuid4())
     cache = Cache(local_config, "test_key", "test", None, {}, 'root', None, {})
-    assert cache.metastore.pscan is not None
+    assert cache.metastore.fs is not None
 
 def test_requested_backend():
     local_config = test_config

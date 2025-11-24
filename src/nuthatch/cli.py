@@ -14,6 +14,7 @@ from .config import get_config
 from .backend import get_backend_by_name, registered_backends
 from .cache import Cache
 import pandas as pd
+import polars as ps
 
 
 @click.group()
@@ -106,22 +107,12 @@ def import_data(cache_key, namespace, version, backend, location):
             else:
                 print(f"{key} already in cache!")
 
-def list_helper(cache_key, namespace, backend, location, show_pending):
+def list_helper(cache_key, namespace, backend, location):
     """List all cache entries."""
     config = get_config(location=location, requested_parameters=Cache.config_parameters)
     cache = Cache(config, None, namespace, None, None, location, backend, {})
 
-    if cache_key is None:
-        cache_key = '%'
-    else:
-        cache_key = cache_key.replace('*', '%')
-
-    if show_pending:
-        caches = cache.metastore.select_row("*", {"namespace": namespace}, {"cache_key": cache_key})
-    else:
-        caches = cache.metastore.select_row("*", {"namespace": namespace, "state": "confirmed"}, {"cache_key": cache_key})
-
-    return caches
+    return cache.metastore.list_caches(cache_key, namespace, cache.backend_name)
 
 @cli.command('list')
 @click.argument('cache_key', required=False)
@@ -129,21 +120,20 @@ def list_helper(cache_key, namespace, backend, location, show_pending):
 @click.option('--backend', help='Backend filter')
 @click.option('--location', help='Location to search', default='root')
 @click.option('--long', '-l', is_flag=True, help='List all information about the cache')
-@click.option('--show-pending', is_flag=True, help='Include files that are not confirmed')
-def list_caches(cache_key, namespace, backend, location, long, show_pending):
+def list_caches(cache_key, namespace, backend, location, long):
 
-    caches = list_helper(cache_key, namespace, backend, location, show_pending)
+    caches = list_helper(cache_key, namespace, backend, location)
     pager = len(caches) > shutil.get_terminal_size()[0]
 
     if not long:
-        caches = [cache['cache_key'] for cache in caches]
+        caches = [cache['cache_key'] for cache in caches.iter_rows(named=True)]
         caches = '\n'.join(caches)
     else:
-        caches = pd.DataFrame(caches)
         if len(caches) > 0:
-            caches['last_modified'] = pd.to_datetime(caches['last_modified'], unit='us').dt.floor('s')
+            #caches['last_modified'] = pd.to_datetime(caches['last_modified'], unit='us').dt.floor('s')
             caches = caches[['cache_key', 'namespace', 'backend', 'state', 'last_modified', 'user', 'commit_hash', 'path']]
-            caches = caches.to_string()
+            ps.Config.set_tbl_rows(-1)
+            caches = str(caches)
 
 
     if pager:
@@ -161,7 +151,7 @@ def list_caches(cache_key, namespace, backend, location, long, show_pending):
 @click.option('--metadata-only', '-m', is_flag=True, help='Only delete the metadata for the cache, not the underlying data.')
 def delete_cache(cache_key, namespace, backend, location, force, metadata_only):
     """Clear cache entries."""
-    caches = list_helper(cache_key, namespace, backend, location, show_pending=False)
+    caches = list_helper(cache_key, namespace, backend, location)
     config = get_config(location=location, requested_parameters=Cache.config_parameters)
 
     click.confirm(f"Are you sure you want to delete {len(caches)} cache entries?", abort=True)
