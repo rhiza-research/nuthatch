@@ -254,9 +254,9 @@ class Cache():
 
         if self.metastore.cache_exists(self.cache_key, self.namespace, self.backend_name):
             c = self.metastore.get_cache(self.cache_key, self.namespace, self.backend_name)
-            logger.debug(f"Got cache {c}")
+            print(f"Got cache {c}")
             if (c['state'] == 'confirmed') and (c['version'] == self.version):
-                logger.debug("Cache is confirmed.")
+                print("Cache is confirmed.")
                 return True
 
         return False
