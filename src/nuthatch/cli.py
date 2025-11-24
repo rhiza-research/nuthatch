@@ -131,7 +131,7 @@ def list_caches(cache_key, namespace, backend, location, long):
     else:
         if len(caches) > 0:
             #caches['last_modified'] = pd.to_datetime(caches['last_modified'], unit='us').dt.floor('s')
-            caches = caches[['cache_key', 'namespace', 'backend', 'state', 'last_modified', 'user', 'commit_hash', 'path']]
+            caches = caches[['cache_key', 'namespace', 'backend', 'version', 'state', 'last_modified', 'user', 'commit_hash', 'path']]
             ps.Config.set_tbl_rows(-1)
             caches = str(caches)
 

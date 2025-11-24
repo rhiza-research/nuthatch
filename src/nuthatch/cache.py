@@ -166,9 +166,23 @@ class NuthatchMetastore(Metastore):
             backend = '*'
 
         full_path = os.path.join(self.table_path, cache_key, namespace, backend) + '.' + self.extension
-        df = ps.scan_parquet(full_path)
+
+        schema = {
+            'cache_key': ps.String,
+            'namespace': ps.String,
+            'version': ps.String,
+            'backend': ps.String,
+            'state': ps.String,
+            'last_modified': ps.Int64,
+            'commit_hash': ps.String,
+            'user': ps.String,
+            'path': ps.String,
+        }
+        df = ps.scan_parquet(full_path, schema=schema)
         df_casted = df.with_columns(
-            ps.col("last_modified").cast(ps.Int64)
+            ps.col("last_modified").cast(ps.Int64),
+            ps.col("namespace").cast(ps.String),
+            ps.col("version").cast(ps.String)
         )
         return df_casted.collect()
 
@@ -254,9 +268,7 @@ class Cache():
 
         if self.metastore.cache_exists(self.cache_key, self.namespace, self.backend_name):
             c = self.metastore.get_cache(self.cache_key, self.namespace, self.backend_name)
-            print(f"Got cache {c}")
             if (c['state'] == 'confirmed') and (c['version'] == self.version):
-                print("Cache is confirmed.")
                 return True
 
         return False
