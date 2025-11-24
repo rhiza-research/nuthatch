@@ -119,14 +119,13 @@ def list_helper(cache_key, namespace, backend, location):
 @click.option('--namespace', help='Namespace for the cache')
 @click.option('--backend', help='Backend filter')
 @click.option('--location', help='Location to search', default='root')
-@click.option('--long', '-l', is_flag=True, help='List all information about the cache')
-def list_caches(cache_key, namespace, backend, location, long):
+@click.option('--verbose', '-v', is_flag=True, help='List all information about the cache')
+def list_caches(cache_key, namespace, backend, location, verbose):
 
     caches = list_helper(cache_key, namespace, backend, location)
     pager = len(caches) > shutil.get_terminal_size()[0]
 
-    if not long:
-        caches = [cache['cache_key'] for cache in caches.iter_rows(named=True)]
+    if not verbose:
         caches = '\n'.join(caches)
     else:
         if len(caches) > 0:

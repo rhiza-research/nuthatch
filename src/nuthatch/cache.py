@@ -155,7 +155,7 @@ class NuthatchMetastore(Metastore):
             full_path = os.path.join(self.table_path, cache_key, backend) + '.' + self.extension
         self.fs.rm(full_path)
 
-    def list_caches(self, cache_key, namespace, backend):
+    def list_caches(self, cache_key, namespace, backend, verbose=False):
         if not cache_key:
             cache_key = '*'
 
@@ -167,24 +167,27 @@ class NuthatchMetastore(Metastore):
 
         full_path = os.path.join(self.table_path, cache_key, namespace, backend) + '.' + self.extension
 
-        schema = {
-            'cache_key': ps.String,
-            'namespace': ps.String,
-            'version': ps.String,
-            'backend': ps.String,
-            'state': ps.String,
-            'last_modified': ps.Int64,
-            'commit_hash': ps.String,
-            'user': ps.String,
-            'path': ps.String,
-        }
-        df = ps.scan_parquet(full_path, schema=schema)
-        df_casted = df.with_columns(
-            ps.col("last_modified").cast(ps.Int64),
-            ps.col("namespace").cast(ps.String),
-            ps.col("version").cast(ps.String)
-        )
-        return df_casted.collect()
+        if verbose:
+            schema = {
+                'cache_key': ps.String,
+                'namespace': ps.String,
+                'version': ps.String,
+                'backend': ps.String,
+                'state': ps.String,
+                'last_modified': ps.Float64,
+                'commit_hash': ps.String,
+                'user': ps.String,
+                'path': ps.String,
+            }
+            df = ps.scan_parquet(full_path, schema=schema)
+            df_casted = df.with_columns(
+                ps.col("last_modified").cast(ps.Int64),
+                ps.col("namespace").cast(ps.String),
+                ps.col("version").cast(ps.String)
+            )
+            return df_casted.collect()
+        else:
+            return self.fs.glob(full_path)
 
 
 
