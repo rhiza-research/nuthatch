@@ -160,7 +160,7 @@ class NuthatchMetastore(Metastore):
             cache_key = '*'
 
         if not namespace:
-            namespace = '*'
+            namespace = '**'
 
         if not backend:
             backend = '*'
@@ -254,8 +254,9 @@ class Cache():
 
         if self.metastore.cache_exists(self.cache_key, self.namespace, self.backend_name):
             c = self.metastore.get_cache(self.cache_key, self.namespace, self.backend_name)
-            print(c)
+            logger.debug(f"Got cache {c}")
             if (c['state'] == 'confirmed') and (c['version'] == self.version):
+                logger.debug("Cache is confirmed.")
                 return True
 
         return False
@@ -337,6 +338,7 @@ class Cache():
             return True
         elif confirmed and not self.backend.exists():
             # The data doesn't exist in the backend, so delete the metadata
+            logger.warning("Found valid metadata, but no valid data. Deleting metadata.")
             self._delete_metadata()
             return False
         elif not confirmed:
