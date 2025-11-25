@@ -33,15 +33,21 @@ def save_to_memory(cache_key, data):
         max_size = max_size['maximum_memory_usage']
     else:
         # 100MB Default
-        max_size = 100*10^6
+        max_size = 1000*10^6
 
     if(sys.getsizeof(data) > max_size):
         logger.warning("WARNING: Data too large to memoize.")
         return
 
     while(sys.getsizeof(memoized_objects) + sys.getsizeof(data) > max_size):
-        del memoized_objects[cache_key_lru[0]]
-        del cache_key_lru[0]
+        try:
+            del memoized_objects[cache_key_lru[0]]
+            del cache_key_lru[0]
+        except:
+            print(f"LRU list {cache_key_lru}")
+            print(f"Data size: {sys.getsizeof(data)}")
+            print(f"Memoize objects: {memoized_objects}")
+            print(f"Total object size: {sys.getsizeof(memoized_objects)}")
 
     memoized_objects[cache_key] = copy.deepcopy(data)
 
