@@ -201,6 +201,28 @@ def extract_cache_arg_values(cache_args, args, params, kwargs):
     return cache_arg_values
 
 
+def extract_all_arg_values(args, params, kwargs):
+    """Extract the cache arguments from the kwargs and return them."""
+    # Handle keying based on cache arguments
+    all_arg_values = {}
+
+    for a in kwargs:
+        all_arg_values[a] = kwargs[a]
+
+    # If it's not in kwargs it must either be (1) in args or (2) passed as default
+    for i, p in enumerate(params):
+        if (len(args) > i and
+           (params[p].kind == Parameter.VAR_POSITIONAL or
+           params[p].kind == Parameter.POSITIONAL_OR_KEYWORD)):
+            all_arg_values[p] = args[i]
+        elif params[p].default != Parameter.empty:
+            all_arg_values[p] = params[p].default
+
+    return all_arg_values
+
+
+
+
 def get_cache_key(func, cache_arg_values):
     """Calculate the cache key from the function and the cache arguments."""
     imkeys = list(cache_arg_values.keys())
@@ -370,6 +392,7 @@ def cache(cache=True,
             # The function parameters and their values
             params = signature(func).parameters
             cache_arg_values = extract_cache_arg_values(cache_args, args, params, passed_kwargs)
+            all_arg_values = extract_all_arg_values(args, params, passed_kwargs)
 
             # Disable the cache if it's enabled and the function params/values match the disable statement
             if cache:
@@ -377,6 +400,7 @@ def cache(cache=True,
 
             # Calculate our unique cache key from the params and values
             cache_key = get_cache_key(func, cache_arg_values)
+            memoizer_cache_key = get_cache_key(func, all_arg_values)
 
             ds = None
             compute_result = True
@@ -396,9 +420,9 @@ def cache(cache=True,
 
             # Try the memoizer first
             if not recompute and not upsert and (cache or memoize):
-                ds = recall_from_memory(cache_key)
+                ds = recall_from_memory(memoizer_cache_key)
                 if ds:
-                    logger.info(f"Found cache for {cache_key} in memory.")
+                    logger.info(f"Found cache for {memoizer_cache_key} in memory.")
                     compute_result = False
 
             # Try to read from the cache in priority locations
@@ -430,8 +454,8 @@ def cache(cache=True,
                             ds = read_cache.read(engine=engine)
 
                             if memoize:
-                                logger.info(f"Memoizing {cache_key}.")
-                                save_to_memory(cache_key, ds)
+                                logger.info(f"Memoizing {memoizer_cache_key}.")
+                                save_to_memory(memoizer_cache_key, ds)
 
                             compute_result = False
                             break
@@ -469,7 +493,7 @@ def cache(cache=True,
 
                 if memoize:
                     logger.info(f"Memoizing {cache_key}.")
-                    save_to_memory(cache_key, ds)
+                    save_to_memory(memoizer_cache_key, ds)
 
 
             # Store the result

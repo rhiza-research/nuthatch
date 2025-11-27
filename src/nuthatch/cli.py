@@ -13,7 +13,6 @@ import shutil
 from .config import get_config
 from .backend import get_backend_by_name, registered_backends
 from .cache import Cache
-import pandas as pd
 import polars as ps
 
 
