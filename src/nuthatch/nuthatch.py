@@ -211,6 +211,9 @@ def extract_all_arg_values(args, params, kwargs):
 
     # If it's not in kwargs it must either be (1) in args or (2) passed as default
     for i, p in enumerate(params):
+        if p in all_arg_values:
+            continue
+
         if (len(args) > i and
            (params[p].kind == Parameter.VAR_POSITIONAL or
            params[p].kind == Parameter.POSITIONAL_OR_KEYWORD)):
