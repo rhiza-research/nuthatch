@@ -206,8 +206,14 @@ def extract_all_arg_values(args, params, kwargs):
     # Handle keying based on cache arguments
     all_arg_values = {}
 
+    def add_arg(a):
+        return (isinstance(a, int) or isinstance(a, float) or
+                isinstance(a, str) or isinstance(a, bool) or
+                len(str(a)) < 30)
+
     for a in kwargs:
-        all_arg_values[a] = kwargs[a]
+        if add_arg(kwargs[a]):
+            all_arg_values[a] = kwargs[a]
 
     # If it's not in kwargs it must either be (1) in args or (2) passed as default
     for i, p in enumerate(params):
@@ -217,9 +223,11 @@ def extract_all_arg_values(args, params, kwargs):
         if (len(args) > i and
            (params[p].kind == Parameter.VAR_POSITIONAL or
            params[p].kind == Parameter.POSITIONAL_OR_KEYWORD)):
-            all_arg_values[p] = args[i]
+            if add_arg(args[i]):
+                all_arg_values[p] = args[i]
         elif params[p].default != Parameter.empty:
-            all_arg_values[p] = params[p].default
+            if add_arg(params[p].default):
+                all_arg_values[p] = params[p].default
 
     return all_arg_values
 
