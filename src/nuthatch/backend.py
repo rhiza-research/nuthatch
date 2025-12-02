@@ -7,6 +7,9 @@ import os
 import fsspec
 import sqlalchemy
 
+import logging
+logger = logging.getLogger(__name__)
+
 registered_backends = {}
 default_backends = {}
 
@@ -274,6 +277,8 @@ class DatabaseBackend(NuthatchBackend):
                                 host = self.config['host'],
                                 port = self.config['port'],
                                 database = self.config['database'])
+
+        logger.debug(f"Connecting to database {database_url}")
         self.connection = sqlalchemy.create_engine(database_url)
 
         if 'write_username' in self.config and 'write_password' in self.config:
@@ -283,6 +288,7 @@ class DatabaseBackend(NuthatchBackend):
                                 host = self.config['host'],
                                 port = self.config['port'],
                                 database = self.config['database'])
+            logger.debug(f"Connecting to database {write_database_url}")
             self.write_connection = sqlalchemy.create_engine(write_database_url)
         else:
             self.write_connection = self.connection
