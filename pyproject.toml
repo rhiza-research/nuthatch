@@ -24,7 +24,8 @@ dependencies = [
     "psycopg2-binary",
     "zarr",
     "click",
-    "polars"
+    "polars",
+    "dateparser",
 ]
 
 # TODO: Make backend submodules so that their
@@ -38,7 +39,6 @@ dev = [
     "pytest-cov>=4.0.0",
     "pytest-mock>=3.10.0",
     "ruff>=0.1.0",
-    "sheerwater-benchmarking @ git+https://github.com/rhiza-research/sheerwater-benchmarking",
 ]
 
 [project.scripts]
