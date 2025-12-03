@@ -15,6 +15,7 @@ logger = logging.getLogger(__name__)
 
 
 dynamic_parameters = {}
+global_parameters = {}
 
 def _is_fs_root(p):
     """Check if a path is the root of a filesystem."""
@@ -56,6 +57,48 @@ def get_current_pyproject():
     current_directory = Path.cwd()
     return find_pyproject(current_directory)
 
+
+def set_parameter(parameter_value, parameter_name=None, location='root', backend=None):
+    """A decorator to register a function as a dynamic parameter.
+
+    Args:
+        parameter_name (str): The name of the parameter.
+        location (str, optional): The location to register the parameter. One of 'local', 'root', or 'mirror'
+        backend (str, optional): The backend to register the parameter.
+        secret (bool): whether the parameter is secret
+    """
+
+    if not parameter_name:
+        if not isinstance(parameter_value, dict):
+            raise ValueError("If a parameter name is not provided, parameters must be passed as key/value pairs.")
+
+    if parameter_name and location and backend:
+        if location not in global_parameters:
+            global_parameters[location] = {}
+        if backend not in global_parameters[location]:
+            global_parameters[location][backend] = {}
+        global_parameters[location][backend][parameter_name] = parameter_value
+    elif parameter_name and location:
+        if location not in global_parameters:
+            global_parameters[location] = {}
+        global_parameters[location][parameter_name] = parameter_value
+    elif location and backend:
+        if location not in global_parameters:
+            global_parameters[location] = {}
+        if backend not in global_parameters[location]:
+            global_parameters[location][backend] = {}
+        global_parameters[location][backend].update(parameter_value)
+    elif location:
+        if location not in global_parameters:
+            global_parameters[location] = {}
+        global_parameters[location].update(parameter_value)
+    else:
+        for key in parameter_value:
+            if key != 'root' and key != 'local' and key != 'mirror':
+                raise ValueError("Parameter value dictionaries must have top level keys of root, local, or mirror if location is not passed")
+        global_parameters.update(parameter_value)
+
+
 def config_parameter(parameter_name, location='root', backend=None, secret=False):
     """A decorator to register a function as a dynamic parameter.
 
@@ -91,10 +134,16 @@ def extract_params(config, location, requested_parameters, backend_name):
         if location in config['tool']['nuthatch']:
             location_params = config['tool']['nuthatch'][location]
 
+    if location in global_parameters:
+        location_params.update(global_parameters[location])
+
     if backend_name and backend_name in location_params:
         backend_specific_params = config['tool']['nuthatch'][location][backend_name]
     else:
         backend_specific_params = {}
+
+    if location in global_parameters and backend_name and backend_name in global_parameters[location]:
+        backend_specific_params.update(global_parameters[location][backend_name])
 
     # Merge the two together
     merged_config = backend_specific_params | location_params

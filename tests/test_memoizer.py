@@ -1,6 +1,6 @@
 # Test the memoizer here
 from nuthatch.processors import timeseries
-from nuthatch import cache, config_parameter
+from nuthatch import cache, set_parameter
 import xarray as xr
 import numpy as np
 import pandas as pd
@@ -41,10 +41,8 @@ def test_memoizer():
 
 
 def test_memoizer_overflow():
-    cf = config_parameter('remote_cache_size')
-    cf(lambda: 100000)
-    cf = config_parameter('local_cache_size')
-    cf(lambda: 1000)
+    set_parameter(100000, 'remote_cache_size', location='root')
+    set_parameter(1000, 'local_cache_size', location='root')
 
     for i in range(0, 10000):
         usage = nuthatch.memoizer.get_cache_usage(nuthatch.memoizer.remote_object_size)

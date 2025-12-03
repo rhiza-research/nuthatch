@@ -18,13 +18,64 @@ use external data orchestration tools to specify the execution of their pipeline
 simply tag your functions and anyone who has access to your storage backend - you, your
 team, or the public - can acess and build off of your most up-to-date data.
 
-## Using Nuthatch
+## Getting started
 
-### Configuration
+The most basic form of Nuthatch simply stores and recalls your data based on its arguments in efficient formats:
+
+```python
+from nuthatch import cache
+import xarray as xr
+
+@cache()
+def my_first_cache():
+    ds = xr.tutorial.open_dataset("air_temperature")
+
+    # Data will automatically be saved in a zarr store and recalled
+    return ds
+
+my_first_cache()
+```
+
+But it's much more powerful if you configure nuthatch to be shared across a team:
+
+```python
+from nuthatch import cache, set_parameter
+import xarray as xr
+
+set_parameter({'filesystem': "gs://my-datalake"})
+
+@cache()
+def my_first_cache():
+    ds = xr.tutorial.open_dataset("air_temperature")
+
+    # Data will automatically be saved in a zarr store and recalled
+    return ds
+
+my_first_cache()
+```
+
+Commit your code and anyone with access to your datalake has access to a self-documented cache of your data.
+
+More powerful - push your code to pypi and anyone who imports your code can access the data simply
+by calling the function (assuming they have read-only access to the storage.)
+
+## Nuthatch configuration
 
 To use Nuthatch you must configure access to some file store. Most basically this could be your local
 filesystem, but is likely more useful if it's a remote cloud bucket (like gcs, s3, etc). Configuration
-is done in your pyproject.toml, e.g.
+can be done in three places: (1) in your pyproject.toml, (2) in a special nuthatch.toml built into your package
+or (3) in your code - useful if you need to access secrets dynamical or configure nuthatch on distributed workers.
+
+Nuthatch itself and most storage backends only need access to a filesystem. Some storage backends, like databases,
+may need additional parameters.
+
+Nuthatch also has different storage locations. The ``root`` location is where things are stored by default, but
+users can also configure ``local`` locations for faster data access and ``mirror`` locations that are read only data
+sources. Imported projects from other python modules are automatically set up as ``mirror`` locations.
+
+### TOML Configuration
+
+In either pyproject.toml or src/nuthatch.toml:
 
 ```toml
 [tool.nuthatch]
@@ -35,12 +86,13 @@ key = "your_key_id"
 secret= "your_secret_key"
 ```
 
-This is sufficient to enable nuthatch to store data in all file-like backends. Other backends, like databases,
-will require additional configuration parameters
+pyproject.toml cannot be easily packaged. If you would like your caches to be accessible
+when your package is installed and imported by others, you must use either a nuthatch.toml
+file or dynamic configuration.
 
-### Dynamic Secrets
+### Dynamic configuration - decorators
 
-You *should not* save secrets in pyproject.toml. To solve this problem nuthatch enables a method of fetching
+You *should not* save secrets in files. To solve this problem nuthatch enables a method of fetching
 secrets dynamically, from a cloud secret store, or from another location like an environment variable or
 file. Just make sure this file is imported before you run your code
 
@@ -58,27 +110,29 @@ def fetch_key():
     return filesystem_options
 ```
 
-### Your first cache
+### Dynamic configuration - direct setting
 
-Now you can make your first cache! Simple tag with nuthatch, and nuthatch will do its best to store
-your data efficiently.
+You can also simply set configuration parameters in code, which is sometimes necessary
+for distributed environments
 
 ```python
-from nuthatch import cache
-from nuthatch.processors import timeseries
-import xarray as xr
-
-@cache()
-def my_first_cache():
-    ds = xr.tutorial.open_dataset("air_temperature")
-
-    # Data will automatically be saved in a zarr store and recalled
-    return ds
-
-my_first_cache()
+from nuthatch import set_parameter
+set_parameter({'filesystem': "gs://my-datalake"})
 ```
 
-Nuthatch has many more features too:
+### Backend-specific configuration
+
+Nuthatch backends can be individually configured - for instance if all of your Zarr's are too big for
+the datalake and need cheaper storage you can set the zarr backend to have a different fileysystem location:
+
+```toml
+[tool.nuthatch.root.zarr]
+filesystem = "s3://my-zarr-bucket/"
+```
+
+## More advanced caching
+
+Nuthatch has many more features:
  - Caches that are keyed by argument
  - Processors to enable slicing and data validation 
  - Rerunning of DAGs explicitly
@@ -122,4 +176,3 @@ Current limitations:
  - Arguments must be basic types, not objects to key caches
  - There is currently no mechansim to detect cache "staleness". Automatically tracking and detecting changes is planned for future work.
  - Expanded configurability (i.e. directly from environment variable) is not supported
- - Nuthatch's metastore (i.e. the database that tracks the caches and their versions) is still in flux. It adds a couple of seconds of write overhead for writing. Future work will try to eliminate this.
