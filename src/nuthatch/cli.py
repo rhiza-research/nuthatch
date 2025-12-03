@@ -13,7 +13,70 @@ import shutil
 from .config import get_config
 from .backend import get_backend_by_name, registered_backends
 from .cache import Cache
-import polars as ps
+import pandas as pd
+import os
+
+def strip_base(path, base_path):
+    if path.startswith(base_path):
+        path = path[len(base_path):]
+
+    stripped = fsspec.core.strip_protocol(base_path)
+    if path.startswith(stripped):
+        path = path[len(stripped):]
+
+    if path.startswith('/'):
+        path = path[1:]
+
+    return path
+
+
+def get_metadata_backend(path):
+    return path.split('/')[-1].split('.')[0]
+
+def get_metadata_namespace(path):
+    return path.split('/')[-2]
+
+def get_null_metadata_namespace(path):
+    return path.split('/')[-1].split('.')[0]
+
+def get_metadata_cache_key(path, base_path, namespace):
+    path = strip_base(path, base_path)
+    if namespace:
+        return '/'.join(path.split('/')[:-2])
+    else:
+        return '/'.join(path.split('/')[:-1])
+
+def get_null_metadata_cache_key(path, base_path, namespace):
+    path = strip_base(path, base_path)
+    if namespace:
+        return '/'.join(path.split('/')[:-1])
+    else:
+        return path.split('.')[0]
+
+
+def get_cache_key(path, base_path, namespace, extension):
+        if path.endswith('.' + extension):
+            path = path[:-len('.' + extension)]
+
+        if path.startswith(base_path):
+            path = path[len(base_path):]
+
+        stripped = fsspec.core.strip_protocol(base_path)
+        if path.startswith(stripped):
+            path = path[len(stripped):]
+
+        if path.startswith('/'):
+            path = path[1:]
+
+        if namespace:
+            if path.startswith(namespace):
+                path = path[len(namespace):]
+
+        if path.startswith('/'):
+            path = path[1:]
+
+        return path
+
 
 
 @click.group()
@@ -43,42 +106,38 @@ def cli():
 def import_data(cache_key, namespace, version, backend, location):
     """Import data from a glob pattern."""
 
-    def get_cache_key(path, base_path, extension):
-        if path.endswith('.' + extension):
-            path = path[:-len('.' + extension)]
+    # First instantiate the backend based on the passed backend
+    if backend != 'null':
+        backend_name = backend
+        backend_class = get_backend_by_name(backend)
+        config = get_config(location=location, requested_parameters=backend_class.config_parameters, backend_name=backend_class.backend_name)
+        backend = backend_class(config, cache_key, namespace, None, {})
+        base_path = backend.base_path
+        extension = backend.extension
+        fs = backend.fs
+        path = backend.path
+    else:
+        config = get_config(location=location, requested_parameters=Cache.config_parameters)
+        backend_name = 'null'
+        base_path = config['filesystem']
+        extension = 'null'
 
-        if path.startswith(base_path):
-            path = path[len(base_path):]
-
-        stripped = fsspec.core.strip_protocol(base_path)
-        if path.startswith(stripped):
-            path = path[len(stripped):]
-
-        if path.startswith('/'):
-            path = path[1:]
+        if 'filesystem_options' not in config:
+            config['filesystem_options'] = {}
 
         if namespace:
-            if path.startswith(namespace):
-                path = path[len(namespace):]
-
-        if path.startswith('/'):
-            path = path[1:]
-
-        return path
-
-
-    # First instantiate the backend based on the passed backend
-    backend_name = backend
-    backend_class = get_backend_by_name(backend)
-    config = get_config(location=location, requested_parameters=backend_class.config_parameters, backend_name=backend_class.backend_name)
-    backend = backend_class(config, cache_key, namespace, None, {})
+            path = os.path.join(base_path, cache_key, namespace) + '.null'
+        else:
+            path = os.path.join(base_path, cache_key)  + '.null'
+        fs = fsspec.core.url_to_fs(base_path, **config['filesystem_options'])[0]
 
     cache_keys = []
-    if hasattr(backend, 'fs') and backend.fs is not None:
-        paths = backend.fs.glob(backend.path)
+    if  fs is not None:
+        paths = fs.glob(path)
         for path in paths:
-            cache_keys.append(get_cache_key(path, backend.base_path, backend.extension))
+            cache_keys.append(get_cache_key(path, base_path, namespace, extension))
 
+    print(cache_keys)
     if len(cache_keys) > 0:
         click.confirm(f"Are you sure you want to import {len(paths)} cache entries?", abort=True)
     else:
@@ -106,12 +165,33 @@ def import_data(cache_key, namespace, version, backend, location):
             else:
                 print(f"{key} already in cache!")
 
-def list_helper(cache_key, namespace, backend, location):
+def list_helper(cache_key, namespace, backend, location, verbose=False):
     """List all cache entries."""
     config = get_config(location=location, requested_parameters=Cache.config_parameters)
     cache = Cache(config, None, namespace, None, None, location, backend, {})
 
-    return cache.metastore.list_caches(cache_key, namespace, cache.backend_name)
+    nulls = pd.DataFrame(cache.metastore.list_nulls(cache_key, namespace), columns=['cache_key'])
+    if not namespace:
+        nulls['cache_key'] = nulls['cache_key'].map(lambda x: get_null_metadata_cache_key(x, cache.metastore.table_path, namespace))
+    else:
+        nulls['namespace'] = nulls['cache_key'].map(lambda x: get_null_metadata_namespace(x))
+        nulls['cache_key'] = nulls['cache_key'].map(lambda x: get_null_metadata_cache_key(x, cache.metastore.table_path, namespace))
+
+    nulls['backend'] = 'null'
+
+    if verbose:
+        caches = cache.metastore.list_caches(cache_key, namespace, cache.backend_name, verbose).to_pandas()
+    else:
+        caches = pd.DataFrame(cache.metastore.list_caches(cache_key, namespace, cache.backend_name), columns=['cache_key'])
+        if not namespace:
+            caches['backend'] = caches['cache_key'].map(lambda x: get_metadata_backend(x))
+            caches['cache_key'] = caches['cache_key'].map(lambda x: get_metadata_cache_key(x, cache.metastore.table_path, namespace))
+        else:
+            caches['backend'] = caches['cache_key'].map(lambda x: get_metadata_backend(x))
+            caches['namespace'] = caches['cache_key'].map(lambda x: get_metadata_namespace(x))
+            caches['cache_key'] = caches['cache_key'].map(lambda x: get_metadata_cache_key(x, cache.metastore.table_path, namespace))
+
+    return pd.concat([nulls, caches])
 
 @cli.command('list')
 @click.argument('cache_key', required=False)
@@ -121,21 +201,17 @@ def list_helper(cache_key, namespace, backend, location):
 @click.option('--verbose', '-v', is_flag=True, help='List all information about the cache')
 def list_caches(cache_key, namespace, backend, location, verbose):
 
-    caches = list_helper(cache_key, namespace, backend, location)
+    caches = list_helper(cache_key, namespace, backend, location, verbose)
+
+    if len(caches) == 0:
+        click.echo("No caches found")
+        return
+
     pager = len(caches) > shutil.get_terminal_size()[0]
 
-    if not verbose:
-        caches = '\n'.join(caches)
-    else:
-        if len(caches) > 0:
-            #caches['last_modified'] = pd.to_datetime(caches['last_modified'], unit='us').dt.floor('s')
-            caches = caches[['cache_key', 'namespace', 'backend', 'version', 'state', 'last_modified', 'user', 'commit_hash', 'path']]
-            ps.Config.set_tbl_rows(-1)
-            caches = str(caches)
-
-
+    pd.set_option('display.max_rows', None)
     if pager:
-        click.echo_via_pager(caches)
+        click.echo_via_pager(str(caches))
     else:
         click.echo(caches)
 
@@ -152,10 +228,14 @@ def delete_cache(cache_key, namespace, backend, location, force, metadata_only):
     caches = list_helper(cache_key, namespace, backend, location)
     config = get_config(location=location, requested_parameters=Cache.config_parameters)
 
-    click.confirm(f"Are you sure you want to delete {len(caches)} cache entries?", abort=True)
+    if len(caches) == 0:
+        print("No caches found to delete.")
+        return
 
-    for cache in caches:
-        cache = Cache(config, cache['cache_key'], cache['namespace'], None, None, location, cache['backend'], {})
+    click.confirm(f"Are you sure you want to delete {len(caches)} cache entries?\n{str(caches[['cache_key', 'backend']])}\n", abort=True)
+
+    for cache in caches.to_dict(orient='records'):
+        cache = Cache(config, cache['cache_key'], namespace, None, None, location, cache['backend'], {})
         click.echo(f"Deleting {cache.cache_key} from {cache.location} with backend {cache.backend_name}.")
         if metadata_only:
             cache._delete_metadata()

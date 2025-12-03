@@ -155,37 +155,48 @@ class NuthatchMetastore(Metastore):
             full_path = os.path.join(self.table_path, cache_key, backend) + '.' + self.extension
         self.fs.rm(full_path)
 
-    def list_caches(self, cache_key, namespace, backend, verbose=False):
-        if not cache_key:
-            cache_key = '*'
+    def list_nulls(self, cache_key, namespace):
+        join_list = [self.table_path]
+        if cache_key and '/' not in cache_key and cache_key.endswith('*'):
+            cache_key = cache_key + '/*'
+        elif not cache_key:
+            cache_key = '*/*'
 
-        if not namespace:
-            namespace = '**'
+
+        join_list.append(cache_key)
+
+        if namespace:
+            join_list.append(namespace)
+
+
+        full_path = os.path.join(*join_list) + '.null'
+
+        return self.fs.glob(full_path)
+
+    def list_caches(self, cache_key, namespace, backend, verbose=False):
+        join_list = [self.table_path]
+        if cache_key and '/' not in cache_key and cache_key.endswith('*'):
+            cache_key = cache_key + '/*'
+        elif not cache_key:
+            cache_key = '*/*'
+
+        join_list.append(cache_key)
+
+        if namespace:
+            join_list.append(namespace)
 
         if not backend:
             backend = '*'
 
-        full_path = os.path.join(self.table_path, cache_key, namespace, backend) + '.' + self.extension
+        join_list.append(backend)
+
+        full_path = os.path.join(*join_list) + '.' + self.extension
 
         if verbose:
-            schema = {
-                'cache_key': ps.String,
-                'namespace': ps.String,
-                'version': ps.String,
-                'backend': ps.String,
-                'state': ps.String,
-                'last_modified': ps.Float64,
-                'commit_hash': ps.String,
-                'user': ps.String,
-                'path': ps.String,
-            }
-            df = ps.scan_parquet(full_path, schema=schema)
-            df_casted = df.with_columns(
-                ps.col("last_modified").cast(ps.Int64),
-                ps.col("namespace").cast(ps.String),
-                ps.col("version").cast(ps.String)
-            )
-            return df_casted.collect()
+            if '*' in full_path:
+                raise ValueError("Verbose list a full path with a specified backend")
+            df = ps.read_parquet(full_path)
+            return df
         else:
             return self.fs.glob(full_path)
 
