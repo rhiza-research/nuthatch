@@ -14,7 +14,10 @@ def get_chunk_size(ds, size_in='MB'):
         size_in (str): The size to return the chunk size in. One of:
             'KB', 'MB', 'GB', 'TB' for kilo, mega, giga, and terabytes respectively.
     """
-    chunk_groups = [(dim, np.median(chunks)) for dim, chunks in ds.chunks.items()]
+    if isinstance(ds, xr.DataArray):
+        chunk_groups = [(dim, np.median(chunks)) for dim, chunks in ds.to_dataset().chunks.items()]
+    else:
+        chunk_groups = [(dim, np.median(chunks)) for dim, chunks in ds.chunks.items()]
     div = {'KB': 10**3, 'MB': 10**6, 'GB': 10**9, 'TB': 10**12}[size_in]
     chunk_sizes = [x[1] for x in chunk_groups]
     return np.prod(chunk_sizes) * 4 / div, chunk_groups
@@ -74,11 +77,17 @@ def chunking_compare(ds, chunking):
 
 def drop_encoded_chunks(ds):
     """Drop the encoded chunks from a dataset."""
-    for var in ds.data_vars:
-        if 'chunks' in ds[var].encoding:
-            del ds[var].encoding['chunks']
-        if 'preferred_chunks' in ds[var].encoding:
-            del ds[var].encoding['preferred_chunks']
+    if isinstance(ds, xr.DataArray):
+        if 'chunks' in ds.encoding:
+            del ds.encoding['chunks']
+        if 'preferred_chunks' in ds.encoding:
+            del ds.encoding['preferred_chunks']
+    else:
+        for var in ds.data_vars:
+            if 'chunks' in ds[var].encoding:
+                del ds[var].encoding['chunks']
+            if 'preferred_chunks' in ds[var].encoding:
+                del ds[var].encoding['preferred_chunks']
 
     for coord in ds.coords:
         if 'chunks' in ds[coord].encoding:
@@ -116,7 +125,7 @@ class ZarrBackend(FileBackend):
     """
 
     backend_name = 'zarr'
-    default_for_type = xr.Dataset
+    default_for_type = [xr.Dataset, xr.DataArray]
 
     def __init__(self, cacheable_config, cache_key, namespace, args, backend_kwargs={}):
         super().__init__(cacheable_config, cache_key, namespace, args, backend_kwargs, extension='zarr')
@@ -131,7 +140,7 @@ class ZarrBackend(FileBackend):
         self.chunk_size_lower_limit_mb = backend_kwargs.get('chunk_size_upper_limit_mb', 30)
 
     def write(self, data):
-        if isinstance(data, xr.Dataset):
+        if isinstance(data, xr.Dataset) or isinstance(data, xr.DataArray):
             data = data.persist()
             self.chunk_to_zarr(data, self.path)
             return data
@@ -142,16 +151,21 @@ class ZarrBackend(FileBackend):
         raise NotImplementedError("Zarr backend does not support upsert.")
 
     def read(self, engine):
-        if engine == 'xarray' or engine == xr.Dataset or engine is None:
+        if engine == 'xarray' or engine == xr.Dataset or engine == xr.DataArray or engine is None:
             # We must auto open chunks. This tries to use the underlying zarr chunking if possible.
             # Setting chunks=True triggers what I think is an xarray/zarr engine bug where
             # every chunk is only 4B!
             if self.auto_rechunk:
                 # If rechunk is passed then check to see if the rechunk array
                 # matches chunking. If not then rechunk
-                ds_remote = xr.open_dataset(self.path, engine='zarr', chunks={}, decode_timedelta=True)
-                if not isinstance(self.chunking, dict):
-                    raise ValueError("If auto_rechunk is True, a chunking dict must be supplied.")
+                if engine == xr.DataArray:
+                    ds_remote = xr.open_dataarray(self.path, engine='zarr', chunks={}, decode_timedelta=True)
+                    if not isinstance(self.chunking, dict):
+                        raise ValueError("If auto_rechunk is True, a chunking dict must be supplied.")
+                else:
+                    ds_remote = xr.open_dataset(self.path, engine='zarr', chunks={}, decode_timedelta=True)
+                    if not isinstance(self.chunking, dict):
+                        raise ValueError("If auto_rechunk is True, a chunking dict must be supplied.")
 
                 # Compare the dict to the rechunk dict
                 if not chunking_compare(ds_remote, self.chunking):
@@ -178,7 +192,10 @@ class ZarrBackend(FileBackend):
                     return xr.open_dataset(self.path, engine='zarr',
                                            chunks={}, decode_timedelta=True)
             else:
-                return xr.open_dataset(self.path, engine='zarr', chunks={}, decode_timedelta=True)
+                if engine == xr.DataArray:
+                    return xr.open_dataarray(self.path, engine='zarr', chunks={}, decode_timedelta=True)
+                else:
+                    return xr.open_dataset(self.path, engine='zarr', chunks={}, decode_timedelta=True)
         else:
             raise NotImplementedError(f"Zarr backend does not support reading zarrs to {engine} engine")
 

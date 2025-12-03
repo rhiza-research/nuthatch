@@ -14,6 +14,18 @@ def simple_array(start_time="2021-01-01", end_time="2021-02-01", name='test', sp
     return ds
 
 @cache(cache_args=['name', 'species', 'stride'],
+       engine=xr.DataArray)
+def simple_darray(start_time="2021-01-01", end_time="2021-02-01", name='test', species='coraciidae', stride='day'):
+    """Generate a simple timeseries dataset for testing."""
+    times = pd.date_range(start_time, end_time, freq='1d')
+    obs = np.random.randint(0, 10, size=(len(times),))
+    ds = xr.Dataset({'obs': ('time', obs)}, coords={'time': times})
+    ds.attrs['name'] = name
+    ds.attrs['species'] = species
+    return ds['obs']
+
+
+@cache(cache_args=['name', 'species', 'stride'],
        backend_kwargs = {
            'chunking': {
                 'time': 5
@@ -44,6 +56,16 @@ def test_zarr():
     data4 = simple_array(name='josh')
     assert not data.equals(data3)
     assert data3.equals(data4)
+
+    data = simple_darray(name='josh', recompute=True, force_overwrite=True)
+    data2 = simple_darray(name='josh')
+    assert data.equals(data2)
+
+    data3 = simple_darray(name='josh', recompute=True, force_overwrite=True)
+    data4 = simple_darray(name='josh')
+    assert not data.equals(data3)
+    assert data3.equals(data4)
+
 
 def test_chunking():
     chunked_array(name='josh', recompute=True, force_overwrite=True)

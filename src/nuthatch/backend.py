@@ -34,10 +34,15 @@ def register_backend(backendClass):
             backend_name = "my_backend"
             default_for_type = "my_data_type"
     """
+
     registered_backends[backendClass.backend_name] = backendClass
 
     if hasattr(backendClass, 'default_for_type'):
-        default_backends[backendClass.default_for_type] = backendClass.backend_name
+        if not isinstance(backendClass.default_for_type, list):
+            backendClass.default_for_type = [backendClass.default_for_type]
+
+        for default in backendClass.default_for_type:
+            default_backends[default] = backendClass.backend_name
 
     return backendClass
 
