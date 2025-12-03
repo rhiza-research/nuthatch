@@ -1,9 +1,21 @@
 # Test the memoizer here
-from nuthatch import cache
 from nuthatch.processors import timeseries
+from nuthatch import cache, config_parameter
 import xarray as xr
 import numpy as np
 import pandas as pd
+import nuthatch.memoizer
+import sys
+
+import logging
+logger = logging.getLogger(__name__)
+
+@cache(cache=False, cache_args=['name', 'species', 'stride'])
+def simple_data(name='test', species='coraciidae', stride='day'):
+    """Generate a simple timeseries dataset for testing."""
+    return name
+
+
 
 @timeseries()
 @cache(cache=False, cache_args=['name', 'species', 'stride'])
@@ -25,3 +37,25 @@ def test_memoizer():
     ds = simple_xarray_timeseries("1998-01-01", "2005-01-01", memoize=True)
 
     assert ds['time'].min().compute() == pd.to_datetime("1998-01-01")
+
+
+
+def test_memoizer_overflow():
+    cf = config_parameter('remote_cache_size')
+    cf(lambda: 100000)
+    cf = config_parameter('local_cache_size')
+    cf(lambda: 1000)
+
+    for i in range(0, 10000):
+        usage = nuthatch.memoizer.get_cache_usage(nuthatch.memoizer.remote_object_size)
+        ds = simple_xarray_timeseries("2000-01-01", "2005-01-01", name=str(i), memoize=True)
+        if usage + ds.nbytes > 100000:
+            break
+        logger.info(nuthatch.memoizer.get_cache_usage(nuthatch.memoizer.remote_object_size))
+
+    for i in range(0, 10000):
+        usage = nuthatch.memoizer.get_cache_usage(nuthatch.memoizer.local_object_size)
+        ds = simple_data(name=str(i), memoize=True)
+        if usage + sys.getsizeof(ds) > 1000:
+            break
+        logger.info(nuthatch.memoizer.get_cache_usage(nuthatch.memoizer.local_object_size))

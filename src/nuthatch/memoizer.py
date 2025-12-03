@@ -8,8 +8,15 @@ from .config import get_config
 import logging
 logger = logging.getLogger(__name__)
 
-memoized_objects = {}
-cache_key_lru = []
+local_memoized_objects = {}
+local_object_size = {}
+local_cache_key_lru = []
+remote_memoized_objects = {}
+remote_object_size = {}
+remote_cache_key_lru = []
+
+def get_cache_usage(object_sizes):
+    return sum(object_sizes.values())
 
 def save_to_memory(cache_key, data):
     """Save data to memory.
@@ -21,35 +28,52 @@ def save_to_memory(cache_key, data):
         cache_key (str): The key to save the data to.
         data (any): The data to save to memory.
     """
-    if isinstance(data, xr.Dataset):
+    remote = False
+    if isinstance(data, xr.Dataset) or isinstance(data, xr.DataArray):
         data = data.persist()
+        data_size = data.nbytes
+        remote=True
     elif isinstance(data, dd.DataFrame):
         data = data.persist()
+        data_size = int(data.memory_usage().sum())
+        remote=True
     else:
-        pass
+        data_size = sys.getsizeof(data)
 
-    max_size = get_config(location='root', requested_parameters=['maximum_memory_usage'])
-    if 'maximum_memory_usage' in max_size:
-        max_size = max_size['maximum_memory_usage']
+
+    if remote:
+        memoized_objects = remote_memoized_objects
+        object_size = remote_object_size
+        cache_key_lru = remote_cache_key_lru
+        max_size = get_config(location='root', requested_parameters=['remote_cache_size'])
+        if 'remote_cache_size' in max_size:
+            max_size = max_size['remote_cache_size']
+        else:
+            max_size = 32*10^9
     else:
-        # 100MB Default
-        max_size = 1000*10^6
+        memoized_objects = local_memoized_objects
+        object_size = local_object_size
+        cache_key_lru = local_cache_key_lru
+        max_size = get_config(location='root', requested_parameters=['local_cache_size'])
+        if 'local_cache_size' in max_size:
+            max_size = max_size['local_cache_size']
+        else:
+            max_size = 2*10^9
 
-    if(sys.getsizeof(data) > max_size):
+    if(data_size > max_size):
         logger.warning("WARNING: Data too large to memoize.")
         return
 
-    while(sys.getsizeof(memoized_objects) + sys.getsizeof(data) > max_size):
-        try:
+    while((get_cache_usage(object_size) + data_size) > max_size):
+        if len(cache_key_lru) == 0:
+            logger.error("ERROR: Nuthatch memoizer size management mismatch. Memoization will no longer function.")
+        else:
             del memoized_objects[cache_key_lru[0]]
+            del object_size[cache_key_lru[0]]
             del cache_key_lru[0]
-        except:
-            print(f"LRU list {cache_key_lru}")
-            print(f"Data size: {sys.getsizeof(data)}")
-            print(f"Memoize objects: {memoized_objects}")
-            print(f"Total object size: {sys.getsizeof(memoized_objects)}")
 
     memoized_objects[cache_key] = copy.deepcopy(data)
+    object_size[cache_key] = data_size
 
     if cache_key in cache_key_lru:
         cache_key_lru.remove(cache_key)
@@ -68,12 +92,20 @@ def recall_from_memory(cache_key):
     Returns:
         The memoized object.
     """
-    if cache_key in memoized_objects:
+    if cache_key in local_memoized_objects:
         # refresh the lru
-        cache_key_lru.remove(cache_key)
-        cache_key_lru.append(cache_key)
+        local_cache_key_lru.remove(cache_key)
+        local_cache_key_lru.append(cache_key)
 
         # return the object
-        return memoized_objects[cache_key]
+        return local_memoized_objects[cache_key]
+    if cache_key in remote_memoized_objects:
+        # refresh the lru
+        remote_cache_key_lru.remove(cache_key)
+        remote_cache_key_lru.append(cache_key)
+
+        # return the object
+        return remote_memoized_objects[cache_key]
+
     else:
         return None
