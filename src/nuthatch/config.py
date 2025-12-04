@@ -145,19 +145,15 @@ def config_parameter(parameter_name, location='root', backend=None, secret=False
 
 def extract_set_params(location, requested_parameters, backend_name, wrapped_module):
     location_params = {}
-    logger.debug(f"Extracting parameters from global parameters {global_parameters} for module {wrapped_module}.")
+    logger.info(f"Extracting parameters from global parameters {global_parameters} for module {wrapped_module}.")
 
     if wrapped_module in global_parameters:
         module_parameters = global_parameters[wrapped_module]
     else:
         return location_params
 
-    logger.debug(module_parameters)
-    logger.debug(location)
     if location in module_parameters:
         location_params.update(module_parameters[location])
-
-    logger.debug(location_params)
 
     backend_specific_params = {}
     if location in module_parameters and backend_name and backend_name in module_parameters[location]:
@@ -196,7 +192,7 @@ def extract_params(config, location, requested_parameters, backend_name):
 
 def extract_dynamic_params(location, requested_parameters, backend_name, mask_secrets=False, wrapped_module=None):
     # Now call all the relevant config registrations and add them
-    logger.debug(f"Extracting dynamic parameters from {dynamic_parameters} for module {wrapped_module}.")
+    logger.info(f"Extracting dynamic parameters from {dynamic_parameters} for module {wrapped_module}.")
     if wrapped_module in dynamic_parameters:
         module_dynamic_parameters = dynamic_parameters[wrapped_module]
     else:
