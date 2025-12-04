@@ -271,6 +271,7 @@ def get_config(location='root', requested_parameters=[], backend_name=None, mask
         # Mirrors require a different approach, because we are trying to build a set of them
         mirror_configs = {}
 
+
         # First get an global mirrors
         global_config_file = get_global_config()
         if global_config_file:
@@ -291,15 +292,21 @@ def get_config(location='root', requested_parameters=[], backend_name=None, mask
         current_config_file = get_current_pyproject()
         logger.debug(f"Current pyrpoject path is: {current_config_file}")
 
+        if hasattr(wrapped_module, '__name__'):
+            wrapped_module = wrapped_module.__name__.partition('.')[0]
+
         if current_config_file:
             with open(current_config_file, "rb") as f:
                 current_config = tomllib.load(f)
 
             current_params = extract_params(current_config, location, requested_parameters, backend_name)
 
+
             # If the current and caller are the same update the current with dynamics (since it is the one that is imported)
             if current_config_file == caller_config_file:
-                current_params = extract_dynamic_params(current_params, location, requested_parameters, backend_name, mask_secrets)
+                set_params = extract_set_params(location, requested_parameters, backend_name, wrapped_module)
+                current_params.update(set_params)
+                current_params = extract_dynamic_params(current_params, location, requested_parameters, backend_name, mask_secrets, wrapped_module)
 
             if current_params:
                 mirror_configs['current'] = current_params
@@ -310,13 +317,17 @@ def get_config(location='root', requested_parameters=[], backend_name=None, mask
                 caller_config = tomllib.load(f)
 
             caller_root_params = extract_params(caller_config, 'root', requested_parameters, backend_name)
-            caller_root_params = extract_dynamic_params(caller_root_params, 'root', requested_parameters, backend_name, mask_secrets)
+            set_params = extract_set_params('root', requested_parameters, backend_name, wrapped_module)
+            caller_root_params.update(set_params)
+            caller_root_params = extract_dynamic_params(caller_root_params, 'root', requested_parameters, backend_name, mask_secrets, wrapped_module)
 
             if caller_root_params:
                 mirror_configs['caller_root'] = caller_root_params
 
             caller_mirror_params = extract_params(caller_config, 'mirror', requested_parameters, backend_name)
-            caller_mirror_params = extract_dynamic_params(caller_mirror_params, 'mirror', requested_parameters, backend_name, mask_secrets)
+            set_params = extract_set_params('mirror', requested_parameters, backend_name, wrapped_module)
+            caller_mirror_params.update(set_params)
+            caller_mirror_params = extract_dynamic_params(caller_mirror_params, 'mirror', requested_parameters, backend_name, mask_secrets, wrapped_module)
 
             if caller_mirror_params:
                 mirror_configs['caller_mirror'] = caller_mirror_params
