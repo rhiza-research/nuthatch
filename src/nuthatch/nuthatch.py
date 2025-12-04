@@ -293,7 +293,7 @@ def instantiate_read_caches(cache_key, namespace, version, cache_arg_values, req
                     found_cache=True
             else:
                 cache = Cache(cache_config, cache_key, namespace, version, cache_arg_values,
-                              location, requested_backend, backend_kwargs)
+                              location, requested_backend, backend_kwargs, wrapped_module=wrapped_module)
 
                 caches[location] = cache
                 found_cache=True
@@ -522,7 +522,7 @@ def cache(cache=True,
                         storage_backend_kwargs = backend_kwargs
 
                     write_cache = Cache(write_cache_config, cache_key, namespace, version,
-                                        cache_arg_values, 'root', storage_backend, storage_backend_kwargs)
+                                        cache_arg_values, 'root', storage_backend, storage_backend_kwargs, wrapped_module=inspect.getmodule(func))
                 else:
                     raise ValueError("At least a root filesystem for metadata storage must be configured. No configuration found.")
 
