@@ -235,7 +235,10 @@ def delete_cache(cache_key, namespace, backend, location, force, metadata_only):
     click.confirm(f"Are you sure you want to delete {len(caches)} cache entries?\n{str(caches[['cache_key', 'backend']])}\n", abort=True)
 
     for cache in caches.to_dict(orient='records'):
-        cache = Cache(config, cache['cache_key'], namespace, None, None, location, cache['backend'], {})
+        if cache['backend'] == 'null':
+            cache = Cache(config, cache['cache_key'], namespace, None, None, location, None, {})
+        else:
+            cache = Cache(config, cache['cache_key'], namespace, None, None, location, cache['backend'], {})
         click.echo(f"Deleting {cache.cache_key} from {cache.location} with backend {cache.backend_name}.")
         if metadata_only:
             cache._delete_metadata()
