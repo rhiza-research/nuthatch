@@ -135,10 +135,7 @@ class TimeseriesProcessor(NuthatchProcessor):
                           `validate_data=False`""")
                     return False
         else:
-            raise RuntimeError(
-                f"Cannot validate timeseries for data type {type(ds)}")
-
-        return True
+            raise RuntimeError(f"Cannot validate timeseries for data type {type(ds)}")
 
 
 def timeseries(timeseries='time', **kwargs):
