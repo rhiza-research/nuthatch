@@ -166,7 +166,7 @@ def extract_set_params(location, requested_parameters, backend_name, wrapped_mod
 def extract_params(config, location, requested_parameters, backend_name):
     # Assume all parameters set without a location specified apply to root and all backends
     if 'tool' not in config or 'nuthatch' not in config['tool']:
-        return None
+        return {}
 
     location_params = {}
     if location == 'root':
@@ -287,7 +287,7 @@ def get_config(location='root', requested_parameters=[], backend_name=None, mask
         set_params = extract_set_params(location, requested_parameters, backend_name, wrapped_module_name)
         dynamic_params = extract_dynamic_params(location, requested_parameters, backend_name, mask_secrets, wrapped_module_name)
         if hasattr(wrapped_module, '__file__') and ('site-packages' in wrapped_module.__file__ or 'dist-packages' in wrapped_module.__file__):
-            if not current_config_file and not caller_config_file:
+            if (not current_config_file or len(final_config) == 0) and (not caller_config_file or caller_config_file == current_config_file):
                 # This is the situation to allow low priority overwriting
                 set_params |= dynamic_params
                 set_params |= final_config
