@@ -17,6 +17,7 @@ logger = logging.getLogger(__name__)
 
 dynamic_parameters = {}
 global_parameters = {}
+warnings = 0
 
 def _is_fs_root(p):
     """Check if a path is the root of a filesystem."""
@@ -258,12 +259,23 @@ def get_config(location='root', requested_parameters=[], backend_name=None, mask
             if current_params:
                 final_config.update(current_params)
 
-        if hasattr(wrapped_module, '__name__'):
-            wrapped_module = wrapped_module.__name__.partition('.')[0]
+        if 'site-packages' not in wrapped_module.__file__ and 'dist-packages' not in wrapped_module.__file__:
+            if hasattr(wrapped_module, '__name__'):
+                wrapped_module = wrapped_module.__name__.partition('.')[0]
 
-        set_params = extract_set_params(location, requested_parameters, backend_name, wrapped_module)
-        final_config.update(set_params)
-        final_config = extract_dynamic_params(final_config, location, requested_parameters, backend_name, mask_secrets, wrapped_module)
+            set_params = extract_set_params(location, requested_parameters, backend_name, wrapped_module)
+            final_config.update(set_params)
+            final_config = extract_dynamic_params(final_config, location, requested_parameters, backend_name, mask_secrets, wrapped_module)
+        else:
+            if hasattr(wrapped_module, '__name__'):
+                wrapped_module = wrapped_module.__name__.partition('.')[0]
+
+            global warnings
+            if (((wrapped_module in dynamic_parameters and location in dynamic_parameters[wrapped_module]) or
+                (wrapped_module in global_parameters and location in global_parameters[wrapped_module])) and len(final_config) == 0 and warnings < 1):
+                logger.warn(f"Skipping setting config for {location} from module {wrapped_module} because it appears to be an imported package.")
+                logger.warn("   These parameters remain unset. If you would like to configure local or root parameters, please set them explicitly.")
+                warnings = warnings + 1
 
         return final_config
 
@@ -309,7 +321,7 @@ def get_config(location='root', requested_parameters=[], backend_name=None, mask
                 current_params = extract_dynamic_params(current_params, location, requested_parameters, backend_name, mask_secrets, wrapped_module)
 
             if current_params:
-                mirror_configs['current'] = current_params
+                mirror_configs['mirror'] = current_params
 
         if caller_config_file and caller_config_file != current_config_file:
             # For the caller extract both mirror and root locations as mirros and update with dynamic parameters
@@ -322,7 +334,7 @@ def get_config(location='root', requested_parameters=[], backend_name=None, mask
             caller_root_params = extract_dynamic_params(caller_root_params, 'root', requested_parameters, backend_name, mask_secrets, wrapped_module)
 
             if caller_root_params:
-                mirror_configs['caller_root'] = caller_root_params
+                mirror_configs[wrapped_module + ' root'] = caller_root_params
 
             caller_mirror_params = extract_params(caller_config, 'mirror', requested_parameters, backend_name)
             set_params = extract_set_params('mirror', requested_parameters, backend_name, wrapped_module)
@@ -330,7 +342,7 @@ def get_config(location='root', requested_parameters=[], backend_name=None, mask
             caller_mirror_params = extract_dynamic_params(caller_mirror_params, 'mirror', requested_parameters, backend_name, mask_secrets, wrapped_module)
 
             if caller_mirror_params:
-                mirror_configs['caller_mirror'] = caller_mirror_params
+                mirror_configs[wrapped_module + ' mirror'] = caller_mirror_params
 
         if len(mirror_configs) > 0:
             if config_from:

@@ -289,7 +289,7 @@ def instantiate_read_caches(cache_key, namespace, version, cache_arg_values, req
                     cache = Cache(c_config, cache_key, namespace, version, cache_arg_values,
                                   location, requested_backend, backend_kwargs, config_from=key, wrapped_module=wrapped_module)
 
-                    caches[f"{location}-{key}"] = cache
+                    caches[f"{key}"] = cache
                     found_cache=True
             else:
                 cache = Cache(cache_config, cache_key, namespace, version, cache_arg_values,
