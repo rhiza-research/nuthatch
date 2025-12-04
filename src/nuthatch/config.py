@@ -72,7 +72,7 @@ def set_parameter(parameter_value, parameter_name=None, location='root', backend
     caller_frame = inspect.stack()[1]
     module = inspect.getmodule(caller_frame.frame)
     if hasattr(module, '__name__'):
-        module = module.__name__
+        module = module.__name__.partition('.')[0]
 
     logger.debug(f"Caller module {module}")
     if module not in global_parameters:
@@ -125,7 +125,7 @@ def config_parameter(parameter_name, location='root', backend=None, secret=False
         caller_frame = inspect.stack()[1]
         module = inspect.getmodule(caller_frame.frame)
         if hasattr(module, '__name__'):
-            module = module.__name__
+            module = module.__name__.partition('.')[0]
         logger.debug(f"Caller module {module}")
         if module not in dynamic_parameters:
             dynamic_parameters[module] = {}
@@ -259,7 +259,7 @@ def get_config(location='root', requested_parameters=[], backend_name=None, mask
                 final_config.update(current_params)
 
         if hasattr(wrapped_module, '__name__'):
-            wrapped_module = wrapped_module.__name__
+            wrapped_module = wrapped_module.__name__.partition('.')[0]
 
         set_params = extract_set_params(location, requested_parameters, backend_name, wrapped_module)
         final_config.update(set_params)
