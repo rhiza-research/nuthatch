@@ -145,7 +145,7 @@ def config_parameter(parameter_name, location='root', backend=None, secret=False
 
 def extract_set_params(location, requested_parameters, backend_name, wrapped_module):
     location_params = {}
-    logger.info(f"Extracting parameters from global parameters {global_parameters} for module {wrapped_module}.")
+    logger.debug(f"Extracting parameters from global parameters {global_parameters} for module {wrapped_module}.")
 
     if wrapped_module in global_parameters:
         module_parameters = global_parameters[wrapped_module]
@@ -192,7 +192,7 @@ def extract_params(config, location, requested_parameters, backend_name):
 
 def extract_dynamic_params(location, requested_parameters, backend_name, mask_secrets=False, wrapped_module=None):
     # Now call all the relevant config registrations and add them
-    logger.info(f"Extracting dynamic parameters from {dynamic_parameters} for module {wrapped_module}.")
+    logger.debug(f"Extracting dynamic parameters from {dynamic_parameters} for module {wrapped_module}.")
     if wrapped_module in dynamic_parameters:
         module_dynamic_parameters = dynamic_parameters[wrapped_module]
     else:
@@ -254,6 +254,7 @@ def get_config(location='root', requested_parameters=[], backend_name=None, mask
         # Lowest priority - global
         final_config = {}
         global_config_file = get_global_config()
+        global_params = {}
         if global_config_file:
             logger.debug(f"Found global config file: {global_config_file}")
             with open(global_config_file, "rb") as f:
@@ -261,39 +262,39 @@ def get_config(location='root', requested_parameters=[], backend_name=None, mask
 
             global_params = extract_params(global_config, location, requested_parameters, backend_name)
 
-            if global_params:
-                final_config.update(global_params)
-
         current_config_file = get_current_pyproject()
-        logger.info(f"Current pyrpoject path is: {current_config_file}")
-        if hasattr(wrapped_module, '__file__'):
-            caller_config_file = get_callers_pyproject(wrapped_module.__file__)
-        else:
-            caller_config_file = None
-        logger.info(f"Caller pyrpoject path is: {caller_config_file}")
-
+        logger.debug(f"Current pyrpoject path is: {current_config_file}")
+        current_params = {}
         if current_config_file:
             with open(current_config_file, "rb") as f:
                 current_config = tomllib.load(f)
-
             current_params = extract_params(current_config, location, requested_parameters, backend_name)
-            if current_params:
-                final_config.update(current_params)
 
-        logger.info(wrapped_module)
+        caller_params = {}
+        if hasattr(wrapped_module, '__file__'):
+            caller_config_file = get_callers_pyproject(wrapped_module.__file__)
+            logger.debug(f"Caller pyrpoject path is: {caller_config_file}")
+
+            if caller_config_file:
+                with open(caller_config_file, "rb") as f:
+                    caller_config = tomllib.load(f)
+                caller_params = extract_params(caller_config, location, requested_parameters, backend_name)
+
         if hasattr(wrapped_module, '__name__'):
             wrapped_module_name = wrapped_module.__name__.partition('.')[0]
 
         set_params = extract_set_params(location, requested_parameters, backend_name, wrapped_module_name)
         dynamic_params = extract_dynamic_params(location, requested_parameters, backend_name, mask_secrets, wrapped_module_name)
         if hasattr(wrapped_module, '__file__') and ('site-packages' in wrapped_module.__file__ or 'dist-packages' in wrapped_module.__file__):
-            if (not current_config_file or len(final_config) == 0) and (not caller_config_file or caller_config_file == current_config_file):
-                # This is the situation to allow low priority overwriting
-                set_params |= dynamic_params
-                set_params |= final_config
-                final_config = set_params
+            if os.getenv("NUTHATCH_ALLOW_INSTALLED_PACKAGE_CONFIGURATION", 'False').lower() in ('true', '1', 't'):
+                final_config |= current_params
+                final_config |= caller_params
+                final_config |= set_params
+                final_config |= dynamic_params
         else:
             # If we aren't in site package we do a high priority dynamic update to allow runtime config changes in editable packages
+            final_config |= global_params
+            final_config |= current_params
             final_config |= set_params
             final_config |= dynamic_params
 
@@ -302,7 +303,6 @@ def get_config(location='root', requested_parameters=[], backend_name=None, mask
     elif location == "mirror":
         # Mirrors require a different approach, because we are trying to build a set of them
         mirror_configs = {}
-
 
         # First get an global mirrors
         global_config_file = get_global_config()
