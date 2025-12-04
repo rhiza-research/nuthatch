@@ -36,9 +36,7 @@ class TimeseriesProcessor(NuthatchProcessor):
         if isinstance(ds, xr.Dataset):
             match_time = [t for t in self.timeseries if t in ds.dims]
             if len(match_time) == 0:
-                raise RuntimeError(
-                    f"Timeseries must have a dimension named {self.timeseries} for slicing."
-                )
+                raise RuntimeError(f"Timeseries must have a dimension named {self.timeseries} for slicing.")
 
             time_col = match_time[0]
             ds = ds.sel({time_col: slice(start_time, end_time)})
@@ -46,9 +44,7 @@ class TimeseriesProcessor(NuthatchProcessor):
             match_time = [t for t in self.timeseries if t in ds.columns]
 
             if len(match_time) == 0:
-                raise RuntimeError(
-                    f"Timeseries must have a dimension named {self.timeseries} for slicing."
-                )
+                raise RuntimeError(f"Timeseries must have a dimension named {self.timeseries} for slicing.")
 
             time_col = match_time[0]
 
@@ -80,8 +76,7 @@ class TimeseriesProcessor(NuthatchProcessor):
                         end_time = end_time.tz_convert(time_col_tz)
                     ds = ds[ds[time_col] <= end_time]
         else:
-            raise RuntimeError(
-                f"Cannot filter timeseries for data type {type(ds)}")
+            raise RuntimeError(f"Cannot filter timeseries for data type {type(ds)}")
 
         return ds
 
@@ -91,8 +86,7 @@ class TimeseriesProcessor(NuthatchProcessor):
         self.end_time = None
 
         # Convert to a list if not
-        self.timeseries = self.timeseries if isinstance(
-            self.timeseries, list) else [self.timeseries]
+        self.timeseries = self.timeseries if isinstance(self.timeseries, list) else [self.timeseries]
 
         if 'start_time' not in params or 'end_time' not in params:
             raise ValueError(
