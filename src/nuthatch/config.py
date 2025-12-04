@@ -9,6 +9,7 @@ could leverage different filesystems if specified)
 from pathlib import Path
 import os
 import tomllib
+import inspect
 
 import logging
 logger = logging.getLogger(__name__)
@@ -67,6 +68,10 @@ def set_parameter(parameter_value, parameter_name=None, location='root', backend
         backend (str, optional): The backend to register the parameter.
         secret (bool): whether the parameter is secret
     """
+    caller_frame = inspect.stack()[1]
+    # Get the module object associated with the caller's frame
+    module = inspect.getmodule(caller_frame.frame)
+    logger.debug(f"Caller module {module}")
 
     if not parameter_name:
         if not isinstance(parameter_value, dict):
@@ -109,6 +114,11 @@ def config_parameter(parameter_name, location='root', backend=None, secret=False
         secret (bool): whether the parameter is secret
     """
     def decorator(function):
+        caller_frame = inspect.stack()[1]
+        # Get the module object associated with the caller's frame
+        module = inspect.getmodule(caller_frame.frame)
+        logger.debug(f"Caller module {module}")
+
         if location not in dynamic_parameters:
             dynamic_parameters[location] = {}
         if backend and backend not in dynamic_parameters[location]:
@@ -119,6 +129,20 @@ def config_parameter(parameter_name, location='root', backend=None, secret=False
         else:
             dynamic_parameters[location][parameter_name] = (function, secret)
     return decorator
+
+def extract_set_params(location, requested_parameters, backend_name):
+    location_params = {}
+    logger.debug(f"Extracting parameters from global parameters {global_parameters}.")
+    if location in global_parameters:
+        location_params.update(global_parameters[location])
+
+    backend_specific_params = {}
+    if location in global_parameters and backend_name and backend_name in global_parameters[location]:
+        backend_specific_params.update(global_parameters[location][backend_name])
+
+    merged_config = backend_specific_params | location_params
+    filtered_config = {k: merged_config[k] for k in merged_config if k in requested_parameters}
+    return filtered_config
 
 def extract_params(config, location, requested_parameters, backend_name):
     # Assume all parameters set without a location specified apply to root and all backends
@@ -134,16 +158,11 @@ def extract_params(config, location, requested_parameters, backend_name):
         if location in config['tool']['nuthatch']:
             location_params = config['tool']['nuthatch'][location]
 
-    if location in global_parameters:
-        location_params.update(global_parameters[location])
 
     if backend_name and backend_name in location_params:
         backend_specific_params = config['tool']['nuthatch'][location][backend_name]
     else:
         backend_specific_params = {}
-
-    if location in global_parameters and backend_name and backend_name in global_parameters[location]:
-        backend_specific_params.update(global_parameters[location][backend_name])
 
     # Merge the two together
     merged_config = backend_specific_params | location_params
@@ -210,6 +229,8 @@ def get_config(location='root', requested_parameters=[], backend_name=None, mask
             if current_params:
                 final_config.update(current_params)
 
+        set_params = extract_set_params(location, requested_parameters, backend_name)
+        final_config.update(set_params)
         final_config = extract_dynamic_params(final_config, location, requested_parameters, backend_name, mask_secrets)
 
         return final_config
