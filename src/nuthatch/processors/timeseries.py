@@ -1,9 +1,11 @@
 from nuthatch.processor import NuthatchProcessor
+from functools import wraps
 import dateparser
 import datetime
 import pandas as pd
 import dask.dataframe as dd
 import xarray as xr
+
 
 class TimeseriesProcessor(NuthatchProcessor):
     """
@@ -15,6 +17,7 @@ class TimeseriesProcessor(NuthatchProcessor):
 
     It supports xarray datasets and pandas/dask dataframes.
     """
+
     def __init__(self, func, timeseries, **kwargs):
         """
         Initialize the timeseries processor.
@@ -77,7 +80,8 @@ class TimeseriesProcessor(NuthatchProcessor):
                         end_time = end_time.tz_convert(time_col_tz)
                     ds = ds[ds[time_col] <= end_time]
         else:
-            raise RuntimeError(f"Cannot filter timeseries for data type {type(ds)}")
+            raise RuntimeError(
+                f"Cannot filter timeseries for data type {type(ds)}")
 
         return ds
 
@@ -87,7 +91,8 @@ class TimeseriesProcessor(NuthatchProcessor):
         self.end_time = None
 
         # Convert to a list if not
-        self.timeseries = self.timeseries if isinstance(self.timeseries, list) else [self.timeseries]
+        self.timeseries = self.timeseries if isinstance(
+            self.timeseries, list) else [self.timeseries]
 
         if 'start_time' not in params or 'end_time' not in params:
             raise ValueError(
@@ -99,10 +104,9 @@ class TimeseriesProcessor(NuthatchProcessor):
                 self.end_time = args[keys.index('end_time')]
             except IndexError:
                 raise ValueError("'start_time' and 'end_time' must be passed as positional arguments, not "
-                                     "keyword arguments")
+                                 "keyword arguments")
 
         return args, kwargs
-
 
     def validate(self, ds):
         start_time = self.start_time
@@ -137,12 +141,28 @@ class TimeseriesProcessor(NuthatchProcessor):
                           `validate_data=False`""")
                     return False
         else:
-            raise RuntimeError(f"Cannot validate timeseries for data type {type(ds)}")
+            raise RuntimeError(
+                f"Cannot validate timeseries for data type {type(ds)}")
 
         return True
 
-def timeseries(timeseries='time', **kwargs):
-    def decorator(func):
-         return TimeseriesProcessor(func, timeseries, **kwargs)
-    return decorator
 
+def timeseries(timeseries='time', **kwargs):
+    """
+    Decorator for wrapping a function into a TimeseriesProcessor.
+
+    Args:
+        timeseries (str, or list of str): The name(s) of the timeseries dimensions.
+        **kwargs: Additional arguments passed to TimeseriesProcessor.
+
+    Returns:
+        Callable: A function decorator.
+    """
+
+    def decorator(func):
+        @wraps(func)
+        def wrapper(*args, **inner_kwargs):
+            processor = TimeseriesProcessor(func, timeseries, **kwargs)
+            return processor(*args, **inner_kwargs)
+        return wrapper
+    return decorator
