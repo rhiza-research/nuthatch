@@ -255,7 +255,7 @@ def get_cache_key(func, cache_arg_values):
     return func.__name__ + '/' + '_'.join(flat_values)
 
 
-def instantiate_read_caches(cache_key, namespace, version, cache_arg_values, requested_backend, backend_kwargs, wrapped_path):
+def instantiate_read_caches(cache_key, namespace, version, cache_arg_values, requested_backend, backend_kwargs, wrapped_module):
     """Returns a priority ordered list of caches to read from.
 
     Args:
@@ -282,12 +282,12 @@ def instantiate_read_caches(cache_key, namespace, version, cache_arg_values, req
 
     for location in resolution_list:
         cache = None
-        cache_config = get_config(location=location, requested_parameters=Cache.config_parameters, wrapped_path=wrapped_path)
+        cache_config = get_config(location=location, requested_parameters=Cache.config_parameters, wrapped_module=wrapped_module)
         if cache_config:
             if location == 'mirror':
                 for key, c_config in cache_config.items():
                     cache = Cache(c_config, cache_key, namespace, version, cache_arg_values,
-                                  location, requested_backend, backend_kwargs, config_from=key, wrapped_path=wrapped_path)
+                                  location, requested_backend, backend_kwargs, config_from=key, wrapped_module=wrapped_module)
 
                     caches[f"{location}-{key}"] = cache
                     found_cache=True
@@ -416,7 +416,7 @@ def cache(cache=True,
             ds = None
             compute_result = True
 
-            read_caches = instantiate_read_caches(cache_key, namespace, version, cache_arg_values, backend, backend_kwargs, inspect.getmodule(func).__file__)
+            read_caches = instantiate_read_caches(cache_key, namespace, version, cache_arg_values, backend, backend_kwargs, inspect.getmodule(func))
 
             # Try to sync local/remote only once on read. All syncing is done lazily
             if cache_local:
@@ -466,7 +466,7 @@ def cache(cache=True,
 
                             if memoize:
                                 logger.info(f"Memoizing {memoizer_cache_key}.")
-                                save_to_memory(memoizer_cache_key, ds)
+                                save_to_memory(memoizer_cache_key, ds, wrapped_module=inspect.getmodule(func))
 
                             compute_result = False
                             break
@@ -485,7 +485,7 @@ def cache(cache=True,
                         raise RuntimeError(f"""Computation has been disabled by
                                             `fail_if_no_cache` and cache doesn't exist for {cache_key}.""")
 
-                    if not get_config(location='root', requested_parameters=Cache.config_parameters):
+                    if not get_config(location='root', requested_parameters=Cache.config_parameters, wrapped_module=inspect.getmodule(func)):
                         inp = input("""A pre-existing cache was not found, and no root cache has been configured.
                                         Would you still like to compute the result? (y/n)""")
                         if inp == 'y' or inp == 'Y':
@@ -504,14 +504,14 @@ def cache(cache=True,
 
                 if memoize:
                     logger.info(f"Memoizing {cache_key}.")
-                    save_to_memory(memoizer_cache_key, ds)
+                    save_to_memory(memoizer_cache_key, ds, wrapped_module=inspect.getmodule(func))
 
 
             # Store the result
             if cache and (compute_result or (storage_backend and storage_backend != used_read_backend)):
                 # Instantiate write backend
                 write_cache = None
-                write_cache_config = get_config(location='root', requested_parameters=Cache.config_parameters)
+                write_cache_config = get_config(location='root', requested_parameters=Cache.config_parameters, wrapped_module=inspect.getmodule(func))
                 if write_cache_config:
                     if not storage_backend and not backend:
                         storage_backend = get_default_backend(type(ds))

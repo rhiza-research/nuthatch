@@ -1,6 +1,7 @@
 from nuthatch.config import get_config
 from nuthatch import config_parameter
 from nuthatch.backends import SQLBackend
+import inspect
 
 def test_get_config():
     get_config(location='root', requested_parameters = SQLBackend.config_parameters, backend_name=SQLBackend.backend_name)
@@ -11,7 +12,7 @@ def test_config_reg():
     def username():
         return 'test_username'
 
-    sql = get_config(location='root', requested_parameters = SQLBackend.config_parameters + ['username2'], backend_name=SQLBackend.backend_name)
+    sql = get_config(location='root', requested_parameters = SQLBackend.config_parameters + ['username2'], backend_name=SQLBackend.backend_name, wrapped_module=inspect.getmodule(inspect.stack()[0].frame))
     assert sql['username2'] == 'test_username'
 
 def test_config_backend_reg():
@@ -24,7 +25,7 @@ def test_config_backend_reg():
     def password():
         return 'test_password'
 
-    sql = get_config(location='root', requested_parameters = SQLBackend.config_parameters + ['username2', 'password2'], backend_name=SQLBackend.backend_name)
+    sql = get_config(location='root', requested_parameters = SQLBackend.config_parameters + ['username2', 'password2'], backend_name=SQLBackend.backend_name, wrapped_module=inspect.getmodule(inspect.stack()[0].frame))
     assert sql['username2'] == 'test_username'
     assert sql['password2'] == 'test_password'
 

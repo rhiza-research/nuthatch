@@ -68,40 +68,47 @@ def set_parameter(parameter_value, parameter_name=None, location='root', backend
         backend (str, optional): The backend to register the parameter.
         secret (bool): whether the parameter is secret
     """
+    # Get calling module
     caller_frame = inspect.stack()[1]
-    # Get the module object associated with the caller's frame
     module = inspect.getmodule(caller_frame.frame)
+    if hasattr(module, '__name__'):
+        module = module.__name__
+
     logger.debug(f"Caller module {module}")
+    if module not in global_parameters:
+        global_parameters[module] = {}
+
+    module_parameters = global_parameters[module]
 
     if not parameter_name:
         if not isinstance(parameter_value, dict):
             raise ValueError("If a parameter name is not provided, parameters must be passed as key/value pairs.")
 
     if parameter_name and location and backend:
-        if location not in global_parameters:
-            global_parameters[location] = {}
-        if backend not in global_parameters[location]:
-            global_parameters[location][backend] = {}
-        global_parameters[location][backend][parameter_name] = parameter_value
+        if location not in module_parameters:
+            module_parameters[location] = {}
+        if backend not in module_parameters[location]:
+            module_parameters[location][backend] = {}
+        module_parameters[location][backend][parameter_name] = parameter_value
     elif parameter_name and location:
-        if location not in global_parameters:
-            global_parameters[location] = {}
-        global_parameters[location][parameter_name] = parameter_value
+        if location not in module_parameters:
+            module_parameters[location] = {}
+        module_parameters[location][parameter_name] = parameter_value
     elif location and backend:
-        if location not in global_parameters:
-            global_parameters[location] = {}
-        if backend not in global_parameters[location]:
-            global_parameters[location][backend] = {}
-        global_parameters[location][backend].update(parameter_value)
+        if location not in module_parameters:
+            module_parameters[location] = {}
+        if backend not in module_parameters[location]:
+            module_parameters[location][backend] = {}
+        module_parameters[location][backend].update(parameter_value)
     elif location:
-        if location not in global_parameters:
-            global_parameters[location] = {}
-        global_parameters[location].update(parameter_value)
+        if location not in module_parameters:
+            module_parameters[location] = {}
+        module_parameters[location].update(parameter_value)
     else:
         for key in parameter_value:
             if key != 'root' and key != 'local' and key != 'mirror':
                 raise ValueError("Parameter value dictionaries must have top level keys of root, local, or mirror if location is not passed")
-        global_parameters.update(parameter_value)
+        module_parameters.update(parameter_value)
 
 
 def config_parameter(parameter_name, location='root', backend=None, secret=False):
@@ -114,31 +121,47 @@ def config_parameter(parameter_name, location='root', backend=None, secret=False
         secret (bool): whether the parameter is secret
     """
     def decorator(function):
-        caller_frame = inspect.stack()[1]
         # Get the module object associated with the caller's frame
+        caller_frame = inspect.stack()[1]
         module = inspect.getmodule(caller_frame.frame)
+        if hasattr(module, '__name__'):
+            module = module.__name__
         logger.debug(f"Caller module {module}")
+        if module not in dynamic_parameters:
+            dynamic_parameters[module] = {}
 
-        if location not in dynamic_parameters:
-            dynamic_parameters[location] = {}
-        if backend and backend not in dynamic_parameters[location]:
-            dynamic_parameters[location][backend] = {}
+        dynamic_module_parameters = dynamic_parameters[module]
+
+        if location not in dynamic_module_parameters:
+            dynamic_module_parameters[location] = {}
+        if backend and backend not in dynamic_module_parameters[location]:
+            dynamic_module_parameters[location][backend] = {}
 
         if backend:
-            dynamic_parameters[location][backend][parameter_name] = (function, secret)
+            dynamic_module_parameters[location][backend][parameter_name] = (function, secret)
         else:
-            dynamic_parameters[location][parameter_name] = (function, secret)
+            dynamic_module_parameters[location][parameter_name] = (function, secret)
     return decorator
 
-def extract_set_params(location, requested_parameters, backend_name):
+def extract_set_params(location, requested_parameters, backend_name, wrapped_module):
     location_params = {}
-    logger.debug(f"Extracting parameters from global parameters {global_parameters}.")
-    if location in global_parameters:
-        location_params.update(global_parameters[location])
+    logger.debug(f"Extracting parameters from global parameters {global_parameters} for module {wrapped_module}.")
+
+    if wrapped_module in global_parameters:
+        module_parameters = global_parameters[wrapped_module]
+    else:
+        return location_params
+
+    logger.debug(module_parameters)
+    logger.debug(location)
+    if location in module_parameters:
+        location_params.update(module_parameters[location])
+
+    logger.debug(location_params)
 
     backend_specific_params = {}
-    if location in global_parameters and backend_name and backend_name in global_parameters[location]:
-        backend_specific_params.update(global_parameters[location][backend_name])
+    if location in module_parameters and backend_name and backend_name in module_parameters[location]:
+        backend_specific_params.update(module_parameters[location][backend_name])
 
     merged_config = backend_specific_params | location_params
     filtered_config = {k: merged_config[k] for k in merged_config if k in requested_parameters}
@@ -171,21 +194,27 @@ def extract_params(config, location, requested_parameters, backend_name):
 
     return filtered_config
 
-def extract_dynamic_params(existing_params, location, requested_parameters, backend_name, mask_secrets=False):
+def extract_dynamic_params(existing_params, location, requested_parameters, backend_name, mask_secrets=False, wrapped_module=None):
     # Now call all the relevant config registrations and add them
+    logger.debug(f"Extracting dynamic parameters from {dynamic_parameters} for module {wrapped_module}.")
+    if wrapped_module in dynamic_parameters:
+        module_dynamic_parameters = dynamic_parameters[wrapped_module]
+    else:
+        return existing_params
+
     for p in requested_parameters:
-        if location in dynamic_parameters:
+        if location in module_dynamic_parameters:
             # If a dynamic parameter has been set call it and use it to override any static config
-            if backend_name in dynamic_parameters[location] and p in dynamic_parameters[location][backend_name]:
-                secret = dynamic_parameters[location][backend_name][p][1]
-                param = dynamic_parameters[location][backend_name][p][0]()
+            if backend_name in module_dynamic_parameters[location] and p in module_dynamic_parameters[location][backend_name]:
+                secret = module_dynamic_parameters[location][backend_name][p][1]
+                param = module_dynamic_parameters[location][backend_name][p][0]()
                 if secret and mask_secrets:
                     existing_params[p] = '*'*len(param)
                 else:
                     existing_params[p] = param
-            elif p in dynamic_parameters[location]:
-                secret = dynamic_parameters[location][p][1]
-                param = dynamic_parameters[location][p][0]()
+            elif p in module_dynamic_parameters[location]:
+                secret = module_dynamic_parameters[location][p][1]
+                param = module_dynamic_parameters[location][p][0]()
                 if secret and mask_secrets:
                     existing_params[p] = '*'*len(param)
                 else:
@@ -194,7 +223,7 @@ def extract_dynamic_params(existing_params, location, requested_parameters, back
     return existing_params
 
 
-def get_config(location='root', requested_parameters=[], backend_name=None, mask_secrets=False, config_from=None, wrapped_path=None):
+def get_config(location='root', requested_parameters=[], backend_name=None, mask_secrets=False, config_from=None, wrapped_module=None):
     """Get the config for a given location and backend.
 
     Args:
@@ -229,9 +258,12 @@ def get_config(location='root', requested_parameters=[], backend_name=None, mask
             if current_params:
                 final_config.update(current_params)
 
-        set_params = extract_set_params(location, requested_parameters, backend_name)
+        if hasattr(wrapped_module, '__name__'):
+            wrapped_module = wrapped_module.__name__
+
+        set_params = extract_set_params(location, requested_parameters, backend_name, wrapped_module)
         final_config.update(set_params)
-        final_config = extract_dynamic_params(final_config, location, requested_parameters, backend_name, mask_secrets)
+        final_config = extract_dynamic_params(final_config, location, requested_parameters, backend_name, mask_secrets, wrapped_module)
 
         return final_config
 
@@ -252,7 +284,7 @@ def get_config(location='root', requested_parameters=[], backend_name=None, mask
                 mirror_configs['global'] = global_params
 
         # Get the caller's config to check if it's the same
-        caller_config_file = get_callers_pyproject(wrapped_path)
+        caller_config_file = get_callers_pyproject(wrapped_module.__file__)
         logger.debug(f"Callers pyrpoject path is: {caller_config_file}")
 
         # Now get any mirrors from the current project
