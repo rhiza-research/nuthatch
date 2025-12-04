@@ -1,5 +1,4 @@
 from nuthatch.processor import NuthatchProcessor
-from functools import wraps
 import dateparser
 import datetime
 import pandas as pd
@@ -7,7 +6,7 @@ import dask.dataframe as dd
 import xarray as xr
 
 
-class TimeseriesProcessor(NuthatchProcessor):
+class timeseries(NuthatchProcessor):
     """
     Processor for timeseries data.
 
@@ -18,7 +17,7 @@ class TimeseriesProcessor(NuthatchProcessor):
     It supports xarray datasets and pandas/dask dataframes.
     """
 
-    def __init__(self, func, timeseries, **kwargs):
+    def __init__(self, timeseries='time', **kwargs):
         """
         Initialize the timeseries processor.
 
@@ -26,7 +25,7 @@ class TimeseriesProcessor(NuthatchProcessor):
             func: The function to wrap.
             timeseries: The name of the timeseries dimension.
         """
-        super().__init__(func, **kwargs)
+        super().__init__(**kwargs)
         self.timeseries = timeseries
 
     def post_process(self, ds):
@@ -136,24 +135,3 @@ class TimeseriesProcessor(NuthatchProcessor):
                     return False
         else:
             raise RuntimeError(f"Cannot validate timeseries for data type {type(ds)}")
-
-
-def timeseries(timeseries='time', **kwargs):
-    """
-    Decorator for wrapping a function into a TimeseriesProcessor.
-
-    Args:
-        timeseries (str, or list of str): The name(s) of the timeseries dimensions.
-        **kwargs: Additional arguments passed to TimeseriesProcessor.
-
-    Returns:
-        Callable: A function decorator.
-    """
-
-    def decorator(func):
-        @wraps(func)
-        def wrapper(*args, **inner_kwargs):
-            processor = TimeseriesProcessor(func, timeseries, **kwargs)
-            return processor(*args, **inner_kwargs)
-        return wrapper
-    return decorator

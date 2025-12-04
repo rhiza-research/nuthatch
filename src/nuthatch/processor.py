@@ -3,6 +3,7 @@ This module contains the NuthatchProcessor class, which is a base class for all 
 """
 from abc import ABC, abstractmethod
 from inspect import signature
+import functools
 
 import logging
 logger = logging.getLogger(__name__)
@@ -17,7 +18,7 @@ class NuthatchProcessor(ABC):
     It can be used in combination with cacheable to, for instance, post process cached values or inject
     repeated arguments into a cacheable function.
     """
-    def __init__(self, func, **kwargs):
+    def __init__(self, **kwargs):
         """
         Initialize a processor.
 
@@ -26,53 +27,56 @@ class NuthatchProcessor(ABC):
             validate_data: True to automatically validate data if supported
         """
 
-        self.func = func
         self.validate_data = kwargs.get('validate_data', False)
 
-    def __call__(self, *args, **kwargs):
+    def __call__(self, func, ):
         """
         Call the wrapped function with the given arguments.
         """
 
-        # Extract validate data if present
-        if 'validate_data' in kwargs:
-            passed_validate_data = kwargs['validate_data']
-            if passed_validate_data:
-                self.validate_data = passed_validate_data
-            del kwargs['validate_data']
+        @functools.wraps(func)
+        def wrapper(*args, **kwargs):
+            # Extract validate data if present
+            if 'validate_data' in kwargs:
+                passed_validate_data = kwargs['validate_data']
+                if passed_validate_data:
+                    self.validate_data = passed_validate_data
+                del kwargs['validate_data']
 
-        # Allow process to process the arguments
-        params = signature(self.func).parameters
-        args, kwargs = self.process_arguments(params, args, kwargs)
+            # Allow process to process the arguments
+            params = signature(func).parameters
+            args, kwargs = self.process_arguments(params, args, kwargs)
 
-        # Call the function
-        data = self.func(*args, **kwargs)
+            # Call the function
+            data = func(*args, **kwargs)
 
-        # Validate data if requested
-        if self.validate_data and not self.validate(data):
-            raise ValueError("Data failed validation. Please manually overwrite data to proceed.")
+            # Validate data if requested
+            if self.validate_data and not self.validate(data):
+                raise ValueError("Data failed validation. Please manually overwrite data to proceed.")
 
-            #if 'force_overwrite' in kwargs and kwargs['force_overwrite']:
-            #    logger.info("Data validation failed and force_overwrite set. Overwriting the result.")
-            #    kwargs['recompute'] = True #TODO - does this mess with recompute?
-            #    data = self.func(*args, **kwargs)
-            #else:
-            #    inp = input("""Data failed validation. Would you like to overwrite the result (y/n)?""")
-            #    if inp == 'y' or inp == 'Y':
-            #        if 'recompute' in kwargs:
-            #            if isinstance(kwargs['recompute'], str):
-            #                kwargs['recompute'] = [kwargs['recompute'], self.func.__name__]
-            #            elif isinstance(kwargs['recompute'], list):
-            #                kwargs['recompute'] = kwargs['recompute'].append(self.func.__name__)
-            #        else:
-            #            kwargs['recompute'] = True #TODO - does this mess with recompute?
+                #if 'force_overwrite' in kwargs and kwargs['force_overwrite']:
+                #    logger.info("Data validation failed and force_overwrite set. Overwriting the result.")
+                #    kwargs['recompute'] = True #TODO - does this mess with recompute?
+                #    data = self.func(*args, **kwargs)
+                #else:
+                #    inp = input("""Data failed validation. Would you like to overwrite the result (y/n)?""")
+                #    if inp == 'y' or inp == 'Y':
+                #        if 'recompute' in kwargs:
+                #            if isinstance(kwargs['recompute'], str):
+                #                kwargs['recompute'] = [kwargs['recompute'], self.func.__name__]
+                #            elif isinstance(kwargs['recompute'], list):
+                #                kwargs['recompute'] = kwargs['recompute'].append(self.func.__name__)
+                #        else:
+                #            kwargs['recompute'] = True #TODO - does this mess with recompute?
 
-            #        kwargs['force_overwrite'] = True #TODO - does this mess with recompute?
-            #        data = self.func(*args, **kwargs)
+                #        kwargs['force_overwrite'] = True #TODO - does this mess with recompute?
+                #        data = self.func(*args, **kwargs)
 
-        data = self.post_process(data)
+            data = self.post_process(data)
 
-        return data
+            return data
+        return wrapper
+
 
     @abstractmethod
     def post_process(self, data):

@@ -49,7 +49,7 @@ def save_to_memory(cache_key, data, wrapped_module=None):
         if 'remote_cache_size' in max_size:
             max_size = max_size['remote_cache_size']
         else:
-            max_size = 32*10^9
+            max_size = 32*(10**9)
     else:
         memoized_objects = local_memoized_objects
         object_size = local_object_size
@@ -58,7 +58,7 @@ def save_to_memory(cache_key, data, wrapped_module=None):
         if 'local_cache_size' in max_size:
             max_size = max_size['local_cache_size']
         else:
-            max_size = 2*10^9
+            max_size = 2*(10**9)
 
     if(data_size > max_size):
         logger.warning("WARNING: Data too large to memoize.")
