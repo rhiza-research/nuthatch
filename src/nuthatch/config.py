@@ -281,6 +281,9 @@ def get_config(location='root', requested_parameters=[], backend_name=None, mask
             if current_params:
                 final_config.update(current_params)
 
+        if hasattr(wrapped_module, '__name__'):
+            wrapped_module = wrapped_module.__name__.partition('.')[0]
+
         set_params = extract_set_params(location, requested_parameters, backend_name, wrapped_module)
         dynamic_params = extract_dynamic_params(location, requested_parameters, backend_name, mask_secrets, wrapped_module)
         if hasattr(wrapped_module, '__file__') and ('site-packages' in wrapped_module.__file__ or 'dist-packages' in wrapped_module.__file__):
@@ -293,10 +296,6 @@ def get_config(location='root', requested_parameters=[], backend_name=None, mask
             # If we aren't in site package we do a high priority dynamic update to allow runtime config changes in editable packages
             final_config |= set_params
             final_config |= dynamic_params
-
-        if hasattr(wrapped_module, '__name__'):
-            wrapped_module = wrapped_module.__name__.partition('.')[0]
-
 
         return final_config
 
