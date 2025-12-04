@@ -269,12 +269,12 @@ def get_config(location='root', requested_parameters=[], backend_name=None, mask
                 final_config.update(global_params)
 
         current_config_file = get_current_pyproject()
-        logger.debug(f"Current pyrpoject path is: {current_config_file}")
+        logger.info(f"Current pyrpoject path is: {current_config_file}")
         if hasattr(wrapped_module, '__file__'):
             caller_config_file = get_callers_pyproject(wrapped_module.__file__)
         else:
             caller_config_file = None
-        logger.debug(f"Caller pyrpoject path is: {caller_config_file}")
+        logger.info(f"Caller pyrpoject path is: {caller_config_file}")
 
         if current_config_file:
             with open(current_config_file, "rb") as f:
@@ -284,6 +284,7 @@ def get_config(location='root', requested_parameters=[], backend_name=None, mask
             if current_params:
                 final_config.update(current_params)
 
+        logger.info(wrapped_module)
         if hasattr(wrapped_module, '__name__'):
             wrapped_module_name = wrapped_module.__name__.partition('.')[0]
 

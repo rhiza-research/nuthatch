@@ -486,6 +486,7 @@ def cache(cache=True,
                                             `fail_if_no_cache` and cache doesn't exist for {cache_key}.""")
 
                     if not get_config(location='root', requested_parameters=Cache.config_parameters, wrapped_module=inspect.getmodule(func)):
+                        logger.info(f"Module {inspect.getmodule(func)}")
                         inp = input("""A pre-existing cache was not found, and no root cache has been configured.
                                         Would you still like to compute the result? (y/n)""")
                         if inp == 'y' or inp == 'Y':
