@@ -504,7 +504,7 @@ def cache(cache=True,
                 ##########################
 
                 if memoize:
-                    logger.info(f"Memoizing {cache_key}.")
+                    logger.info(f"Memoizing {memoizer_cache_key}.")
                     save_to_memory(memoizer_cache_key, ds, wrapped_module=inspect.getmodule(func))
 
 
