@@ -85,6 +85,7 @@ class NuthatchMetastore(Metastore):
         self.table_path = table_path
         self.extension = 'parquet'
         self.config = config
+        self.exists = os.path.join(table_path, 'exists.nut')
 
         if 'filesystem_options' not in config:
             self.config['filesystem_options'] = {}
@@ -95,6 +96,9 @@ class NuthatchMetastore(Metastore):
             self.fs = fsspec.core.url_to_fs(self.table_path, auto_mkdir=True, **self.config['filesystem_options'])[0]
         else:
             self.fs = fsspec.core.url_to_fs(self.table_path, **self.config['filesystem_options'])[0]
+
+        if not self.fs.exists(self.exists):
+            self.fs.touch(self.exists)
 
     def is_null(self, cache_key, namespace):
         if namespace:

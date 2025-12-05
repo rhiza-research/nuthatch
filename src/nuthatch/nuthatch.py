@@ -280,23 +280,28 @@ def instantiate_read_caches(cache_key, namespace, version, cache_arg_values, req
     caches = {}
     found_cache = False
 
+    mirror_exception = None
     for location in resolution_list:
         cache = None
         cache_config = get_config(location=location, requested_parameters=Cache.config_parameters, wrapped_module=wrapped_module)
         if cache_config:
             if location == 'mirror':
                 for key, c_config in cache_config.items():
-                    cache = Cache(c_config, cache_key, namespace, version, cache_arg_values,
-                                  location, requested_backend, backend_kwargs, config_from=key, wrapped_module=wrapped_module)
+                    try:
+                        cache = Cache(c_config, cache_key, namespace, version, cache_arg_values,
+                                      location, requested_backend, backend_kwargs, config_from=key, wrapped_module=wrapped_module)
 
-                    caches[f"{key}"] = cache
-                    found_cache=True
+                        caches[f"{key}"] = cache
+                        found_cache=True
+                    except Exception as e: # noqa
+                        mirror_exception = f'Failed to access configured nuthatch mirror "{key}" with error "{type(e).__name__}: {e}". If you couldn`t access the expected data, this could be the reason.'
             else:
-                cache = Cache(cache_config, cache_key, namespace, version, cache_arg_values,
-                              location, requested_backend, backend_kwargs, wrapped_module=wrapped_module)
+                if 'filesystem' in cache_config:
+                    cache = Cache(cache_config, cache_key, namespace, version, cache_arg_values,
+                                  location, requested_backend, backend_kwargs, wrapped_module=wrapped_module)
 
-                caches[location] = cache
-                found_cache=True
+                    caches[location] = cache
+                    found_cache=True
 
     if not found_cache:
         raise RuntimeError("""No Nuthach configuration has been found globally, in the current project, or in the module you have called.
@@ -304,7 +309,7 @@ def instantiate_read_caches(cache_key, namespace, version, cache_arg_values, req
                                     -> If you are calling a project that uses nuthatch, it should just work! Please contact the project's maintainer
                            """)
 
-    return caches
+    return (caches, mirror_exception)
 
 
 def cache(cache=True,
@@ -416,7 +421,7 @@ def cache(cache=True,
             ds = None
             compute_result = True
 
-            read_caches = instantiate_read_caches(cache_key, namespace, version, cache_arg_values, backend, backend_kwargs, inspect.getmodule(func))
+            read_caches, mirror_exception = instantiate_read_caches(cache_key, namespace, version, cache_arg_values, backend, backend_kwargs, inspect.getmodule(func))
 
             # Try to sync local/remote only once on read. All syncing is done lazily
             if cache_local:
@@ -438,6 +443,7 @@ def cache(cache=True,
 
             # Try to read from the cache in priority locations
             used_read_backend = None
+            found = False
             if not recompute and not upsert and cache and not ds:
                 for location, read_cache in read_caches.items():
                     # If the metadata is null this backend isn't configured - continue
@@ -450,6 +456,7 @@ def cache(cache=True,
                         if retry_null_cache:
                             logger.info("Retry null cache set. Recomputing.")
                             read_cache.delete_null()
+                            found = True
                             break
                         else:
                             return None
@@ -469,7 +476,11 @@ def cache(cache=True,
                                 save_to_memory(memoizer_cache_key, ds, wrapped_module=inspect.getmodule(func))
 
                             compute_result = False
+                            found = True
                             break
+
+                if not found and mirror_exception:
+                    logger.warning(mirror_exception)
 
             # If the cache doesn't exist or we are recomputing, compute the result
             if compute_result:
@@ -513,7 +524,7 @@ def cache(cache=True,
                 # Instantiate write backend
                 write_cache = None
                 write_cache_config = get_config(location='root', requested_parameters=Cache.config_parameters, wrapped_module=inspect.getmodule(func))
-                if write_cache_config:
+                if write_cache_config and 'filesystem' in write_cache_config:
                     if not storage_backend and not backend:
                         storage_backend = get_default_backend(type(ds))
                         if not storage_backend_kwargs:
