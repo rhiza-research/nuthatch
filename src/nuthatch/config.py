@@ -296,7 +296,7 @@ class NuthatchConfig:
 
                 external_name = 'external'
                 if hasattr(wrapped_module, '__name__'):
-                    external_name = wrapped_module.name.partition('.')[0]
+                    external_name = wrapped_module.__name__.partition('.')[0]
                 final_config['mirror-' + external_name + '-root'] = external_config['root']
                 for key, value in external_config.items():
                     if key == 'mirror':
