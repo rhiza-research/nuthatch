@@ -8,7 +8,7 @@ from functools import wraps
 from inspect import signature, Parameter
 from .cache import Cache
 from .backend import get_default_backend
-from .config import get_config
+from .config import NuthatchConfig
 from .memoizer import save_to_memory, recall_from_memory
 import logging
 
@@ -255,7 +255,7 @@ def get_cache_key(func, cache_arg_values):
     return func.__name__ + '/' + '_'.join(flat_values)
 
 
-def instantiate_read_caches(cache_key, namespace, version, cache_arg_values, requested_backend, backend_kwargs, wrapped_module):
+def instantiate_read_caches(config, cache_key, namespace, version, cache_arg_values, requested_backend, backend_kwargs):
     """Returns a priority ordered list of caches to read from.
 
     Args:
@@ -276,32 +276,25 @@ def instantiate_read_caches(cache_key, namespace, version, cache_arg_values, req
 
     # Start by trying to instantiate the metadata stores
     # then do our best to instantiate the backends themselves
-    resolution_list = ['local', 'root', 'mirror']
     caches = {}
     found_cache = False
 
     mirror_exception = None
-    for location in resolution_list:
+    for location, location_values in config.items():
         cache = None
-        cache_config = get_config(location=location, requested_parameters=Cache.config_parameters, wrapped_module=wrapped_module)
-        if cache_config:
-            if location == 'mirror':
-                for key, c_config in cache_config.items():
-                    try:
-                        cache = Cache(c_config, cache_key, namespace, version, cache_arg_values,
-                                      location, requested_backend, backend_kwargs, config_from=key, wrapped_module=wrapped_module)
+        if location.startswith('mirror'):
+            try:
+                cache = Cache(location_values, cache_key, namespace, version, cache_arg_values, requested_backend, backend_kwargs)
 
-                        caches[f"{key}"] = cache
-                        found_cache=True
-                    except Exception as e: # noqa
-                        mirror_exception = f'Failed to access configured nuthatch mirror "{key}" with error "{type(e).__name__}: {e}". If you couldn`t access the expected data, this could be the reason.'
-            else:
-                if 'filesystem' in cache_config:
-                    cache = Cache(cache_config, cache_key, namespace, version, cache_arg_values,
-                                  location, requested_backend, backend_kwargs, wrapped_module=wrapped_module)
-
-                    caches[location] = cache
-                    found_cache=True
+                caches[f"{location}"] = cache
+                found_cache=True
+            except Exception as e: # noqa
+                mirror_exception = f'Failed to access configured nuthatch mirror "{location}" with error "{type(e).__name__}: {e}". If you couldn`t access the expected data, this could be the reason.'
+        else:
+            if 'filesystem' in location_values:
+                cache = Cache(location_values, cache_key, namespace, version, cache_arg_values, requested_backend, backend_kwargs)
+                caches[location] = cache
+                found_cache=True
 
     if not found_cache:
         raise RuntimeError("""No Nuthach configuration has been found globally, in the current project, or in the module you have called.
@@ -421,7 +414,8 @@ def cache(cache=True,
             ds = None
             compute_result = True
 
-            read_caches, mirror_exception = instantiate_read_caches(cache_key, namespace, version, cache_arg_values, backend, backend_kwargs, inspect.getmodule(func))
+            config = NuthatchConfig(wrapped_module=inspect.getmodule(func))
+            read_caches, mirror_exception = instantiate_read_caches(config, cache_key, namespace, version, cache_arg_values, backend, backend_kwargs)
 
             # Try to sync local/remote only once on read. All syncing is done lazily
             if cache_local:
@@ -473,7 +467,7 @@ def cache(cache=True,
 
                             if memoize:
                                 logger.info(f"Memoizing {memoizer_cache_key}.")
-                                save_to_memory(memoizer_cache_key, ds, wrapped_module=inspect.getmodule(func))
+                                save_to_memory(memoizer_cache_key, ds, config['root'])
 
                             compute_result = False
                             found = True
@@ -496,7 +490,7 @@ def cache(cache=True,
                         raise RuntimeError(f"""Computation has been disabled by
                                             `fail_if_no_cache` and cache doesn't exist for {cache_key}.""")
 
-                    if not get_config(location='root', requested_parameters=Cache.config_parameters, wrapped_module=inspect.getmodule(func)):
+                    if 'root' not in config:
                         logger.info(f"Module {inspect.getmodule(func)}")
                         inp = input("""A pre-existing cache was not found, and no root cache has been configured.
                                         Would you still like to compute the result? (y/n)""")
@@ -516,14 +510,14 @@ def cache(cache=True,
 
                 if memoize:
                     logger.info(f"Memoizing {memoizer_cache_key}.")
-                    save_to_memory(memoizer_cache_key, ds, wrapped_module=inspect.getmodule(func))
+                    save_to_memory(memoizer_cache_key, ds, config['root'])
 
 
             # Store the result
             if cache and (compute_result or (storage_backend and storage_backend != used_read_backend)):
                 # Instantiate write backend
                 write_cache = None
-                write_cache_config = get_config(location='root', requested_parameters=Cache.config_parameters, wrapped_module=inspect.getmodule(func))
+                write_cache_config = config['root']
                 if write_cache_config and 'filesystem' in write_cache_config:
                     if not storage_backend and not backend:
                         storage_backend = get_default_backend(type(ds))
@@ -533,8 +527,11 @@ def cache(cache=True,
                         storage_backend = backend
                         storage_backend_kwargs = backend_kwargs
 
+                    logger.info(write_cache_config)
                     write_cache = Cache(write_cache_config, cache_key, namespace, version,
-                                        cache_arg_values, 'root', storage_backend, storage_backend_kwargs, wrapped_module=inspect.getmodule(func))
+                                        cache_arg_values, storage_backend, storage_backend_kwargs)
+                    if not write_cache.backend:
+                        raise RuntimeError(f"Failed to create a write cache for the requested backend {storage_backend}. Perhaps the backend is misconfigured?")
                 else:
                     raise ValueError("At least a root filesystem for metadata storage must be configured. No configuration found.")
 

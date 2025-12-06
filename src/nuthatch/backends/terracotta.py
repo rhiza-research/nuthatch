@@ -107,7 +107,6 @@ class TerracottaBackend(DatabaseBackend, FileBackend):
     """
 
     backend_name = 'terracotta'
-    config_parameters = DatabaseBackend.config_parameters + FileBackend.config_parameters + ['override_path']
 
     def __init__(self, cacheable_config, cache_key, namespace, args, backend_kwargs={}):
         # This calls both inits right?

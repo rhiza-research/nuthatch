@@ -3,7 +3,6 @@ import sys
 import copy
 import xarray as xr
 import dask.dataframe as dd
-from .config import get_config
 
 import logging
 logger = logging.getLogger(__name__)
@@ -18,7 +17,7 @@ remote_cache_key_lru = []
 def get_cache_usage(object_sizes):
     return sum(object_sizes.values())
 
-def save_to_memory(cache_key, data, wrapped_module=None):
+def save_to_memory(cache_key, data, config):
     """Save data to memory.
 
     Implements special handling for xarray and dask dataframes.
@@ -45,18 +44,16 @@ def save_to_memory(cache_key, data, wrapped_module=None):
         memoized_objects = remote_memoized_objects
         object_size = remote_object_size
         cache_key_lru = remote_cache_key_lru
-        max_size = get_config(location='root', requested_parameters=['remote_cache_size'], wrapped_module=wrapped_module)
-        if 'remote_cache_size' in max_size:
-            max_size = max_size['remote_cache_size']
+        if 'remote_cache_size' in config:
+            max_size = config['remote_cache_size']
         else:
             max_size = 32*(10**9)
     else:
         memoized_objects = local_memoized_objects
         object_size = local_object_size
         cache_key_lru = local_cache_key_lru
-        max_size = get_config(location='root', requested_parameters=['local_cache_size'], wrapped_module=wrapped_module)
-        if 'local_cache_size' in max_size:
-            max_size = max_size['local_cache_size']
+        if 'local_cache_size' in config:
+            max_size = config['local_cache_size']
         else:
             max_size = 2*(10**9)
 

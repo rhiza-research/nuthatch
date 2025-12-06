@@ -76,7 +76,6 @@ def get_default_backend(data_type):
         return 'basic'
 
 class NuthatchBackend(ABC):
-    config_parameters = []
 
     def __init__(self, cacheable_config, cache_key, namespace, args, backend_kwargs):
         """The abstract base class for all cacheable backends.
@@ -226,8 +225,6 @@ class NuthatchBackend(ABC):
 class FileBackend(NuthatchBackend):
     """Base class for all backends that rely on a filesystem."""
 
-    config_parameters = ["filesystem", "filesystem_options"]
-
     def __init__(self, cacheable_config, cache_key, namespace, args, backend_kwargs, extension=None):
         super().__init__(cacheable_config, cache_key, namespace, args, backend_kwargs)
 
@@ -271,10 +268,12 @@ class FileBackend(NuthatchBackend):
 class DatabaseBackend(NuthatchBackend):
     """Base class for all backends that rely on a database."""
 
-    config_parameters = ["driver", "host", "port", "database", "username", "password", "write_username", "write_password"]
-
     def __init__(self, cacheable_config, cache_key, namespace, args, backend_kwargs):
         super().__init__(cacheable_config, cache_key, namespace, args, backend_kwargs)
+
+        logger.debug(self.config)
+        if not all(prop in self.config for prop in ['driver', 'username', 'password', 'host', 'port', 'database']):
+            raise RuntimeError("Missing configuration value required for database backend.")
 
         database_url = sqlalchemy.URL.create(self.config['driver'],
                                 username = self.config['username'],

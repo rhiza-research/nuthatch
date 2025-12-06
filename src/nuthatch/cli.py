@@ -10,10 +10,12 @@ import importlib
 import click
 import fsspec
 import shutil
-from .config import get_config
+from nuthatch.config import NuthatchConfig
 from .backend import get_backend_by_name, registered_backends
-from .cache import Cache
+from nuthatch.cache import Cache
 import pandas as pd
+from pathlib import Path
+import tomllib
 import os
 
 def strip_base(path, base_path):
@@ -78,6 +80,7 @@ def get_cache_key(path, base_path, namespace, extension):
         return path
 
 
+root_module = None
 
 @click.group()
 @click.version_option(version="0.1.0", prog_name="nuthatch")
@@ -88,12 +91,23 @@ def cli():
     and configuring the nuthatch system.
     """
 
-    config = get_config(location='root', requested_parameters=['dynamic_config_path'], backend_name=None)
-    if 'dynamic_config_path' in config:
+    config = NuthatchConfig(wrapped_module=None)
+    global root_module
+    if 'dynamic_config_path' in config['root']:
         try:
-            importlib.import_module(config['dynamic_config_path'])
+            importlib.import_module(config['root']['dynamic_config_path'])
+            root_module = config['root']['dynamic_config_path'].partition('.')[0]
         except Exception as e:
-            click.echo(f"WARNGIN: Failed to import {config['dynamic_config_path']} with '{e}'. You may be missing dynamic secret resolution.")
+            click.echo(f"WARNGIN: Failed to import {config['root']['dynamic_config_path']} with '{e}'. You may be missing dynamic secret resolution.")
+
+    if not root_module:
+        config_file = config._find_nuthatch_config(Path.cwd())
+        if config_file:
+            with open(config_file, "rb") as f:
+                config = tomllib.load(f)
+                if 'project' in config and 'name' in config['project']:
+                    root_module = config['project']['name']
+
 
 
 
@@ -107,19 +121,20 @@ def import_data(cache_key, namespace, version, backend, location):
     """Import data from a glob pattern."""
 
     # First instantiate the backend based on the passed backend
+    global root_module
     if backend != 'null':
         backend_name = backend
         backend_class = get_backend_by_name(backend)
-        config = get_config(location=location, requested_parameters=backend_class.config_parameters, backend_name=backend_class.backend_name)
-        backend = backend_class(config, cache_key, namespace, None, {})
+        config = NuthatchConfig(wrapped_module=root_module)
+        backend = backend_class(config[location][backend], cache_key, namespace, None, {})
         base_path = backend.base_path
         extension = backend.extension
         fs = backend.fs
         path = backend.path
     else:
-        config = get_config(location=location, requested_parameters=Cache.config_parameters)
+        config = NuthatchConfig(wrapped_module=root_module)
         backend_name = 'null'
-        base_path = config['filesystem']
+        base_path = config[location]['filesystem']
         extension = 'null'
 
         if 'filesystem_options' not in config:
@@ -147,8 +162,8 @@ def import_data(cache_key, namespace, version, backend, location):
         print(f"Importing {key}.")
 
         if backend_name == 'null':
-            config = get_config(location=location, requested_parameters=Cache.config_parameters)
-            cache = Cache(config, key, namespace, None, version, location, None, {})
+            config = NuthatchConfig(wrapped_module=root_module)
+            cache = Cache(config[location], key, namespace, None, version, None, {})
             if cache.is_null():
                 print(f"{key} already in cache as null!")
             elif cache.exists():
@@ -157,8 +172,8 @@ def import_data(cache_key, namespace, version, backend, location):
                 cache.set_null()
                 print(f"Set {key} successfully to null.")
         else:
-            config = get_config(location=location, requested_parameters=Cache.config_parameters)
-            cache = Cache(config, key, namespace, None, version, location, backend_name, {})
+            config = NuthatchConfig(wrapped_module=root_module)
+            cache = Cache(config[location], key, namespace, None, version, backend_name, {})
             if not cache.exists():
                 cache._commit_metadata()
                 print(f"Imported {key} successfully.")
@@ -167,8 +182,9 @@ def import_data(cache_key, namespace, version, backend, location):
 
 def list_helper(cache_key, namespace, backend, location, verbose=False):
     """List all cache entries."""
-    config = get_config(location=location, requested_parameters=Cache.config_parameters)
-    cache = Cache(config, None, namespace, None, None, location, backend, {})
+    global root_module
+    config = NuthatchConfig(wrapped_module=root_module)
+    cache = Cache(config[location], None, namespace, None, None, backend, {})
 
     nulls = pd.DataFrame(cache.metastore.list_nulls(cache_key, namespace), columns=['cache_key'])
     if not namespace:
@@ -226,7 +242,9 @@ def list_caches(cache_key, namespace, backend, location, verbose):
 def delete_cache(cache_key, namespace, backend, location, force, metadata_only):
     """Clear cache entries."""
     caches = list_helper(cache_key, namespace, backend, location)
-    config = get_config(location=location, requested_parameters=Cache.config_parameters)
+    global root_module
+    config = NuthatchConfig(wrapped_module=root_module)
+    cache = Cache(config[location], None, namespace, None, None, backend, {})
 
     if len(caches) == 0:
         print("No caches found to delete.")
@@ -236,9 +254,9 @@ def delete_cache(cache_key, namespace, backend, location, force, metadata_only):
 
     for cache in caches.to_dict(orient='records'):
         if cache['backend'] == 'null':
-            cache = Cache(config, cache['cache_key'], namespace, None, None, location, None, {})
+            cache = Cache(config, cache['cache_key'], namespace, None, None, None, {})
         else:
-            cache = Cache(config, cache['cache_key'], namespace, None, None, location, cache['backend'], {})
+            cache = Cache(config, cache['cache_key'], namespace, None, None, cache['backend'], {})
         click.echo(f"Deleting {cache.cache_key} from {cache.location} with backend {cache.backend_name}.")
         if metadata_only:
             cache._delete_metadata()
@@ -252,23 +270,33 @@ def delete_cache(cache_key, namespace, backend, location, force, metadata_only):
 @click.option('--show-secrets', '-s', is_flag=True, help='Only delete the metadata for the cache, not the underlying data.')
 def get_config_value(location, backend, show_secrets):
     """Get configuration value for a specific key."""
+    # Get the root module we are executing from from the dynamic secrets path or the project name
+    global root_module
+    mask = (not show_secrets)
+    config = NuthatchConfig(wrapped_module=root_module, mask_secrets=mask)
+
+    if location not in config:
+        click.echo(f"No configuration found for location {location}")
+        return
+
     if backend:
-        backend_classes = [get_backend_by_name(backend)]
-    else:
-        backend_classes = [Cache] + list(registered_backends.values())
+        if backend not in config[location]:
+            click.echo(f"No configuration found for location {location} and backend {backend}")
+            return
 
-    for backend_class in backend_classes:
-        if show_secrets:
-            config = get_config(location=location, requested_parameters=backend_class.config_parameters,
-                                backend_name=backend_class.backend_name, mask_secrets=False)
-        else:
-            config = get_config(location=location, requested_parameters=backend_class.config_parameters,
-                                backend_name=backend_class.backend_name, mask_secrets=True)
-
-        click.echo(backend_class.backend_name.title())
-        for key, value in config.items():
+        click.echo(backend + ':')
+        for key, value in config[location][backend].items():
             click.echo(f"\t{key}: {value}")
         click.echo()
+    else:
+        backend_classes = list(registered_backends.values())
+
+        for backend in backend_classes:
+            click.echo(backend.backend_name.title())
+            for key, value in config[location][backend.backend_name].items():
+                click.echo(f"\t{key}: {value}")
+            click.echo()
+
 
 def main():
     return cli()

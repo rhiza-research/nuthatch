@@ -9,7 +9,6 @@ import fsspec
 import polars as ps
 
 from .backend import get_backend_by_name
-from .config import get_config
 
 import logging
 logger = logging.getLogger(__name__)
@@ -79,7 +78,7 @@ class Metastore(ABC):
 
 class NuthatchMetastore(Metastore):
     """Nuthatch custom metastore."""
-    def __init__(self, config, backend_location):
+    def __init__(self, config):
         base_path = config['filesystem']
         table_path = os.path.expanduser(os.path.join(base_path, 'nuthatch_metadata.nut'))
         self.table_path = table_path
@@ -89,6 +88,7 @@ class NuthatchMetastore(Metastore):
 
         if 'filesystem_options' not in config:
             self.config['filesystem_options'] = {}
+
 
         # This instantiates an fsspec filesystem
         if fsspec.utils.get_protocol(self.table_path) == 'file':
@@ -206,7 +206,6 @@ class NuthatchMetastore(Metastore):
 
 
 
-
 class Cache():
     """The cache class interacts with the metastore and the backends to store the
     data itself and information about cache state. Currently delta and sql
@@ -217,24 +216,17 @@ class Cache():
     - Managing the metadata in the metadata database or delta table
     - Writing and reading data to the backend
     """
-    database_parameters = ["driver", "host", "port", "database", "username", "password"]
-    config_parameters = ['filesystem', 'filesystem_options', 'metadata_location'] + database_parameters
-    backend_name = "cache_metadata"
-
-    def __init__(self, config, cache_key, namespace, version, args, backend_location, requested_backend, backend_kwargs, config_from=None, wrapped_module=None):
+    def __init__(self, config, cache_key, namespace, version, args, requested_backend, backend_kwargs):
         self.cache_key = cache_key
         self.config = config
         self.namespace = namespace
         self.version = version
-        self.location = backend_location
         self.args = args
         self.backend_kwargs = backend_kwargs
-        self.config_from=config_from
-        self.wrapped_module=wrapped_module
 
         # Either instantiate a delta table or a postgres table
-        logger.debug(f"Using Nuthatch Metastore for {backend_location} at {config['filesystem']}")
-        self.metastore = NuthatchMetastore(config, backend_location)
+        logger.debug(f"Using Nuthatch Metastore at {config['filesystem']}")
+        self.metastore = NuthatchMetastore(config)
 
         self.backend = None
         self.backend_name = None
@@ -250,10 +242,11 @@ class Cache():
                 self.backend_name = stored_backend
 
         if backend_class and self.cache_key:
-            backend_config = get_config(location=backend_location, requested_parameters=backend_class.config_parameters,
-                                        backend_name=backend_class.backend_name, config_from=config_from, wrapped_module=self.wrapped_module)
-            if backend_config:
-                self.backend = backend_class(backend_config, cache_key, namespace, args, copy.deepcopy(backend_kwargs))
+            if backend_class.backend_name in config:
+                try:
+                    self.backend  = backend_class(self.config[backend_class.backend_name], cache_key, namespace, args, copy.deepcopy(backend_kwargs))
+                except RuntimeError:
+                    pass
 
     def is_null(self):
         """Check if the metadata is null.
@@ -461,10 +454,9 @@ class Cache():
             if from_cache.exists():
                 # We don't exist at all. Setup backend and write
                 backend_class = get_backend_by_name(from_cache.backend_name)
-                backend_config = get_config(location=self.location, requested_parameters=backend_class.config_parameters,
-                                            backend_name=backend_class.backend_name, config_from=self.config_from, wrapped_module=self.wrapped_module)
-                if backend_config:
-                    self.backend = backend_class(backend_config, self.cache_key, self.namespace, self.args, copy.deepcopy(self.backend_kwargs))
+                backend_name = backend_class.backend_name
+                if backend_name in self.config:
+                    self.backend = backend_class(self.config[backend_name], self.cache_key, self.namespace, self.args, copy.deepcopy(self.backend_kwargs))
                     self.backend_name = backend_class.backend_name
                 else:
                     raise RuntimeError("Error finding backend config for syncing.")

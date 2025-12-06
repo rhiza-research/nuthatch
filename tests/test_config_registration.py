@@ -1,10 +1,9 @@
-from nuthatch.config import get_config
+from nuthatch.config import NuthatchConfig
 from nuthatch import config_parameter
-from nuthatch.backends import SQLBackend
-import inspect
 
 def test_get_config():
-    get_config(location='root', requested_parameters = SQLBackend.config_parameters, backend_name=SQLBackend.backend_name)
+    config = NuthatchConfig(wrapped_module='tests')
+    assert config
 
 def test_config_reg():
 
@@ -12,8 +11,8 @@ def test_config_reg():
     def username():
         return 'test_username'
 
-    sql = get_config(location='root', requested_parameters = SQLBackend.config_parameters + ['username2'], backend_name=SQLBackend.backend_name, wrapped_module=inspect.getmodule(inspect.stack()[0].frame))
-    assert sql['username2'] == 'test_username'
+    config = NuthatchConfig(wrapped_module='tests')
+    assert config['root']['username2'] == 'test_username'
 
 def test_config_backend_reg():
 
@@ -25,9 +24,9 @@ def test_config_backend_reg():
     def password():
         return 'test_password'
 
-    sql = get_config(location='root', requested_parameters = SQLBackend.config_parameters + ['username2', 'password2'], backend_name=SQLBackend.backend_name, wrapped_module=inspect.getmodule(inspect.stack()[0].frame))
-    assert sql['username2'] == 'test_username'
-    assert sql['password2'] == 'test_password'
+    config = NuthatchConfig(wrapped_module='tests')
+    assert config['root']['sql']['username2'] == 'test_username'
+    assert config['root']['sql']['password2'] == 'test_password'
 
 
 if __name__ == '__main__':
