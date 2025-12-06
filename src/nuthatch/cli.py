@@ -263,6 +263,36 @@ def delete_cache(cache_key, namespace, backend, location, force, metadata_only):
         else:
             cache.delete()
 
+@cli.command('cp')
+@click.argument('cache_key')
+@click.option('--namespace', help='Namespace for the cache')
+@click.option('--from-location', help='Location to copy data to', default='root')
+@click.option('--to-location', help='Location to copy data to', default='mirror')
+def copy_cache(cache_key, namespace, from_location, to_location):
+    """Copy cache entries."""
+    caches = list_helper(cache_key, namespace, None, from_location)
+    from_config = get_config(location=from_location, requested_parameters=Cache.config_parameters)
+    to_config = get_config(location=to_location, requested_parameters=Cache.config_parameters)[to_location]
+    print(to_config)
+
+    if len(caches) == 0:
+        print("No caches found to copy.")
+        return
+
+    click.confirm(f"Are you sure you want to copy {len(caches)} cache entries?\n{str(caches[['cache_key', 'backend']])}\n", abort=True)
+
+    for cache in caches.to_dict(orient='records'):
+        if cache['backend'] == 'null':
+            from_cache = Cache(from_config, cache['cache_key'], namespace, None, None, from_location, None, {})
+            to_cache = Cache(to_config, cache['cache_key'], namespace, None, None, to_location, None, {})
+        else:
+            from_cache = Cache(from_config, cache['cache_key'], namespace, None, None, from_location, cache['backend'], {})
+            to_cache = Cache(to_config, cache['cache_key'], namespace, None, None, to_location, cache['backend'], {})
+
+        click.echo(f"Copy {cache.cache_key} from {from_location} to {to_location} with backend {from_cache.backend}.")
+        to_cache.sync(from_cache)
+
+
 
 @cli.command('print-config')
 @click.option('--location', help='Location to search', default='root')
