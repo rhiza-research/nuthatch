@@ -26,7 +26,12 @@ dependencies = [
     "click",
     "polars",
     "dateparser",
+<<<<<<< HEAD
     "tomli-w"
+=======
+    "s3fs",
+    "adlfs"
+>>>>>>> 3b13085 (try to integrate storage options)
 ]
 
 # TODO: Make backend submodules so that their
@@ -95,7 +100,8 @@ exclude_lines = [
 
 
 [tool.nuthatch]
-filesystem = "gs://sheerwater-datalake/caches"
+filesystem = "s3://sheerwater-public/caches"
+#filesystem = "gs://sheerwater-datalake/caches"
 host = "postgres.sheerwater.rhizaresearch.org"
 port = 5432
 database = "postgres"
@@ -104,9 +110,6 @@ driver = "postgresql"
 raster_store = "gs://terracotta-files"
 metadata_location = "filesystem"
 dynamic_config_path = "nuthatch.test_secrets"
-
-[tool.nuthatch.filesystem_options]
-cache_timeout=0
 
 [tool.nuthatch.local]
 filesystem = "~/.nuthatch/caches"
