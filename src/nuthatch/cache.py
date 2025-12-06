@@ -160,7 +160,7 @@ class NuthatchMetastore(Metastore):
         else:
             full_path = os.path.join(self.table_path, cache_key, backend) + '.' + self.extension
         df = ps.DataFrame(values)
-        df.write_parquet(full_path, mkdir=True)
+        df.write_parquet(self.fs.open(full_path, 'w'), mkdir=True)
 
     def delete_cache(self, cache_key, namespace, backend):
         if namespace:
@@ -209,7 +209,7 @@ class NuthatchMetastore(Metastore):
         if verbose:
             if '*' in full_path:
                 raise ValueError("Verbose list a full path with a specified backend")
-            df = ps.read_parquet(full_path)
+            df = ps.read_parquet(self.fs.open(full_path))
             return df
         else:
             return self.fs.glob(full_path)

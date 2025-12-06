@@ -186,16 +186,16 @@ class ZarrBackend(FileBackend):
 
                     # Reopen the dataset - will use the appropriate global or local cache
                     return xr.open_dataset(self.path, engine='zarr',
-                                           chunks={}, decode_timedelta=True)
+                                           chunks={}, decode_timedelta=True, storage_options=self.config['filesystem_options'])
                 else:
                     # Requested chunks already match rechunk.
                     return xr.open_dataset(self.path, engine='zarr',
-                                           chunks={}, decode_timedelta=True)
+                                           chunks={}, decode_timedelta=True, storage_options=self.config['filesystem_options'])
             else:
                 if engine == xr.DataArray:
-                    return xr.open_dataarray(self.path, engine='zarr', chunks={}, decode_timedelta=True)
+                    return xr.open_dataarray(self.path, engine='zarr', chunks={}, decode_timedelta=True, storage_options=self.config['filesystem_options'])
                 else:
-                    return xr.open_dataset(self.path, engine='zarr', chunks={}, decode_timedelta=True)
+                    return xr.open_dataset(self.path, engine='zarr', chunks={}, decode_timedelta=True, storage_options=self.config['filesystem_options'])
         else:
             raise NotImplementedError(f"Zarr backend does not support reading zarrs to {engine} engine")
 
@@ -220,6 +220,11 @@ class ZarrBackend(FileBackend):
         except ValueError:
             logger.warning("Failed to get chunks size! Continuing with unknown chunking...")
 
-        ds.to_zarr(store=path, mode='w')
+
+        # Need to delete the path before writing on some filesystems
+        if self.fs.exists(path):
+            self.fs.rm(path, recursive=True)
+
+        ds.to_zarr(store=path, mode='w', storage_options=self.config['filesystem_options'])
 
 
