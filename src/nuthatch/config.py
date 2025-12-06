@@ -319,8 +319,10 @@ def get_config(location='root', requested_parameters=[], backend_name=None, mask
                 mirror_configs['global'] = global_params
 
         # Get the caller's config to check if it's the same
-        caller_config_file = get_callers_pyproject(wrapped_module.__file__)
-        logger.debug(f"Callers pyrpoject path is: {caller_config_file}")
+        caller_config_file = None
+        if hasattr(wrapped_module, '__file__'):
+            caller_config_file = get_callers_pyproject(wrapped_module.__file__)
+            logger.debug(f"Callers pyrpoject path is: {caller_config_file}")
 
         # Now get any mirrors from the current project
         current_config_file = get_current_pyproject()
