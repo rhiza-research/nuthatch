@@ -3,18 +3,24 @@
 This module contains the main decorator for caching functions and the global
 variables for caching configuration.
 """
-import inspect
 from functools import wraps
+import inspect
 from inspect import signature, Parameter
-from .cache import Cache
-from .backend import get_default_backend
-from .config import NuthatchConfig
-from .memoizer import save_to_memory, recall_from_memory
 import logging
+import sys
+
+from nuthatch.cache import Cache
+from nuthatch.backend import get_default_backend
+from nuthatch.config import NuthatchConfig
+from nuthatch.memoizer import save_to_memory, recall_from_memory
 
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)
-logging.basicConfig(level=logging.INFO)
+stream_handler = logging.StreamHandler(sys.stdout)
+formatter = logging.Formatter('%(module)s %(levelname)s: %(message)s')
+stream_handler.setFormatter(formatter)
+stream_handler.setLevel(logging.INFO)
+logger.addHandler(stream_handler)
 
 # Global variables for caching configuration
 global_recompute = None
@@ -292,9 +298,12 @@ def instantiate_read_caches(config, cache_key, namespace, version, cache_arg_val
                 mirror_exception = f'Failed to access configured nuthatch mirror "{location}" with error "{type(e).__name__}: {e}". If you couldn`t access the expected data, this could be the reason.'
         else:
             if 'filesystem' in location_values:
-                cache = Cache(location_values, cache_key, namespace, version, cache_arg_values, requested_backend, backend_kwargs)
-                caches[location] = cache
-                found_cache=True
+                try:
+                    cache = Cache(location_values, cache_key, namespace, version, cache_arg_values, requested_backend, backend_kwargs)
+                    caches[location] = cache
+                    found_cache=True
+                except Exception as e:
+                    raise RuntimeError(f'Nuthatch is unable to access the configured root cache at {location_values["filesystem"]} with error "{type(e).__name__}: {e}." If you configure a root cache it must be accessible. Please ensure that you have correct access credentials for the configured root cache.')
 
     if not found_cache:
         raise RuntimeError("""No Nuthach configuration has been found globally, in the current project, or in the module you have called.
@@ -527,7 +536,6 @@ def cache(cache=True,
                         storage_backend = backend
                         storage_backend_kwargs = backend_kwargs
 
-                    logger.info(write_cache_config)
                     write_cache = Cache(write_cache_config, cache_key, namespace, version,
                                         cache_arg_values, storage_backend, storage_backend_kwargs)
                     if not write_cache.backend:
