@@ -97,8 +97,10 @@ class NuthatchMetastore(Metastore):
         else:
             self.fs = fsspec.core.url_to_fs(self.table_path, **self.config['filesystem_options'])[0]
 
+        logging.getLogger('gcsfs').setLevel(logging.CRITICAL + 1)
         if not self.fs.exists(self.exists):
             self.fs.touch(self.exists)
+        logging.getLogger('gcsfs').setLevel(logging.ERROR)
 
     def is_null(self, cache_key, namespace):
         if namespace:
@@ -133,7 +135,7 @@ class NuthatchMetastore(Metastore):
             full_path = os.path.join(self.table_path, cache_key, namespace, backend) + '.' + self.extension
         else:
             full_path = os.path.join(self.table_path, cache_key, backend) + '.' + self.extension
-        df = ps.read_parquet(full_path)
+        df = ps.read_parquet(self.fs.open(full_path, 'rb'))
         return df.to_dicts()[0]
 
     def get_backends(self, cache_key, namespace):
