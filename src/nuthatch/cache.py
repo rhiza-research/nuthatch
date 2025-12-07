@@ -97,10 +97,11 @@ class NuthatchMetastore(Metastore):
         else:
             self.fs = fsspec.core.url_to_fs(self.table_path, **self.config['filesystem_options'])[0]
 
-        logging.getLogger('gcsfs').setLevel(logging.CRITICAL + 1)
+        #pre_level = logger.getLogger('gcsfs').getEffectiveLevel()
+        #logging.getLogger('gcsfs').setLevel(logging.CRITICAL + 1)
         if not self.fs.exists(self.exists):
             self.fs.touch(self.exists)
-        logging.getLogger('gcsfs').setLevel(logging.ERROR)
+        #logging.getLogger('gcsfs').setLevel(pre_level)
 
     def is_null(self, cache_key, namespace):
         if namespace:
