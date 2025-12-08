@@ -552,7 +552,9 @@ def cache(cache=True,
                     if not write_cache.backend:
                         raise RuntimeError(f"Failed to create a write cache for the requested backend {storage_backend}. Perhaps the backend is misconfigured?")
                 else:
-                    raise ValueError("At least a root filesystem for metadata storage must be configured. No configuration found.")
+                    #raise ValueError("At least a root filesystem for metadata storage must be configured. No configuration found.")
+                    logger.warn("No root cache has been configured, so the computed object cannot be cached. Please configure a root cache if you would like to cache and retrieve the output of this function.")
+                    return ds
 
 
                 if ds is None:
