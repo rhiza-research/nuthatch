@@ -26,6 +26,7 @@ dependencies = [
     "click",
     "polars",
     "dateparser",
+    "tomli-w"
 ]
 
 # TODO: Make backend submodules so that their
@@ -105,7 +106,14 @@ metadata_location = "filesystem"
 dynamic_config_path = "nuthatch.test_secrets"
 
 [tool.nuthatch.filesystem_options]
-cache_timeout = 0
+cache_timeout=0
 
 [tool.nuthatch.local]
 filesystem = "~/.cache/nuthatch"
+
+[tool.nuthatch.mirror-public]
+filesystem = "gs://sheerwater-public-datalake/caches"
+
+[tool.nuthatch.mirror-public.filesystem_options]
+cache_timeout=0
+token = 'anon'

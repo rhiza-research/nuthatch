@@ -9,6 +9,7 @@ could leverage different filesystems if specified)
 from pathlib import Path
 import os
 import tomllib
+import tomli_w
 import inspect
 import copy
 
@@ -18,6 +19,26 @@ logger = logging.getLogger(__name__)
 
 
 dynamic_parameters = {}
+
+def set_global_skipped_filesystem(filesystem):
+    config_file = os.path.expanduser('~/.nuthatch.toml')
+
+    config_data = {}
+    if os.path.exists(config_file):
+        with open(config_file, 'rb') as f:
+            config_data = tomllib.load(f)
+
+    tool_data = config_data.setdefault('tool', {})
+    nuthatch_data = tool_data.setdefault('nuthatch', {})
+    skip_list = nuthatch_data.setdefault('skipped_filesystems', [])
+    if filesystem in skip_list:
+        return
+    else:
+        skip_list.append(filesystem)
+
+    with open(config_file, "wb") as f:
+        tomli_w.dump(config_data, f)
+
 
 def set_parameter(parameter_value, parameter_name=None, location='root', backend=None):
     """A decorator to register a function as a dynamic parameter.
@@ -246,7 +267,7 @@ class NuthatchConfig:
         final_config = {}
 
         # These configurations come from out current environment - they are always safe
-        global_config = self._get_config_file(os.path.expanduser('~/nuthatch.toml'))
+        global_config = self._get_config_file(os.path.expanduser('~/.nuthatch.toml'))
         current_config = self._get_config_file(Path.cwd())
         environ_config = self._get_environ_config()
 

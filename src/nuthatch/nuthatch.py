@@ -12,6 +12,7 @@ import sys
 from nuthatch.cache import Cache
 from nuthatch.backend import get_default_backend
 from nuthatch.config import NuthatchConfig
+from nuthatch.config import set_global_skipped_filesystem
 from nuthatch.memoizer import save_to_memory, recall_from_memory
 
 logger = logging.getLogger(__name__)
@@ -27,7 +28,7 @@ global_recompute = None
 global_memoize = None
 global_force_overwrite = None
 global_retry_null_cache = None
-
+global_fs_warning = []
 
 def set_global_cache_variables(recompute=None, memoize=None, force_overwrite=None,
                                retry_null_cache=None):
@@ -286,16 +287,26 @@ def instantiate_read_caches(config, cache_key, namespace, version, cache_arg_val
     found_cache = False
 
     mirror_exception = None
+    global global_fs_warning
     for location, location_values in config.items():
         cache = None
         if location.startswith('mirror'):
-            try:
-                cache = Cache(location_values, cache_key, namespace, version, cache_arg_values, requested_backend, backend_kwargs)
+            if 'filesystem' in location_values:
+                if 'skipped_filesystems' in config['root'] and location_values['filesystem'] in config['root']['skipped_filesystems']:
+                    if location_values['filesystem'] not in global_fs_warning:
+                        logger.warn(f"Skipping filesystem {location_values['filesystem']} because it has been added to the excluded filesystems list in ~/.nuthatch.toml. Please remove it if you now have access.")
+                        global_fs_warning.append(location_values['filesystem'])
+                    continue
 
-                caches[f"{location}"] = cache
-                found_cache=True
-            except Exception as e: # noqa
-                mirror_exception = f'Failed to access configured nuthatch mirror "{location}" with error "{type(e).__name__}: {e}". If you couldn`t access the expected data, this could be the reason.'
+                try:
+                    cache = Cache(location_values, cache_key, namespace, version, cache_arg_values, requested_backend, backend_kwargs)
+                    caches[f"{location}"] = cache
+                    found_cache=True
+                except Exception as e: # noqa
+                    logger.warn(f"Failed to access the cache at {location_values['filesystem']}. Adding it to the excluded filesystems list at ~/.nuthatch.toml so future runs are faster. Please remove it if you gain access in the future.")
+                    set_global_skipped_filesystem(location_values['filesystem'])
+                    global_fs_warning.append(location_values['filesystem'])
+                    mirror_exception = f'Failed to access configured nuthatch mirror "{location}" with error "{type(e).__name__}: {e}". If you couldn`t access the expected data, this could be the reason.'
         else:
             if 'filesystem' in location_values:
                 try:
@@ -306,7 +317,7 @@ def instantiate_read_caches(config, cache_key, namespace, version, cache_arg_val
                     raise RuntimeError(f'Nuthatch is unable to access the configured root cache at {location_values["filesystem"]} with error "{type(e).__name__}: {e}." If you configure a root cache it must be accessible. Please ensure that you have correct access credentials for the configured root cache.')
 
     if not found_cache:
-        raise RuntimeError("""No Nuthach configuration has been found globally, in the current project, or in the module you have called.
+        raise RuntimeError("""No Nuthatch configuration has been found globally, in the current project, or in the module you have called.
                                     -> If you are developing a Nuthatch project, please configure nuthatch in your pyproject.toml
                                     -> If you are calling a project that uses nuthatch, it should just work! Please contact the project's maintainer
                            """)

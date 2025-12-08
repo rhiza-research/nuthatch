@@ -8,7 +8,7 @@ import git
 import fsspec
 import polars as ps
 
-from .backend import get_backend_by_name
+from nuthatch.backend import get_backend_by_name
 
 import logging
 logger = logging.getLogger(__name__)
@@ -89,7 +89,6 @@ class NuthatchMetastore(Metastore):
         if 'filesystem_options' not in config:
             self.config['filesystem_options'] = {}
 
-
         # This instantiates an fsspec filesystem
         if fsspec.utils.get_protocol(self.table_path) == 'file':
             # If the protocol is a local filesystem, we need to create the directory if it doesn't exist
@@ -97,11 +96,19 @@ class NuthatchMetastore(Metastore):
         else:
             self.fs = fsspec.core.url_to_fs(self.table_path, **self.config['filesystem_options'])[0]
 
-        #pre_level = logger.getLogger('gcsfs').getEffectiveLevel()
-        #logging.getLogger('gcsfs').setLevel(logging.CRITICAL + 1)
+        # This often fails, and that's fine so briefly suppress user errors
+        module = getattr(getattr(self.fs, '__class__', None), '__module__', None)
+        if module:
+            module = module.partition('.')[0]
+            pre_level = logging.getLogger(module).getEffectiveLevel()
+            logging.getLogger(module).setLevel(logging.CRITICAL + 1)
+
         if not self.fs.exists(self.exists):
             self.fs.touch(self.exists)
-        #logging.getLogger('gcsfs').setLevel(pre_level)
+
+        # Reset to the original level
+        if module:
+            logging.getLogger(module).setLevel(pre_level)
 
     def is_null(self, cache_key, namespace):
         if namespace:
