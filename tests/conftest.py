@@ -74,7 +74,7 @@ def localstack_container(request):
     if not CLOUD_DEPS_AVAILABLE or request.config.getoption("--no-cloud"):
         pytest.skip("Cloud testing disabled")
 
-    container = LocalStackContainer(image="localstack/localstack:3.0")
+    container = LocalStackContainer(image="localstack/localstack:latest")
     container.with_services("s3")
     container.start()
 
@@ -121,17 +121,22 @@ def gcs_container(request):
     if not CLOUD_DEPS_AVAILABLE or request.config.getoption("--no-cloud"):
         pytest.skip("Cloud testing disabled")
 
+    # Use a fixed external port so fake-gcs-server can generate correct URLs
+    import socket
+    # Find an available port
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+        s.bind(('', 0))
+        external_port = s.getsockname()[1]
+
     container = DockerContainer("fsouza/fake-gcs-server:latest")
-    container.with_exposed_ports(4443)
-    container.with_command("-scheme http -public-host localhost")
+    container.with_bind_ports(4443, external_port)
+    container.with_command(f"-scheme http -external-url http://localhost:{external_port}")
     container.start()
 
     # Wait for server to be ready
     import time
     import requests
-    host = container.get_container_host_ip()
-    port = container.get_exposed_port(4443)
-    endpoint = f"http://{host}:{port}"
+    endpoint = f"http://localhost:{external_port}"
 
     for _ in range(30):
         try:
@@ -139,6 +144,9 @@ def gcs_container(request):
             break
         except Exception:
             time.sleep(1)
+
+    # Store the endpoint for later use
+    container._external_endpoint = endpoint
 
     yield container
 
@@ -148,10 +156,8 @@ def gcs_container(request):
 @pytest.fixture(scope="session")
 def gcs_credentials(gcs_container):
     """Get GCS credentials for fake-gcs-server."""
-    host = gcs_container.get_container_host_ip()
-    port = gcs_container.get_exposed_port(4443)
     return {
-        "endpoint_url": f"http://{host}:{port}",
+        "endpoint_url": gcs_container._external_endpoint,
         "token": "anon",
     }
 
@@ -382,7 +388,9 @@ def cloud_provider(request, setup_cloud_containers, monkeypatch):
         config['root']['filesystem_options'] = {
             'key': s3_info["credentials"]["aws_access_key_id"],
             'secret': s3_info["credentials"]["aws_secret_access_key"],
-            'endpoint_url': s3_info["credentials"]["endpoint_url"],
+            'client_kwargs': {
+                'endpoint_url': s3_info["credentials"]["endpoint_url"],
+            },
         }
 
     elif provider == "gcs":

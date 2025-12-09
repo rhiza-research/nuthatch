@@ -89,12 +89,17 @@ class NuthatchMetastore(Metastore):
         if 'filesystem_options' not in config:
             self.config['filesystem_options'] = {}
 
+        # Get filesystem_options as a plain dict for external library consumption
+        fs_options = self.config['filesystem_options']
+        if hasattr(fs_options, 'copy'):
+            fs_options = fs_options.copy()
+
         # This instantiates an fsspec filesystem
         if fsspec.utils.get_protocol(self.table_path) == 'file':
             # If the protocol is a local filesystem, we need to create the directory if it doesn't exist
-            self.fs = fsspec.core.url_to_fs(self.table_path, auto_mkdir=True, **self.config['filesystem_options'])[0]
+            self.fs = fsspec.core.url_to_fs(self.table_path, auto_mkdir=True, **fs_options)[0]
         else:
-            self.fs = fsspec.core.url_to_fs(self.table_path, **self.config['filesystem_options'])[0]
+            self.fs = fsspec.core.url_to_fs(self.table_path, **fs_options)[0]
 
         # This often fails, and that's fine so briefly suppress user errors
         module = getattr(getattr(self.fs, '__class__', None), '__module__', None)

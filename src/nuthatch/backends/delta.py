@@ -112,7 +112,7 @@ class DeltaBackend(FileBackend):
             raise RuntimeError("Delta backend only supports dask and pandas engines.")
 
 
-        write_deltalake(self.path, write_data, mode='overwrite', schema_mode='overwrite', storage_options=self.config['filesystem_options'])
+        write_deltalake(self.path, write_data, mode='overwrite', schema_mode='overwrite', storage_options=self.config['filesystem_options'].copy())
         return data
 
 
@@ -122,10 +122,10 @@ class DeltaBackend(FileBackend):
 
     def read(self, engine=None):
         if engine == 'pandas' or engine == pd.DataFrame or engine is None:
-            return DeltaTable(self.path, storage_options=self.config['filesystem_options']).to_pandas()
+            return DeltaTable(self.path, storage_options=self.config['filesystem_options'].copy()).to_pandas()
         elif engine == 'dask' or engine == dd.DataFrame:
-            return dd.from_pandas(DeltaTable(self.path, storage_options=self.config['filesystem_options']).to_pandas())
-            #dd.from_polars(ps.read_delta(self.path, storage_options=self.config['filesystem_options'])
-            #return ddt.read_deltalake(self.path, storage_options=self.config['filesystem_options'])
+            return dd.from_pandas(DeltaTable(self.path, storage_options=self.config['filesystem_options'].copy()).to_pandas())
+            #dd.from_polars(ps.read_delta(self.path, storage_options=self.config['filesystem_options'].copy())
+            #return ddt.read_deltalake(self.path, storage_options=self.config['filesystem_options'].copy())
         else:
             raise RuntimeError("Delta backend only supports dask and pandas engines.")

@@ -260,7 +260,7 @@ class NuthatchConfig:
         self.mask_secrets = mask_secrets
         self.default_local = False
         self.wrapped_module = wrapped_module
-        if sub_config:
+        if sub_config is not None:
             self.config = sub_config
             return
 
@@ -411,6 +411,15 @@ class NuthatchConfig:
 
     def keys(self):
         return self.config.keys()
+
+    def get(self, key, default=None):
+        try:
+            return self[key]
+        except KeyError:
+            return default
+
+    def copy(self):
+        return self.config.copy()
 
     def __str__(self):
         return str(self.config)
