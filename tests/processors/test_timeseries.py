@@ -17,6 +17,17 @@ def simple_xarray_timeseries(start_time, end_time, name='test', species='coracii
     return ds
 
 @timeseries()
+@cache(cache_args=['name', 'species', 'stride'])
+def simple_kwargs_timeseries(start_time="2000-06-01", end_time="2000-07-01", name='test', species='coraciidae', stride='day'):
+    """Generate a simple timeseries dataset for testing."""
+    times = pd.date_range(start_time, end_time, freq='1d')
+    obs = np.random.randint(0, 10, size=(len(times),))
+    ds = xr.Dataset({'obs': ('time', obs)}, coords={'time': times})
+    ds.attrs['name'] = name
+    ds.attrs['species'] = species
+    return ds
+
+@timeseries()
 @cache(cache_args=['stride'])
 def simple_tabular_timeseries(start_time, end_time, stride='day'):
     """Generate a simple timeseries dataset for testing."""
@@ -139,3 +150,14 @@ def test_data_validation_as_arg():
         assert False
     except ValueError:
         assert True
+
+def test_kwargs():
+    simple_kwargs_timeseries(start_time="2000-01-01", end_time="2001-01-01", recompute=True, force_overwrite=True)
+    ds2 = simple_kwargs_timeseries()
+    ds3 = simple_kwargs_timeseries(start_time="2000-06-04", end_time="2000-06-28")
+
+    assert ds2['time'].max().values == pd.Timestamp("2000-07-01")
+    assert ds2['time'].min().values == pd.Timestamp("2000-06-01")
+    assert ds3['time'].max().values == pd.Timestamp("2000-06-28")
+    assert ds3['time'].min().values == pd.Timestamp("2000-06-04")
+

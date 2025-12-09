@@ -91,13 +91,22 @@ class timeseries(NuthatchProcessor):
             raise ValueError(
                 "Time series functions must have the parameters 'start_time' and 'end_time'")
         else:
-            keys = [item for item in params]
-            try:
-                self.start_time = args[keys.index('start_time')]
-                self.end_time = args[keys.index('end_time')]
-            except IndexError:
-                raise ValueError("'start_time' and 'end_time' must be passed as positional arguments, not "
-                                 "keyword arguments")
+            keys = list(params.keys())
+            if 'start_time' in kwargs:
+                self.start_time = kwargs['start_time']
+            else:
+                try:
+                    self.start_time = args[keys.index('start_time')]
+                except IndexError:
+                    self.start_time = params['start_time'].default
+
+            if 'end_time' in kwargs:
+                self.end_time = kwargs['end_time']
+            else:
+                try:
+                    self.end_time = args[keys.index('end_time')]
+                except IndexError:
+                    self.end_time = params['end_time'].default
 
         return args, kwargs
 
