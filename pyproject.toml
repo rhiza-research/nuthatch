@@ -26,12 +26,9 @@ dependencies = [
     "click",
     "polars",
     "dateparser",
-<<<<<<< HEAD
-    "tomli-w"
-=======
+    "tomli-w",
     "s3fs",
     "adlfs"
->>>>>>> 3b13085 (try to integrate storage options)
 ]
 
 # TODO: Make backend submodules so that their
