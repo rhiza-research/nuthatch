@@ -30,7 +30,7 @@ class ParquetBackend(FileBackend):
             self._write_parquet_helper(data, self.path, part)
             return data
         elif isinstance(data, pd.DataFrame):
-            data.to_parquet(self.path, partition_cols=part, engine='pyarrow', storage_options=self.config['filesystem_options'])
+            data.to_parquet(self.path, partition_cols=part, engine='pyarrow', storage_options=self.config['filesystem_options'].copy())
             return data
         else:
             raise RuntimeError("Parquet backend only supports dask and pandas engines.")
@@ -114,9 +114,9 @@ class ParquetBackend(FileBackend):
 
     def read(self, engine):
         if engine == 'dask' or engine == dd.DataFrame or engine is None:
-            return dd.read_parquet(self.path, engine='pyarrow', ignore_metadata_file=True, storage_options=self.config['filesystem_options'])
+            return dd.read_parquet(self.path, engine='pyarrow', ignore_metadata_file=True, storage_options=self.config['filesystem_options'].copy())
         elif engine == 'pandas' or engine == pd.DataFrame:
-            return pd.read_parquet(self.path, storage_options=self.config['filesystem_options'])
+            return pd.read_parquet(self.path, storage_options=self.config['filesystem_options'].copy())
         else:
             raise RuntimeError("Delta backend only supports dask and pandas engines.")
 
@@ -129,7 +129,7 @@ class ParquetBackend(FileBackend):
             engine="pyarrow",
             write_metadata_file=True,
             write_index=False,
-            storage_options=self.config['filesystem_options']
+            storage_options=self.config['filesystem_options'].copy()
         )
 
 
