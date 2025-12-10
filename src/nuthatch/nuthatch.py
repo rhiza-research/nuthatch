@@ -568,7 +568,7 @@ def cache(cache=True,
 
                     # First check if it's null
                     if read_cache.is_null():
-                        logger.info(f"Found null cache for {cache_key} in {location} cache.")
+                        logger.info(f"Found null cache for {read_cache.cache_key} in {location} cache.")
                         if not retry_null_cache:
                             # We've found a null cache and we're not retrying, return None
                             return None
@@ -581,7 +581,7 @@ def cache(cache=True,
 
                     # If it's not null, see if the cache file exists 
                     if read_cache.exists():
-                        logger.info(f"Found cache for {cache_key} with backend {read_cache.get_backend()} in {location} cache")
+                        logger.info(f"Found cache for {read_cache.cache_key} with backend {read_cache.get_backend()} in {location} cache")
 
                         # Record the backend and location that was used to read the dataset
                         used_read_backend = read_cache.get_backend()
@@ -696,22 +696,23 @@ def cache(cache=True,
                         logger.info("Null result not cached in upsert mode.")
                     return None
 
-                if (write_cache.exists() and force_overwrite is None and not upsert and not (location == 'local' and resync)):
-                    inp = input(f"""A cache already exists at {cache_key} for type {write_cache.get_backend()} in {location} cache.
-                                Are you sure you want to overwrite it? (y/n)""")
-                    if inp == 'y' or inp == 'Y':
-                        write = True
-                    else: 
+                if write_cache.exists() and not upsert and not (location == 'local' and resync):
+                    # If the cache exists and we would need to write to it / overwrite it
+                    if force_overwrite is None:
+                        # Ask the user 
+                        inp = input(f"""A cache already exists at {write_cache.cache_key} for type {write_cache.get_backend()} in {location} cache.
+                                    Are you sure you want to overwrite it? (y/n)""")
+                        write = True if inp == 'y' or inp == 'Y' else False
+                    elif force_overwrite is False:
+                        # Don't overwrite 
                         write = False
-                elif force_overwrite is False:
-                    write = False
                 else:
                     write = True
 
                 # If we have read value, return that rather 
                 return_value = write_ds
                 if write:
-                    logger.info(f"Caching result for {cache_key} in {write_cache.get_backend()} with namespace {namespace if namespace else 'default'} in {location} cache.")
+                    logger.info(f"Caching result for {write_cache.cache_key} in {write_cache.get_backend()} with namespace {namespace if namespace else 'default'} in {location} cache.")
                     if upsert:
                         return_value = write_cache.upsert(write_ds, upsert_keys=upsert_keys)
                     else:
