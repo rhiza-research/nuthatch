@@ -4,6 +4,31 @@ import xarray as xr
 import numpy as np
 import pandas as pd
 
+@timeseries()
+@timeseries()
+def simple_bare_timeseries(start_time, end_time, name='test', species='coraciidae', stride='day'):
+    """Generate a simple timeseries dataset for testing."""
+    times = pd.date_range(start_time, end_time, freq='1d')
+    obs = np.random.randint(0, 10, size=(len(times),))
+    ds = xr.Dataset({'obs': ('time', obs)}, coords={'time': times})
+    ds.attrs['name'] = name
+    ds.attrs['species'] = species
+    return ds
+
+
+@timeseries()
+@timeseries()
+@cache(cache_args=['name', 'species', 'stride'])
+def simple_chained_timeseries(start_time, end_time, name='test', species='coraciidae', stride='day'):
+    """Generate a simple timeseries dataset for testing."""
+    times = pd.date_range(start_time, end_time, freq='1d')
+    obs = np.random.randint(0, 10, size=(len(times),))
+    ds = xr.Dataset({'obs': ('time', obs)}, coords={'time': times})
+    ds.attrs['name'] = name
+    ds.attrs['species'] = species
+    return ds
+
+
 
 @timeseries()
 @cache(cache_args=['name', 'species', 'stride'])
@@ -172,4 +197,15 @@ def test_kwargs():
     assert ds2['time'].min().values == pd.Timestamp("2000-06-01")
     assert ds3['time'].max().values == pd.Timestamp("2000-06-28")
     assert ds3['time'].min().values == pd.Timestamp("2000-06-04")
+
+def test_chained():
+    ds = simple_chained_timeseries(start_time="2000-01-01", end_time="2001-01-01", recompute=True, force_overwrite=True)
+    ds2 = simple_chained_timeseries(start_time="2000-06-04", end_time="2000-06-28")
+    assert ds2['time'].max().values == pd.Timestamp("2000-06-28")
+    assert ds2['time'].min().values == pd.Timestamp("2000-06-04")
+
+def test_bare():
+    ds = simple_bare_timeseries(start_time="2000-01-01", end_time="2001-01-01")
+    assert ds['time'].max().values == pd.Timestamp("2001-01-01")
+    assert ds['time'].min().values == pd.Timestamp("2000-01-01")
 
