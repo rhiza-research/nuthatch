@@ -30,6 +30,20 @@ class timeseries(NuthatchProcessor):
         super().__init__(**kwargs)
         self.timeseries = timeseries
 
+    def process_arguments(self, sig, *args, **kwargs):
+        # Convert to a list if not
+        self.timeseries = self.timeseries if isinstance(self.timeseries, list) else [self.timeseries]
+
+        # Get default values for the function signature
+        bound_args = self.bind_signature(sig, *args, **kwargs)
+        try:
+            self.start_time = bound_args.arguments.get('start_time')
+            self.end_time = bound_args.arguments.get('end_time')
+        except:
+            raise ValueError(
+                "Time series functions must have the parameters 'start_time' and 'end_time'")
+        return args, kwargs
+
     def post_process(self, ds):
         start_time = self.start_time
         end_time = self.end_time
@@ -81,36 +95,6 @@ class timeseries(NuthatchProcessor):
 
         return ds
 
-    def process_arguments(self, params, args, kwargs):
-        # Validate time series params
-        self.start_time = None
-        self.end_time = None
-
-        # Convert to a list if not
-        self.timeseries = self.timeseries if isinstance(self.timeseries, list) else [self.timeseries]
-
-        if 'start_time' not in params or 'end_time' not in params:
-            raise ValueError(
-                "Time series functions must have the parameters 'start_time' and 'end_time'")
-        else:
-            keys = list(params.keys())
-            if 'start_time' in kwargs:
-                self.start_time = kwargs['start_time']
-            else:
-                try:
-                    self.start_time = args[keys.index('start_time')]
-                except IndexError:
-                    self.start_time = params['start_time'].default
-
-            if 'end_time' in kwargs:
-                self.end_time = kwargs['end_time']
-            else:
-                try:
-                    self.end_time = args[keys.index('end_time')]
-                except IndexError:
-                    self.end_time = params['end_time'].default
-
-        return args, kwargs
 
     def validate(self, ds):
         start_time = self.start_time
