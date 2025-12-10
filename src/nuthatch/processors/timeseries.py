@@ -5,6 +5,8 @@ import pandas as pd
 import dask.dataframe as dd
 import xarray as xr
 
+import logging
+logger = logging.getLogger(__name__)
 
 class timeseries(NuthatchProcessor):
     """

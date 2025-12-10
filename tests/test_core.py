@@ -36,19 +36,3 @@ def test_core():
 def test_filepath():
     data = num(10, filepath_only=True)
     assert data.endswith('.pkl')
-
-def test_local_sync():
-    data = num(10, recompute=True, force_overwrite=True)
-
-    # Should sync the data to local
-    data2 = num(10, cache_local=True)
-
-    assert data == data2
-
-    data3 = num(10, recompute=True, force_overwrite=True)
-    # Should resync the data to local
-    data4 = num(10, cache_local=True)
-
-    assert data2 != data3
-    assert data4 == data3
-

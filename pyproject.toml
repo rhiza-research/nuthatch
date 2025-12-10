@@ -109,7 +109,7 @@ dynamic_config_path = "nuthatch.test_secrets"
 cache_timeout=0
 
 [tool.nuthatch.local]
-filesystem = "~/.cache/nuthatch"
+filesystem = "~/.nuthatch/caches"
 
 [tool.nuthatch.mirror-public]
 filesystem = "gs://sheerwater-public-datalake/caches"

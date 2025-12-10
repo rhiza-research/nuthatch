@@ -151,6 +151,18 @@ def test_data_validation_as_arg():
     except ValueError:
         assert True
 
+def test_memoize_post():
+    simple_kwargs_timeseries(start_time="2000-01-01", end_time="2001-01-01", recompute=True, force_overwrite=True)
+
+    # Save into memory with smaller bounds
+    ds3 = simple_kwargs_timeseries(start_time="2000-06-04", end_time="2000-06-28", memoize=True)
+    ds4 = simple_kwargs_timeseries(start_time="2000-06-04", end_time="2000-06-28", memoize=True, cache=False)
+
+    assert ds3['time'].max().values == pd.Timestamp("2000-06-28")
+    assert ds3['time'].min().values == pd.Timestamp("2000-06-04")
+    assert ds3 == ds4
+
+
 def test_kwargs():
     simple_kwargs_timeseries(start_time="2000-01-01", end_time="2001-01-01", recompute=True, force_overwrite=True)
     ds2 = simple_kwargs_timeseries()

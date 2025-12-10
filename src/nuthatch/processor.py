@@ -29,10 +29,11 @@ class NuthatchProcessor(ABC):
 
         self.validate_data = kwargs.get('validate_data', False)
 
-    def __call__(self, func, ):
+    def __call__(self, func):
         """
         Call the wrapped function with the given arguments.
         """
+
 
         @functools.wraps(func)
         def wrapper(*args, **kwargs):
@@ -46,6 +47,22 @@ class NuthatchProcessor(ABC):
             # Allow process to process the arguments
             params = signature(func).parameters
             args, kwargs = self.process_arguments(params, args, kwargs)
+
+            # If it's cacheable, pass it down
+            # If it's a processor, pass it on for future use
+            if hasattr(func, '__nuthatch_cacheable__') or hasattr(func, '__nuthatch_processor__'):
+                if 'post_processors' not in kwargs:
+                    kwargs['post_processors'] = []
+
+                if not isinstance(kwargs['post_processors'], list):
+                    raise RuntimeError("Nuthatch post processors must be passed as lists")
+
+                kwargs['post_processors'].append(self.post_process)
+            else:
+                # If it's not a processor or cacheable don't pass it, because it will likely fail
+                # if we've been passed post_processor but shouldn't pass it on
+                if 'post_processors' in kwargs:
+                    del kwargs['post_processors']
 
             # Call the function
             data = func(*args, **kwargs)
@@ -75,6 +92,8 @@ class NuthatchProcessor(ABC):
             data = self.post_process(data)
 
             return data
+
+        setattr(wrapper, '__nuthatch_processor__', self)
         return wrapper
 
 
