@@ -274,59 +274,65 @@ def instantiate_read_caches(config, cache_key, namespace, version, cache_arg_val
         backend_kwargs (dict): The backend kwargs.
 
     Returns:
-        A priority ordered list of caches to read from.
+        caches (dict): A dictionary of caches to read from.
+        mirror_exception (str): An exception message if we have a mirror exception.
     """
     # The general order of priority to check validity is:
     # (1) local if local is requested and local config is provided
     # (2) the root cache
     # (3) any mirror caches
 
-    # Start by trying to instantiate the metadata stores
-    # then do our best to instantiate the backends themselves
+    # Start by trying to instantiate the metadata stores then do our best to instantiate the backends themselves
     caches = {}
     found_cache = False
 
     mirror_exception = None
     global global_fs_warning
     for location, location_values in config.items():
+        # If the cache is local, we don't need to instantiate it
         if location == 'local':
             continue
 
         cache = None
         if location.startswith('mirror'):
+            # First, try to set up a mirror (read-only) cache
             if 'filesystem' in location_values:
+                # Check if this filesystem is listed to be skipped in the cache configuration
                 if 'skipped_filesystems' in config['root'] and location_values['filesystem'] in config['root']['skipped_filesystems']:
                     if location_values['filesystem'] not in global_fs_warning:
-                        logger.warn(f"Skipping filesystem {location_values['filesystem']} because it has been added to the excluded filesystems list in ~/.nuthatch.toml. Please remove it if you now have access.")
+                        logger.warning(f"Skipping filesystem {location_values['filesystem']} because it has been added to the excluded filesystems list in ~/.nuthatch.toml. Please remove it if you now have access.")
                         global_fs_warning.append(location_values['filesystem'])
                     continue
 
                 try:
+                    # If this is not a skipped filesystem, try to instantiate the cache
                     cache = Cache(location_values, cache_key, namespace, version, cache_arg_values, requested_backend, backend_kwargs)
                     caches[f"{location}"] = cache
-                    found_cache=True
+                    found_cache = True
                 except Exception as e: # noqa
-                    logger.warn(f"Failed to access the cache at {location_values['filesystem']}. Adding it to the excluded filesystems list at ~/.nuthatch.toml so future runs are faster. Please remove it if you gain access in the future.")
+                    logger.warning(f"Failed to access the cache at {location_values['filesystem']}. Adding it to the excluded filesystems list at ~/.nuthatch.toml so future runs are faster. Please remove it if you gain access in the future.")
                     set_global_skipped_filesystem(location_values['filesystem'])
                     global_fs_warning.append(location_values['filesystem'])
                     mirror_exception = f'Failed to access configured nuthatch mirror "{location}" with error "{type(e).__name__}: {e}". If you couldn`t access the expected data, this could be the reason.'
         else:
             if 'filesystem' in location_values:
                 try:
+                    # Try to instantiate the read-write root cache
                     cache = Cache(location_values, cache_key, namespace, version, cache_arg_values, requested_backend, backend_kwargs)
                     caches[location] = cache
-                    found_cache=True
+                    found_cache = True
                 except Exception as e:
+                    # If we can't instantiate the root cache, raise an error
                     raise RuntimeError(f'Nuthatch is unable to access the configured root cache at {location_values["filesystem"]} with error "{type(e).__name__}: {e}." If you configure a root cache it must be accessible. Please ensure that you have correct access credentials for the configured root cache.')
 
     if not found_cache:
         raise RuntimeError("""No Nuthatch configuration has been found globally, in the current project, or in the module you have called.
                                     -> If you are developing a Nuthatch project, please configure nuthatch in your pyproject.toml
-                                    -> If you are calling a project that uses nuthatch, it should just work! Please contact the project's maintainer
+                                    -> If you are calling a project that uses nuthatch, it should just work! Please contact the project's maintainer.
                            """)
 
 
-    # Move root to beginning of list
+    # Move root to beginning of the ordered dictionary of caches to check
     if 'root' in caches:
         root = caches.pop('root')
         caches = {'root': root, **caches}
@@ -335,10 +341,12 @@ def instantiate_read_caches(config, cache_key, namespace, version, cache_arg_val
 
 
 def instantiate_local_read_cache(config, cache_key, namespace, version, cache_arg_values, requested_backend, backend_kwargs):
+    """Instantiate the local read/write cache."""
     return Cache(config['local'], cache_key, namespace, version, cache_arg_values, requested_backend, backend_kwargs)
 
 
 def get_storage_backend(ds, backend, backend_kwargs, storage_backend, storage_backend_kwargs):
+    """Get the appropriate storage backend a specific dataset, based on the default backend for the dataset type."""
     # get the appropriate storage backend
     if not storage_backend and not backend:
         storage_backend = get_default_backend(type(ds))
@@ -353,27 +361,31 @@ def get_storage_backend(ds, backend, backend_kwargs, storage_backend, storage_ba
 
 def instantiate_write_caches(config, cache_key, memoizer_cache_key, namespace, version, cache_arg_values,
                              storage_backend, storage_backend_kwargs, write_to_cache, write_to_local_cache):
+    """Instantiate the write caches."""
     write_caches = {}
     for location in ['local', 'root']:
         if location == 'root' and not write_to_cache:
+            # If we're not writing to the root cache, skip it
             continue
 
         if location == 'local' and not write_to_local_cache:
+            # If we're not writing to the local cache, skip it
             continue
 
         key = cache_key
         if location == 'local':
-            key = memoizer_cache_key
+            key = memoizer_cache_key # use the memoizer cache key for the local cache to capture the full set of arguments
 
         write_cache_config = config[location]
         if write_cache_config and 'filesystem' in write_cache_config:
+            # Instantiate the write cache
             write_caches[location] = Cache(write_cache_config, key, namespace, version,
                                          cache_arg_values, storage_backend, storage_backend_kwargs)
             if not write_caches[location].backend:
                 raise RuntimeError(f"Failed to create a write cache for the requested backend {storage_backend} at location {location}. Perhaps the backend is misconfigured?")
 
-    # Make sure that the local is the last iteration
     if 'local' in write_caches:
+        # Ensure that the local cache is the last in the ordered dictionary of write caches
         local_write_cache = write_caches.pop('local')
         write_caches = {**write_caches, 'local': local_write_cache}
 
@@ -443,17 +455,17 @@ def cache(cache=True,
         "fail_if_no_cache": False,
         "post_processors": [],
     }
-
-
-
     # By resetting nonlocals to locals here we can ensure that the default
-    # values of the variables for the decorate are set on every call
+    # values of the variables for the decorater are set on every call
     nonlocals = locals()
 
     def create_cacheable(func):
 
         @wraps(func)
         def cacheable_wrapper(*args, **passed_kwargs):
+            ###############################################################
+            # 1. Handle arguments that determine the cache configuration
+            ###############################################################
             final_cache_config = get_cache_args(passed_kwargs, default_cache_kwargs, nonlocals, func.__name__)
 
             # Set all the final cache config variables
@@ -479,42 +491,62 @@ def cache(cache=True,
             upsert_keys = nonlocals['upsert_keys']
             version = nonlocals['version']
 
+            ########################################################################################
+            # 2. Calculate the cache key from the function and passed arguments (and their values)
+            #######################################################################################
             # The function parameters and their values
             params = signature(func).parameters
             cache_arg_values = extract_cache_arg_values(cache_args, args, params, passed_kwargs)
             all_arg_values = extract_all_arg_values(args, params, passed_kwargs)
 
-            # Disable the cache if it's enabled and the function params/values match the disable statement
-            if cache:
-                cache = check_cache_disable_if(cache_disable_if, cache_arg_values)
-
             # Calculate our unique cache key from the params and values
             cache_key = get_cache_key(func, cache_arg_values)
             memoizer_cache_key = get_cache_key(func, all_arg_values)
 
-            # Setup the read caches
+            ########################################################################################
+            # 3. Determine cache behavior: where are we reading from, where are we writing to, etc.
+            #######################################################################################
+            # Disable the cache if it's enabled and the function params/values match the disable statement
+            if cache:
+                cache = check_cache_disable_if(cache_disable_if, cache_arg_values)
+
+            # Get the configuration information need for cache operations (e.g., cache locations, permissions, etc.)
             config = NuthatchConfig(wrapped_module=inspect.getmodule(func))
 
             if cache_local and config.defaultLocal():
-                logger.warn(f"Using default local cache location {config['local']['filesystem']}")
+                # If we're using the default local cache location, warn the user in case that's unexpected
+                logger.warning(f"Using default local cache location {config['local']['filesystem']}")
 
+            # Initialize the read caches dictionary
             read_caches = {}
-            mirror_exception = None
+
+            mirror_exception = None # a boolean to track if we have failed to access a mirror cache
             if cache:
+                # If the cache is enabled, we will need to read from the caches (and the mirrors, if configured.)
+                # if the memoizer and local cache fail to hit
                 caches, mirror_exception = instantiate_read_caches(config, cache_key, namespace, version, cache_arg_values, backend, backend_kwargs)
                 read_caches |= caches
 
             if cache_local and not resync:
+                # If the local cache is enabled but we're resyning, instantiate the local cache
                 local_cache = instantiate_local_read_cache(config, memoizer_cache_key, namespace, version, cache_arg_values, backend, backend_kwargs)
                 read_caches['local'] = local_cache
+
+                # Ensure that the local cache is the first in the ordered dictionary
                 local_cache = read_caches.pop('local')
                 read_caches = {'local': local_cache, **read_caches}
 
 
+            ########################################################################################
+            # 4. Read from the caches
+            #######################################################################################
+            # Initialize the dataset to None
             ds = None
+
+            #  Boolean determining if we need to compute the result by calling the function 
             compute_result = True
 
-            # Try the memoizer first
+            # If we can recall from memory, do so
             if not recompute and not upsert and memoize and not resync:
                 ds = recall_from_memory(memoizer_cache_key)
                 if ds:
@@ -522,11 +554,12 @@ def cache(cache=True,
                     compute_result = False
                     return ds
 
-            # Try to read from the read caches in the priority order already estabilished
+            # Try to read from the read caches in the priority order already estabilished (root, local, mirrors)
             found = False
-            used_read_backend = None
-            used_read_location = None
+            used_read_backend = None # the backend that was used to read the dataset
+            used_read_location = None # the location that was used to read the dataset
             if not recompute and not upsert and not ds:
+                # Try to reach from each of our caches in order
                 # If there are not read_caches, there should be nothing in this loop
                 for location, read_cache in read_caches.items():
                     # If the metadata is null this backend isn't configured - continue
@@ -536,18 +569,21 @@ def cache(cache=True,
                     # First check if it's null
                     if read_cache.is_null():
                         logger.info(f"Found null cache for {cache_key} in {location} cache.")
-                        if retry_null_cache:
+                        if not retry_null_cache:
+                            # We've found a null cache and we're not retrying, return None
+                            return None
+                        else:
                             logger.info("Retry null cache set. Recomputing.")
                             read_cache.delete_null()
+                            # We've found a null cache and we're retrying, continue to the next cache
                             found = True
                             break
-                        else:
-                            return None
 
-                    # If it's not null see if it exists
+                    # If it's not null, see if the cache file exists 
                     if read_cache.exists():
                         logger.info(f"Found cache for {cache_key} with backend {read_cache.get_backend()} in {location} cache")
 
+                        # Record the backend and location that was used to read the dataset
                         used_read_backend = read_cache.get_backend()
                         used_read_location = location
                         if filepath_only:
@@ -561,7 +597,9 @@ def cache(cache=True,
                 if not found and mirror_exception:
                     logger.warning(mirror_exception)
 
-            # If the cache doesn't exist or we are recomputing, compute the result
+            ########################################################################################
+            # 4. If we need to compute the result, do so by calling the function
+            #######################################################################################
             if compute_result:
                 if recompute:
                     logger.info(f"Recompute for {cache_key} requested. Not checking for cached result.")
@@ -572,56 +610,75 @@ def cache(cache=True,
                     pass
                 else:
                     if fail_if_no_cache:
+                        # If we're not allowed to compute the result, raise an error
                         raise RuntimeError(f"""Computation has been disabled by
                                             `fail_if_no_cache` and cache doesn't exist for {cache_key}.""")
 
+                    # If we've found a cache, but we don't have that cache configured, ask the user if they still want to compute the result
                     if (cache and 'root' not in config) or (cache_local and 'local' not in config):
-                        inp = input("""A pre-existing cache was not found, but your target cache has not been configured.
+                        inp = input("""A pre-existing cache was not found, and you do not have a cache configured to store the result.
+                                        You can fix this by adding a valid cache to your nuthatch configuration. 
                                         Would you still like to compute the result? (y/n)""")
                         if inp == 'y' or inp == 'Y':
                             pass
                         else:
-                            raise RuntimeError("Cache not configured to store cache output. Exiting.")
+                            raise RuntimeError("No cache configured to store the result. Exiting.")
+                    logger.info(f"Cache doesn't exist for {cache_key} in namespace {namespace if namespace else 'default'}. Running function")
 
-                    if namespace:
-                        logger.info(f"Cache doesn't exist for {cache_key} in namespace {namespace}. Running function")
-                    else:
-                        logger.info(f"Cache doesn't exist for {cache_key} in default namespace. Running function")
-
-                ##### IF NOT EXISTS ######
+                ##### COMPUTE THE RESULT BY CALLING THE UNDERLING FUNCTION ######
                 ds = func(*args, **passed_kwargs)
                 ##########################
 
-            # Save to memory if necessary
+            ########################################################################################
+            # 5. Save the computed result to memory and any other write caches
+            #######################################################################################
             if memoize:
-                logger.info(f"Memoizing {memoizer_cache_key}.")
+                logger.info(f"Memoizing {memoizer_cache_key} in your local memory for fast recall.")
+                # Apply any post-processors to the dataset, so the filtered data is saved to memory
                 filtered_ds = ds
                 for processor in post_processors:
                     filtered_ds = processor(filtered_ds)
+                # Save the filtered dataset to memory
                 save_to_memory(memoizer_cache_key, filtered_ds, config['root'])
 
 
+            # Get the appropriate storage backend for the dataset
             storage_backend, storage_backend_kwargs = get_storage_backend(ds, backend, backend_kwargs, storage_backend, storage_backend_kwargs)
 
-            # Write to cache if we request it and we either recomputed to the result or need to store it in a new backend
+            # Write to cache if:
+            # 1. Recomputing the result
+            # 2. Needing to store it in a new backend
+            # 3. Needing to store it in a new location
             write_to_cache = cache and (compute_result or (storage_backend != used_read_backend))
 
-            # Write to local cache if we request it and we either recomputed it OR we read it from the cache (so it must not exist in lcoal)
-            # or we need to store it in a new backend
-            write_to_local_cache = (cache_local and (compute_result or (used_read_location != 'local' and used_read_location is not None) or
-                                                                      (storage_backend != used_read_backend)))
+            # Write to local cache if:
+            # 1. We request it and 
+            #   we either recomputed it OR 
+            #   we read it from the cache (so it must not exist in local)
+            # 2. We need to store it in a new backend
+            write_to_local_cache = (
+                cache_local and (
+                    compute_result or
+                    (used_read_location != 'local' and used_read_location is not None) or
+                    (storage_backend != used_read_backend)
+                )
+            )
+            # Instantiate the write caches
+            write_caches = instantiate_write_caches(
+                config, cache_key, memoizer_cache_key, namespace, version, cache_arg_values, 
+                storage_backend, storage_backend_kwargs, write_to_cache, write_to_local_cache)
 
-            write_caches = instantiate_write_caches(config, cache_key, memoizer_cache_key, namespace, version, cache_arg_values, storage_backend, storage_backend_kwargs,
-                                                    write_to_cache, write_to_local_cache)
 
-
+            # If we have no write caches and we need to write to one, warn the user
             if len(write_caches) == 0 and (write_to_cache or write_to_local_cache):
-                logger.warn("No cache has been configured, so the computed object cannot be cached. Please configure a cache if you would like to cache and retrieve the output of this function.")
+                logger.warning("No cache has been configured, so the computed object cannot be cached. Please configure a cache if you would like to cache and retrieve the output of this function.")
                 return ds
 
 
+            # Ensure that the result is written to the proper write cache(s)
             return_value = ds
             for location, write_cache in write_caches.items():
+                # If we're writing to the local cache, apply any post-processors to the dataset
                 if location == 'local':
                     filtered_ds = ds
                     for processor in post_processors:
@@ -632,41 +689,40 @@ def cache(cache=True,
 
 
                 if write_ds is None:
+                    # If, before / after filtering, the final dataest is none, write the cache to null
                     if not upsert:
                         write_cache.set_null()
                     else:
                         logger.info("Null result not cached in upsert mode.")
-
                     return None
 
-                write = False  # boolean to determine if we should write to the cache
                 if (write_cache.exists() and force_overwrite is None and not upsert and not (location == 'local' and resync)):
                     inp = input(f"""A cache already exists at {cache_key} for type {write_cache.get_backend()} in {location} cache.
                                 Are you sure you want to overwrite it? (y/n)""")
                     if inp == 'y' or inp == 'Y':
                         write = True
+                    else: 
+                        write = False
                 elif force_overwrite is False:
-                    pass
+                    write = False
                 else:
                     write = True
 
+                # If we have read value, return that rather 
                 return_value = write_ds
                 if write:
-                    if namespace:
-                        logger.info(f"Caching result for {cache_key} in {write_cache.get_backend()} with namespace {namespace} in {location} cache.")
-                    else:
-                        logger.info(f"Caching result for {cache_key} in {write_cache.get_backend()} with default namespace in {location} cache.")
-
+                    logger.info(f"Caching result for {cache_key} in {write_cache.get_backend()} with namespace {namespace if namespace else 'default'} in {location} cache.")
                     if upsert:
                         return_value = write_cache.upsert(write_ds, upsert_keys=upsert_keys)
                     else:
                         return_value = write_cache.write(write_ds)
 
                 if filepath_only:
+                    # If we only need to return the filepath, return it
                     return_value = write_cache.get_uri()
-
             return return_value
 
+        # Set a custom attribute to mark this as a cacheable function
         setattr(cacheable_wrapper, '__nuthatch_cacheable__', True)
         return cacheable_wrapper
 
