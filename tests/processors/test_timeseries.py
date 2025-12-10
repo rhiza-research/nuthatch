@@ -199,7 +199,7 @@ def test_kwargs():
     assert ds3['time'].min().values == pd.Timestamp("2000-06-04")
 
 def test_chained():
-    ds = simple_chained_timeseries(start_time="2000-01-01", end_time="2001-01-01", recompute=True, force_overwrite=True)
+    simple_chained_timeseries(start_time="2000-01-01", end_time="2001-01-01", recompute=True, force_overwrite=True)
     ds2 = simple_chained_timeseries(start_time="2000-06-04", end_time="2000-06-28")
     assert ds2['time'].max().values == pd.Timestamp("2000-06-28")
     assert ds2['time'].min().values == pd.Timestamp("2000-06-04")

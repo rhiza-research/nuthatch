@@ -8,7 +8,6 @@ import inspect
 from inspect import signature, Parameter
 import logging
 import sys
-import os
 
 from nuthatch.cache import Cache
 from nuthatch.backend import get_default_backend
@@ -336,13 +335,6 @@ def instantiate_read_caches(config, cache_key, namespace, version, cache_arg_val
 
 
 def instantiate_local_read_cache(config, cache_key, namespace, version, cache_arg_values, requested_backend, backend_kwargs):
-    if 'local' not in config:
-        config['local'] = {}
-
-    if 'filesystem' not in config['local']:
-        config['local']['filesystem'] = os.path.expanduser('~/.nuthatch/caches')
-        logger.info("Local filesystem not configured. Using ~/.nuthatch/caches as a default cache location.")
-
     return Cache(config['local'], cache_key, namespace, version, cache_arg_values, requested_backend, backend_kwargs)
 
 
@@ -357,7 +349,6 @@ def get_storage_backend(ds, backend, backend_kwargs, storage_backend, storage_ba
         storage_backend_kwargs = backend_kwargs
 
     return storage_backend, storage_backend_kwargs
-
 
 
 def instantiate_write_caches(config, cache_key, memoizer_cache_key, namespace, version, cache_arg_values,
@@ -503,6 +494,10 @@ def cache(cache=True,
 
             # Setup the read caches
             config = NuthatchConfig(wrapped_module=inspect.getmodule(func))
+
+            if cache_local and config.defaultLocal():
+                logger.warn(f"Using default local cache location {config['local']['filesystem']}")
+
             read_caches = {}
             mirror_exception = None
             if cache:
@@ -525,6 +520,7 @@ def cache(cache=True,
                 if ds:
                     logger.info(f"Found cache for {memoizer_cache_key} in memory.")
                     compute_result = False
+                    return ds
 
             # Try to read from the read caches in the priority order already estabilished
             found = False
