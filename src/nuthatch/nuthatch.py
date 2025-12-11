@@ -37,17 +37,30 @@ def set_global_cache_variables(recompute=None, memoize=None, force_overwrite=Non
            global_retry_null_cache
 
     # Simple logic for global variables
-    global_force_overwrite = force_overwrite
     global_retry_null_cache = retry_null_cache
 
     # More complex logic for recompute
-    if recompute == True:  # noqa: E712
+    if recompute == True:  
         global_recompute = False
     elif isinstance(recompute, str) and recompute != '_all':
         # if a single function's name is passed, convert to a list
         global_recompute = [recompute]
     else:
         global_recompute = recompute  # if recompute is false, '_all' or a list
+
+    # More complex logic for force_overwrite
+    if force_overwrite == True:  
+        # Only force overwrite in the top-level function 
+        global_force_overwrite = False
+    elif force_overwrite is None:
+        # Set the rest of the functions to inherit the global force overwrite value and ask for user input
+        global_force_overwrite = None
+    elif isinstance(force_overwrite, str) and force_overwrite != '_all':
+        # if a single function's name is passed, convert to a list
+        global_force_overwrite = [force_overwrite]
+    else:
+        global_force_overwrite = force_overwrite  # if force_overwrite is false, '_all' or a list
+
 
     # More complex logic for memoize
     if memoize == True:  # noqa: E712
@@ -113,6 +126,8 @@ def get_cache_args(passed_kwargs, default_cache_kwargs, decorator_args, func_nam
                                    retry_null_cache=cache_args['retry_null_cache'])
         if isinstance(cache_args['recompute'], list) or isinstance(cache_args['recompute'], str) or cache_args['recompute'] == '_all':
             cache_args['recompute'] = True
+        if isinstance(cache_args['force_overwrite'], list) or isinstance(cache_args['force_overwrite'], str) or cache_args['force_overwrite'] == '_all':
+            cache_args['force_overwrite'] = True
         if isinstance(cache_args['memoize'], list) or isinstance(cache_args['memoize'], str) or cache_args['memoize'] == '_all':
             cache_args['memoize'] = True
     else:
@@ -120,13 +135,22 @@ def get_cache_args(passed_kwargs, default_cache_kwargs, decorator_args, func_nam
         global global_recompute, global_memoize, global_force_overwrite, global_retry_null_cache
 
         # Set all global variables
-        if global_force_overwrite is not None:
-            cache_args['force_overwrite'] = global_force_overwrite
         if global_retry_null_cache is not None:
             cache_args['retry_null_cache'] = global_retry_null_cache
         if global_recompute:
             if func_name in global_recompute or global_recompute == '_all':
                 cache_args['recompute'] = True
+
+        # Handle force overwrite
+        if global_force_overwrite: # not None
+            if func_name in global_force_overwrite or global_force_overwrite == '_all':
+                cache_args['force_overwrite'] = True
+            else:
+                cache_args['force_overwrite'] = False
+        else:
+            cache_args['force_overwrite'] = None
+
+        # Hanlde memoize
         if global_memoize:
             if func_name in global_memoize or global_memoize == '_all':
                 cache_args['memoize'] = True
@@ -706,6 +730,9 @@ def cache(cache=True,
                     elif force_overwrite is False:
                         # Don't overwrite 
                         write = False
+                    else:
+                        logger.info(f"Overwriting existing cache for {write_cache.cache_key} in {location} cache.")
+                        write = True
                 else:
                     write = True
 
