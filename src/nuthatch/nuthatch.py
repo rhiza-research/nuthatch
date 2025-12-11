@@ -28,16 +28,18 @@ global_recompute = None
 global_memoize = None
 global_force_overwrite = None
 global_retry_null_cache = None
+global_cache = None
 global_fs_warning = []
 
 def set_global_cache_variables(recompute=None, memoize=None, force_overwrite=None,
-                               retry_null_cache=None):
+                               retry_null_cache=None, cache=None):
     """Reset all global variables to defaults and set the new values."""
     global global_recompute, global_memoize, global_force_overwrite, \
-           global_retry_null_cache
+           global_retry_null_cache, global_cache
 
     # Simple logic for global variables
     global_retry_null_cache = retry_null_cache
+    global_cache = cache
 
     # More complex logic for recompute
     if recompute == True:  
@@ -123,7 +125,8 @@ def get_cache_args(passed_kwargs, default_cache_kwargs, decorator_args, func_nam
         # This is a top level cacheable function, reset global cache variables
         set_global_cache_variables(recompute=cache_args['recompute'], memoize=cache_args['memoize'],
                                    force_overwrite=cache_args['force_overwrite'],
-                                   retry_null_cache=cache_args['retry_null_cache'])
+                                   retry_null_cache=cache_args['retry_null_cache'],
+                                   cache=cache_args['cache'])
         if isinstance(cache_args['recompute'], list) or isinstance(cache_args['recompute'], str) or cache_args['recompute'] == '_all':
             cache_args['recompute'] = True
         if isinstance(cache_args['force_overwrite'], list) or isinstance(cache_args['force_overwrite'], str) or cache_args['force_overwrite'] == '_all':
@@ -132,11 +135,15 @@ def get_cache_args(passed_kwargs, default_cache_kwargs, decorator_args, func_nam
             cache_args['memoize'] = True
     else:
         # Inherit global cache variables
-        global global_recompute, global_memoize, global_force_overwrite, global_retry_null_cache
+        global global_recompute, global_memoize, global_force_overwrite, global_retry_null_cache, global_cache
 
         # Set all global variables
         if global_retry_null_cache is not None:
             cache_args['retry_null_cache'] = global_retry_null_cache
+
+        if global_cache is not None:
+            cache_args['cache'] = global_cache
+
         if global_recompute:
             if func_name in global_recompute or global_recompute == '_all':
                 cache_args['recompute'] = True
@@ -649,7 +656,7 @@ def cache(cache=True,
                             raise RuntimeError("No cache configured to store the result. Exiting.")
                     logger.info(f"Cache doesn't exist for {cache_key} in namespace {namespace if namespace else 'default'}. Running function")
 
-                ##### COMPUTE THE RESULT BY CALLING THE UNDERLING FUNCTION ######
+                ##### COMPUTE THE RESULT BY CALLING THE UNDERLYING FUNCTION ######
                 ds = func(*args, **passed_kwargs)
                 ##########################
 
