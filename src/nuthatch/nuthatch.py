@@ -586,7 +586,7 @@ def cache(cache=True,
             if strict_read:
                 fail_if_no_cache = True
 
-            if write_local and config.defaultLocal() and check_if_nested_fn():
+            if write_local and config.defaultLocal() and not check_if_nested_fn():
                 # If we're using the default local cache location, warn the user in case that's unexpected
                 # But only print this warning once, if we're in the top level function
                 logger.warning(f"Writing to default local cache location {config['local']['filesystem']}")
@@ -629,13 +629,13 @@ def cache(cache=True,
                     compute_result = False
                     return ds
 
-            # Try to read from the read caches in the priority order already estabilished (root, local, mirrors)
+            # Try to read from the read caches in the priority order already estabilished (local, root, mirrors)
             found = False
             used_read_backend = None  # the backend that was used to read the dataset
             used_read_location = None  # the location that was used to read the dataset
             # If we're not recomputing and not upserting and we didn't find the ds in memory, try to read from the caches
             if not recompute and not upsert and not ds:
-                # Try to reach from each of our caches in order
+                # Try to read from each of our caches in order
                 # If there are not read_caches, there should be nothing in this loop
                 for location, read_cache in read_caches.items():
                     # If the metadata is null this backend isn't configured - continue
@@ -688,7 +688,7 @@ def cache(cache=True,
                     if fail_if_no_cache:
                         raise RuntimeError(f"Computation has been disabled by strict read mode or `fail_if_no_cache` and cache doesn't exist for {cache_key}.")
 
-                    # If we've found a cache, but we don't have that cache configured, ask the user if they still want to compute the result
+                    # If we're about to do computation, but we don't have cache configured, ask the user if they still want to compute the result
                     if (write_root and 'root' not in config) or (write_local and 'local' not in config):
                         inp = input("""You are recomputing and a cache was not found to store the result. 
                                        You can fix this by adding a valid cache to your nuthatch configuration. 
@@ -733,11 +733,11 @@ def cache(cache=True,
             # 2. We need to store it in a new backend
             # Note that we do not include the cache here: all functions are cachable when writing locally
             write_to_local_cache = (write_local and
-                                    (compute_result or
-                                     (used_read_location != 'local' and used_read_location is not None) or
-                                        (storage_backend != used_read_backend)
-                                     )
-                                    )
+                (compute_result or
+                (used_read_location != 'local' and used_read_location is not None) or
+                (storage_backend != used_read_backend)
+                )
+            )
 
             # Instantiate the write caches
             write_caches = instantiate_write_caches(
