@@ -29,11 +29,11 @@ def dask_df(name='bob'):
 
 def multi_tab_test_pandas(backend):
     """Test the tabular function."""
-    data = pandas_df('josh', backend=backend, recompute=True, force_overwrite=True)
+    data = pandas_df('josh', backend=backend, recompute=True, cache_mode='overwrite')
     data2 = pandas_df('josh', backend=backend, engine='pandas')
     pd.testing.assert_frame_equal(data,data2)
 
-    data3 = pandas_df('josh', recompute=True, backend=backend, force_overwrite=True)
+    data3 = pandas_df('josh', recompute=True, backend=backend, cache_mode='overwrite')
     data4 = pandas_df('josh', backend=backend, engine='pandas')
     try:
         pd.testing.assert_frame_equal(data, data3)
@@ -46,11 +46,11 @@ def multi_tab_test_pandas(backend):
 
 def multi_tab_test_dask(backend):
     """Test the tabular function."""
-    data = dask_df('josh', backend=backend, recompute=True, force_overwrite=True)
+    data = dask_df('josh', backend=backend, recompute=True, cache_mode='overwrite')
     data2 = dask_df('josh', backend=backend, engine='dask')
     pd.testing.assert_frame_equal(data.compute(),data2.compute())
 
-    data3 = dask_df('josh', recompute=True, backend=backend, force_overwrite=True)
+    data3 = dask_df('josh', recompute=True, backend=backend, cache_mode='overwrite')
     data4 = dask_df('josh', backend=backend, engine='dask')
     try:
         pd.testing.assert_frame_equal(data.compute(), data3.compute())

@@ -258,6 +258,7 @@ class NuthatchConfig:
 
     def __init__(self, wrapped_module, mask_secrets=False, sub_config=None):
         self.mask_secrets = mask_secrets
+        self.default_local = False
         self.wrapped_module = wrapped_module
         if sub_config:
             self.config = sub_config
@@ -329,6 +330,11 @@ class NuthatchConfig:
             final_config |= global_config
             final_config |= current_config
             final_config |= environ_config
+
+        if 'local' not in final_config or 'fileysstem' not in final_config['local']:
+            local = final_config.setdefault('local', {})
+            local['filesystem'] = "~/.nuthatch/caches"
+            self.default_local = True
 
         self.config = self._expand_config(final_config)
         logger.debug("Config finished.")

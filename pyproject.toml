@@ -70,7 +70,7 @@ managed = true
 
 [tool.pytest.ini_options]
 log_cli = true
-log_cli_level = "DEBUG"
+log_cli_level = "INFO"
 log_cli_format = "%(asctime)s.%(msecs)03d %(levelname)s %(filename)s:%(lineno)s %(message)s"
 addopts = [
     "--strict-markers",
@@ -109,7 +109,7 @@ dynamic_config_path = "nuthatch.test_secrets"
 cache_timeout=0
 
 [tool.nuthatch.local]
-filesystem = "~/.cache/nuthatch"
+filesystem = "~/.nuthatch/caches"
 
 [tool.nuthatch.mirror-public]
 filesystem = "gs://sheerwater-public-datalake/caches"
@@ -117,3 +117,7 @@ filesystem = "gs://sheerwater-public-datalake/caches"
 [tool.nuthatch.mirror-public.filesystem_options]
 cache_timeout=0
 token = 'anon'
+
+[tool.autopep8]
+max_line_length = 100
+aggressive = 0

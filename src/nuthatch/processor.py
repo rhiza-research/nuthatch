@@ -23,18 +23,17 @@ class NuthatchProcessor(ABC):
         Initialize a processor.
 
         Args:
-            func: The function to wrap.
             validate_data: True to automatically validate data if supported
         """
 
         self.validate_data = kwargs.get('validate_data', False)
 
-    def __call__(self, func, ):
+    def __call__(self, func):
         """
         Call the wrapped function with the given arguments.
         """
-
         @functools.wraps(func)
+        # Get function signature to access default values
         def wrapper(*args, **kwargs):
             # Extract validate data if present
             if 'validate_data' in kwargs:
@@ -44,8 +43,26 @@ class NuthatchProcessor(ABC):
                 del kwargs['validate_data']
 
             # Allow process to process the arguments
-            params = signature(func).parameters
-            args, kwargs = self.process_arguments(params, args, kwargs)
+            # params = signature(func).parameters
+            sig = signature(func)
+            args, kwargs = self.process_arguments(sig, *args, **kwargs)
+
+            # If it's cacheable, pass it down
+            # If it's a processor, pass it on for future use
+            # TODO: Consider how this works with chaining and test it
+            if hasattr(func, '__nuthatch_cacheable__') or hasattr(func, '__nuthatch_processor__'):
+                if 'post_processors' not in kwargs:
+                    kwargs['post_processors'] = []
+
+                if not isinstance(kwargs['post_processors'], list):
+                    raise RuntimeError("Nuthatch post processors must be passed as lists")
+
+                kwargs['post_processors'].append(self.post_process)
+            else:
+                # If it's not a processor or cacheable don't pass it, because it will likely fail
+                # if we've been passed post_processor but shouldn't pass it on
+                if 'post_processors' in kwargs:
+                    del kwargs['post_processors']
 
             # Call the function
             data = func(*args, **kwargs)
@@ -75,8 +92,18 @@ class NuthatchProcessor(ABC):
             data = self.post_process(data)
 
             return data
+
+        setattr(wrapper, '__nuthatch_processor__', self)
         return wrapper
 
+    def bind_signature(self, sig, *args, **kwargs):
+        """Bind the function signature to the default values"""
+        sig_params = set(sig.parameters.keys())
+        filtered_kwargs = {k: v for k, v in kwargs.items() if k in sig_params}
+        # Bind arguments to get all parameter values including defaults
+        bound_args = sig.bind(*args, **filtered_kwargs)
+        bound_args.apply_defaults()
+        return bound_args
 
     @abstractmethod
     def post_process(self, data):
@@ -94,7 +121,7 @@ class NuthatchProcessor(ABC):
         """
         return data
 
-    def process_arguments(self, params, args, kwargs):
+    def process_arguments(self, sig, *args, **kwargs):
         """
         Process the arguments.
 
