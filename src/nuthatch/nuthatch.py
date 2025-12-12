@@ -41,7 +41,7 @@ def set_global_cache_variables(recompute=None, memoize=None, cache_mode=None, re
     global_cache_mode = cache_mode
 
     # More complex logic for recompute
-    if recompute:
+    if recompute == True: # noqa: E712, must check the boolean
         global_recompute = False
     elif isinstance(recompute, str) and recompute != '_all':
         # if a single function's name is passed, convert to a list
@@ -96,8 +96,7 @@ def get_cache_args(passed_kwargs, default_cache_kwargs, decorator_args, func_nam
     cache_args['cache'] = decorator_args['cache']
 
     if 'backend_kwargs' in cache_args and isinstance(cache_args['backend_kwargs'], dict):
-        cache_args['backend_kwargs'] = cache_args['backend_kwargs'].update(
-            decorator_args['backend_kwargs'])
+        cache_args['backend_kwargs'] = cache_args['backend_kwargs'].update(decorator_args['backend_kwargs'])
     elif 'backend_kwargs' in cache_args and cache_args['backend_kwargs'] is None:
         cache_args['backend_kwargs'] = decorator_args['backend_kwargs']
 
