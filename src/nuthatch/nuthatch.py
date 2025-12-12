@@ -339,7 +339,7 @@ def instantiate_local_read_cache(config, cache_key, namespace, version, cache_ar
     try:
         return Cache(config['local'], cache_key, namespace, version, cache_arg_values, requested_backend, backend_kwargs)
     except Exception as e:
-        raise RuntimeError(f'Nuthatch is unable to access the configured local cache at {config["locali]["filesystem"]} with error "{type(e).__name__}: {e}.')
+        raise RuntimeError(f'Nuthatch is unable to access the configured local cache at {config["local"]["filesystem"]} with error "{type(e).__name__}": {e}.')
 
 
 
