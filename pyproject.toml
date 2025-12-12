@@ -119,5 +119,5 @@ cache_timeout=0
 token = 'anon'
 
 [tool.autopep8]
-max_line_length = 100
+max_line_length = 120
 aggressive = 0
