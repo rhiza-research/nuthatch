@@ -112,13 +112,13 @@ def test_deep_cache():
     assert first == second
 
     # now verify the recomputing all the way back works
-    fourth = deep_cached_func3(recompute=["deep_cached_func", "deep_cached_func2"], force_overwrite=True)
+    fourth = deep_cached_func3(recompute=["deep_cached_func", "deep_cached_func2"], cache_mode='overwrite')
     assert first != fourth
 
     # now verify that just recompute the second one works
     init = deep_cached_func()
     second = fourth - init
-    final = deep_cached_func3(recompute="deep_cached_func2", force_overwrite=True)
+    final = deep_cached_func3(recompute="deep_cached_func2", cache_mode='overwrite')
     dsecond = final - init
     assert second != dsecond
     init2 = deep_cached_func()
@@ -126,17 +126,17 @@ def test_deep_cache():
 
     # verify that recompute="_all" recomputes nested functions.
     first = deep_cached_func3()
-    second = deep_cached_func3(recompute="_all", force_overwrite=True)
+    second = deep_cached_func3(recompute="_all", cache_mode='overwrite')
     assert first != second
 
     # verify that recompute=[f,g] recomputes both f and g.
     first = deep_cached_func3()
-    second = deep_cached_func3(recompute=["deep_cached_func3", "deep_cached_func2"], force_overwrite=True)
+    second = deep_cached_func3(recompute=["deep_cached_func3", "deep_cached_func2"], cache_mode='overwrite')
     assert first != second
 
     # verify that recompute=[f,g] doesn't recompute anything but f and g.
     first = deep_cached_func3()
-    second = deep_cached_func3(recompute=["deep_cached_func3", "deep_cached_func1"], force_overwrite=True)
+    second = deep_cached_func3(recompute=["deep_cached_func3", "deep_cached_func1"], cache_mode='overwrite')
     assert first == second
 
 def test_force_overwrite():

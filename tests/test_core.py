@@ -27,7 +27,7 @@ def test_core():
     data4 = ls('test')
     assert data3 == data4
 
-    data5 = num(10, recompute=True, force_overwrite=True)
+    data5 = num(10, recompute=True, cache_mode='overwrite')
     assert data5 != data
 
     data6 = num(11)

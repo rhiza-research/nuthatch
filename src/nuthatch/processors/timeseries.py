@@ -91,6 +91,7 @@ class timeseries(NuthatchProcessor):
                         end_time = end_time.tz_convert(time_col_tz)
                     ds = ds[ds[time_col] <= end_time]
         else:
+            import pdb; pdb.set_trace()
             raise RuntimeError(f"Cannot filter timeseries for data type {type(ds)}")
 
         return ds
