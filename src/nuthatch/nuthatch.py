@@ -318,8 +318,7 @@ def instantiate_read_caches(config, cache_key, namespace, version, cache_arg_val
                     found_cache = True
                 except Exception as e:
                     # If we can't instantiate the root cache, raise an error
-                    raise RuntimeError(
-                        f'Nuthatch is unable to access the configured root cache at {location_values["filesystem"]} with error "{type(e).__name__}: {e}." If you configure a root cache it must be accessible. Please ensure that you have correct access credentials for the configured root cache.')
+                    raise RuntimeError(f'Nuthatch is unable to access the configured root cache at {location_values["filesystem"]} with error "{type(e).__name__}: {e}." If you configure a root cache it must be accessible. Please ensure that you have correct access credentials for the configured root cache.')
 
     if not found_cache:
         raise RuntimeError("""No Nuthatch configuration has been found globally, in the current project, or in the module you have called.
@@ -378,8 +377,7 @@ def instantiate_write_caches(config, cache_key, memoizer_cache_key, namespace, v
             write_caches[location] = Cache(write_cache_config, key, namespace, version,
                                            cache_arg_values, storage_backend, storage_backend_kwargs)
             if not write_caches[location].backend:
-                raise RuntimeError(
-                    f"Failed to create a write cache for the requested backend {storage_backend} at location {location}. Perhaps the backend is misconfigured?")
+                raise RuntimeError(f"Failed to create a write cache for the requested backend {storage_backend} at location {location}. Perhaps the backend is misconfigured?")
 
     if 'local' in write_caches:
         # Ensure that the local cache is the last in the ordered dictionary of write caches
@@ -692,8 +690,7 @@ def cache(cache=True,
                     pass
                 else:
                     if fail_if_no_cache:
-                        raise RuntimeError(
-                            f"Computation has been disabled by strict read mode or `fail_if_no_cache` and cache doesn't exist for {cache_key}.")
+                        raise RuntimeError(f"Computation has been disabled by strict read mode or `fail_if_no_cache` and cache doesn't exist for {cache_key}.")
 
                     # If we've found a cache, but we don't have that cache configured, ask the user if they still want to compute the result
                     if (write_root and 'root' not in config) or (write_local and 'local' not in config):
@@ -703,8 +700,7 @@ def cache(cache=True,
                         if inp == 'y' or inp == 'Y':
                             pass
                         else:
-                            raise RuntimeError(
-                                "No cache configured to store the result. Exiting.")
+                            raise RuntimeError("No cache configured to store the result. Exiting.")
                     logger.info(f"Cache doesn't exist for {cache_key} in namespace {namespace if namespace else 'default'}. Running function")
 
                 ##### COMPUTE THE RESULT BY CALLING THE UNDERLYING FUNCTION ######
