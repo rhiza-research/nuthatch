@@ -425,6 +425,13 @@ def get_cache_mode(cache_mode):
         write_local = True
         read_global = True
         read_local = True
+    elif cache_mode == 'local_sync':
+        force_overwrite = True 
+        fail_if_no_cache = False
+        write_root = False
+        write_local = True
+        read_global = True
+        read_local = False
     elif cache_mode == 'rootless':
         force_overwrite = False
         fail_if_no_cache = False
@@ -584,7 +591,6 @@ def cache(cache=True,
                 cache_mode = 'write'
             elif cache_mode is None:
                 cache_mode = 'read_only'
-
             write_root, write_local, read_global, read_local, force_overwrite, strict_read = get_cache_mode(
                 cache_mode)
             # If strict read is set, overwrite fail if no cache. Otherwise, use the value from the decorator
@@ -623,7 +629,6 @@ def cache(cache=True,
             #######################################################################################
             # Initialize the dataset to None
             ds = None
-            import pdb; pdb.set_trace()
 
             #  Boolean determining if we need to compute the result by calling the function
             compute_result = True

@@ -123,12 +123,10 @@ def test_argument_validation():
     def bad_timeseries(start_time, test):
         return True
 
-    import pdb; pdb.set_trace()
     try:
         bad_timeseries("2000-01-01", 'test')
         assert False
-    except RuntimeError:
-    # except ValueError:
+    except KeyError:
         assert True
 
 def test_data_validation():

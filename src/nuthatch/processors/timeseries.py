@@ -37,10 +37,10 @@ class timeseries(NuthatchProcessor):
         # Get default values for the function signature
         bound_args = self.bind_signature(sig, *args, **kwargs)
         try:
-            self.start_time = bound_args.arguments.get('start_time')
-            self.end_time = bound_args.arguments.get('end_time')
+            self.start_time = bound_args.arguments['start_time']
+            self.end_time = bound_args.arguments['end_time']
         except:
-            raise ValueError(
+            raise KeyError(
                 "Time series functions must have the parameters 'start_time' and 'end_time'")
         return args, kwargs
 
@@ -91,7 +91,6 @@ class timeseries(NuthatchProcessor):
                         end_time = end_time.tz_convert(time_col_tz)
                     ds = ds[ds[time_col] <= end_time]
         else:
-            import pdb; pdb.set_trace()
             raise RuntimeError(f"Cannot filter timeseries for data type {type(ds)}")
 
         return ds
