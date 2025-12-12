@@ -559,10 +559,8 @@ def cache(cache=True,
             #######################################################################################
             # The function parameters and their values
             params = signature(func).parameters
-            cache_arg_values = extract_cache_arg_values(
-                cache_args, args, params, passed_kwargs)
-            all_arg_values = extract_all_arg_values(
-                args, params, passed_kwargs)
+            cache_arg_values = extract_cache_arg_values(cache_args, args, params, passed_kwargs)
+            all_arg_values = extract_all_arg_values(args, params, passed_kwargs)
 
             # Calculate our unique cache key from the params and values
             cache_key = get_cache_key(func, cache_arg_values)
@@ -573,19 +571,17 @@ def cache(cache=True,
             #######################################################################################
             # Disable the cache if it's enabled and the function params/values match the disable statement
             if cache:
-                cache = check_cache_disable_if(
-                    cache_disable_if, cache_arg_values)
+                cache = check_cache_disable_if(cache_disable_if, cache_arg_values)
 
             # Get the configuration information need for cache operations (e.g., cache locations, permissions, etc.)
             config = NuthatchConfig(wrapped_module=inspect.getmodule(func))
 
-            # By default, if the cache mode is not set, use write mode
+            # If the cache mode is not set, figure out a reasonable default 
             if cache_mode is None and 'root' in config:
                 cache_mode = 'write'
             elif cache_mode is None:
                 cache_mode = 'read_only'
-            write_root, write_local, read_global, read_local, force_overwrite, strict_read = get_cache_mode(
-                cache_mode)
+            write_root, write_local, read_global, read_local, force_overwrite, strict_read = get_cache_mode(cache_mode)
             # If strict read is set, overwrite fail if no cache. Otherwise, use the value from the decorator
             if strict_read:
                 fail_if_no_cache = True
