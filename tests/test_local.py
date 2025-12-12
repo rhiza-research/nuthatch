@@ -13,8 +13,8 @@ def ls(el):
 
 def test_local_storage():
     # Cache = False, no caching
-    ds = ls('josh')
-    ds2 = ls('josh')
+    ds = ls('josh', cache_mode='off')
+    ds2 = ls('josh', cache_mode='off')
     assert ds != ds2
 
     # Should store in local cache
