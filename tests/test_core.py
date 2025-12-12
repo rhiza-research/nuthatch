@@ -4,7 +4,7 @@ import numpy as np
 @cache(cache_args=['number'], version="test")
 def num(number=5):
     """Test function for tabular data."""
-    return np.random.randint(1000)
+    return np.random.randint(100000)
 
 
 @cache(cache_args=['el'])
@@ -27,7 +27,7 @@ def test_core():
     data4 = ls('test')
     assert data3 == data4
 
-    data5 = num(10, recompute=True, force_overwrite=True)
+    data5 = num(10, recompute=True, cache_mode='overwrite')
     assert data5 != data
 
     data6 = num(11)
