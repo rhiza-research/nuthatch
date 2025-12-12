@@ -117,3 +117,7 @@ filesystem = "gs://sheerwater-public-datalake/caches"
 [tool.nuthatch.mirror-public.filesystem_options]
 cache_timeout=0
 token = 'anon'
+
+[tool.autopep8]
+max_line_length = 100
+aggressive = 0
