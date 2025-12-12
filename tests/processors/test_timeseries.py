@@ -4,7 +4,6 @@ import xarray as xr
 import numpy as np
 import pandas as pd
 
-
 @timeseries()
 @timeseries()
 def simple_bare_timeseries(start_time, end_time, name='test', species='coraciidae', stride='day'):
@@ -30,6 +29,7 @@ def simple_chained_timeseries(start_time, end_time, name='test', species='coraci
     return ds
 
 
+
 @timeseries()
 @cache(cache_args=['name', 'species', 'stride'])
 def simple_xarray_timeseries(start_time, end_time, name='test', species='coraciidae', stride='day'):
@@ -41,7 +41,6 @@ def simple_xarray_timeseries(start_time, end_time, name='test', species='coracii
     ds.attrs['species'] = species
     return ds
 
-
 @timeseries()
 @cache(cache_args=['name', 'species', 'stride'])
 def simple_kwargs_timeseries(start_time="2000-06-01", end_time="2000-07-01", name='test', species='coraciidae', stride='day'):
@@ -52,7 +51,6 @@ def simple_kwargs_timeseries(start_time="2000-06-01", end_time="2000-07-01", nam
     ds.attrs['name'] = name
     ds.attrs['species'] = species
     return ds
-
 
 @timeseries()
 @cache(cache_args=['stride'])
@@ -76,10 +74,8 @@ def new_name_timeseries(start_time, end_time, name='test', species='coraciidae',
     ds.attrs['species'] = species
     return ds
 
-
 def test_xarray_timeseries():
-    ds = simple_xarray_timeseries(
-        "2000-01-01", "2001-01-01", recompute=True, cache_mode='overwrite')
+    ds = simple_xarray_timeseries("2000-01-01", "2001-01-01", recompute=True, cache_mode='overwrite')
     ds2 = simple_xarray_timeseries(None, None)
     ds3 = simple_xarray_timeseries("2000-06-01", "2000-07-01")
 
@@ -87,10 +83,8 @@ def test_xarray_timeseries():
     assert ds3['time'].max().values == pd.Timestamp("2000-07-01")
     assert ds3['time'].min().values == pd.Timestamp("2000-06-01")
 
-
 def test_tabular_timeseries():
-    ds = simple_tabular_timeseries(
-        "2000-01-01", "2001-01-01", recompute=True, cache_mode='overwrite')
+    ds = simple_tabular_timeseries("2000-01-01", "2001-01-01", recompute=True, cache_mode='overwrite')
     ds2 = simple_tabular_timeseries(None, None)
     ds3 = simple_tabular_timeseries("2000-06-01", "2000-07-01")
 
@@ -98,17 +92,14 @@ def test_tabular_timeseries():
     assert ds3['time'].max() == pd.Timestamp("2000-07-01")
     assert ds3['time'].min() == pd.Timestamp("2000-06-01")
 
-
 def test_different_col_name():
-    ds = new_name_timeseries("2000-01-01", "2001-01-01",
-                             recompute=True, cache_mode='overwrite')
+    ds = new_name_timeseries("2000-01-01", "2001-01-01", recompute=True, cache_mode='overwrite')
     ds2 = new_name_timeseries(None, None)
     ds3 = new_name_timeseries("2000-06-01", "2000-07-01")
 
     assert ds.equals(ds2)
     assert ds3['time2'].max().values == pd.Timestamp("2000-07-01")
     assert ds3['time2'].min().values == pd.Timestamp("2000-06-01")
-
 
 def test_no_time():
     @timeseries()
@@ -133,11 +124,10 @@ def test_argument_validation():
         return True
 
     try:
-        bad_timeseries("2000-01-01", 'test')
+        bad_timeseries("2000-01-01", 'test') 
         assert False
     except ValueError:
         assert True
-
 
 def test_data_validation():
     @timeseries(validate_data=True)
@@ -151,14 +141,13 @@ def test_data_validation():
         ds.attrs['species'] = species
         return ds
 
-    ds = simple_validate_timeseries(
-        "2000-01-01", "2001-01-01", recompute=True, cache_mode='overwrite')
+    ds = simple_validate_timeseries("2000-01-01", "2001-01-01", recompute=True, cache_mode='overwrite')
     ds2 = simple_validate_timeseries("2000-01-01", "2001-01-01")
     assert ds.equals(ds2)
 
     # Should automatically trigger reocmpute and provide more data
     try:
-        ds3 = simple_validate_timeseries("2000-01-01", "2005-01-01")  # noqa: F841
+        ds3 = simple_validate_timeseries("2000-01-01", "2005-01-01") # noqa: F841
         assert False
     except ValueError:
         assert True
@@ -176,29 +165,23 @@ def test_data_validation_as_arg():
         ds.attrs['species'] = species
         return ds
 
-    ds = simple_validate_timeseries(
-        "2000-01-01", "2001-01-01", recompute=True, cache_mode='overwrite')
-    ds2 = simple_validate_timeseries(
-        "2000-01-01", "2001-01-01", validate_data=True)
+    ds = simple_validate_timeseries("2000-01-01", "2001-01-01", recompute=True, cache_mode='overwrite')
+    ds2 = simple_validate_timeseries("2000-01-01", "2001-01-01", validate_data=True)
     assert ds.equals(ds2)
 
     # Should automatically trigger reocmpute and provide more data
     try:
-        ds3 = simple_validate_timeseries("2000-01-01", "2005-01-01", validate_data=True)  # noqa: F841
+        ds3 = simple_validate_timeseries("2000-01-01", "2005-01-01", validate_data=True) # noqa: F841
         assert False
     except ValueError:
         assert True
 
-
 def test_memoize_post():
-    simple_kwargs_timeseries(
-        start_time="2000-01-01", end_time="2001-01-01", recompute=True, cache_mode='overwrite')
+    simple_kwargs_timeseries(start_time="2000-01-01", end_time="2001-01-01", recompute=True, cache_mode='overwrite')
 
     # Save into memory with smaller bounds
-    ds3 = simple_kwargs_timeseries(
-        start_time="2000-06-04", end_time="2000-06-28", memoize=True)
-    ds4 = simple_kwargs_timeseries(
-        start_time="2000-06-04", end_time="2000-06-28", memoize=True, cache_mode='off')
+    ds3 = simple_kwargs_timeseries(start_time="2000-06-04", end_time="2000-06-28", memoize=True)
+    ds4 = simple_kwargs_timeseries(start_time="2000-06-04", end_time="2000-06-28", memoize=True, cache_mode='off')
 
     assert ds3['time'].max().values == pd.Timestamp("2000-06-28")
     assert ds3['time'].min().values == pd.Timestamp("2000-06-04")
@@ -206,28 +189,23 @@ def test_memoize_post():
 
 
 def test_kwargs():
-    simple_kwargs_timeseries(
-        start_time="2000-01-01", end_time="2001-01-01", recompute=True, cache_mode='overwrite')
+    simple_kwargs_timeseries(start_time="2000-01-01", end_time="2001-01-01", recompute=True, cache_mode='overwrite')
     ds2 = simple_kwargs_timeseries()
-    ds3 = simple_kwargs_timeseries(
-        start_time="2000-06-04", end_time="2000-06-28")
+    ds3 = simple_kwargs_timeseries(start_time="2000-06-04", end_time="2000-06-28")
 
     assert ds2['time'].max().values == pd.Timestamp("2000-07-01")
     assert ds2['time'].min().values == pd.Timestamp("2000-06-01")
     assert ds3['time'].max().values == pd.Timestamp("2000-06-28")
     assert ds3['time'].min().values == pd.Timestamp("2000-06-04")
 
-
 def test_chained():
-    simple_chained_timeseries(
-        start_time="2000-01-01", end_time="2001-01-01", recompute=True, cache_mode='overwrite')
-    ds2 = simple_chained_timeseries(
-        start_time="2000-06-04", end_time="2000-06-28")
+    simple_chained_timeseries(start_time="2000-01-01", end_time="2001-01-01", recompute=True, cache_mode='overwrite')
+    ds2 = simple_chained_timeseries(start_time="2000-06-04", end_time="2000-06-28")
     assert ds2['time'].max().values == pd.Timestamp("2000-06-28")
     assert ds2['time'].min().values == pd.Timestamp("2000-06-04")
-
 
 def test_bare():
     ds = simple_bare_timeseries(start_time="2000-01-01", end_time="2001-01-01")
     assert ds['time'].max().values == pd.Timestamp("2001-01-01")
     assert ds['time'].min().values == pd.Timestamp("2000-01-01")
+
