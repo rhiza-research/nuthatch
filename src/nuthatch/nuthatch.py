@@ -388,7 +388,7 @@ def instantiate_write_caches(config, cache_key, memoizer_cache_key, namespace, v
 
 
 def get_cache_mode(cache_mode):
-    """Get the cache mode."""
+    """Based on the configurable cache mode, return the appropriate cache read and write behavior."""
     # Set cache read and write behavior based on the write mode
     if cache_mode == 'write':  # only write to the root cache
         force_overwrite = False
@@ -397,56 +397,56 @@ def get_cache_mode(cache_mode):
         write_local = False
         read_global = True
         read_local = False
-    elif cache_mode == 'overwrite':  # overwrite the local cache
+    elif cache_mode == 'overwrite':  # overwrite the root cache
         force_overwrite = True
         fail_if_no_cache = False
         write_root = True
         write_local = False
         read_global = True
         read_local = False
-    elif cache_mode == 'local':
+    elif cache_mode == 'local':  # write to the local cache
         force_overwrite = False
         fail_if_no_cache = False
         write_root = False
         write_local = True
         read_global = True
         read_local = True
-    elif cache_mode == 'local_overwrite':
+    elif cache_mode == 'local_overwrite':  # overwrite the local cache
         force_overwrite = True
         fail_if_no_cache = False
         write_root = False
         write_local = True
         read_global = True
         read_local = True
-    elif cache_mode == 'local_sync':
+    elif cache_mode == 'local_sync':  # sync the local cache to the root cache
         force_overwrite = True 
         fail_if_no_cache = False
         write_root = False
         write_local = True
         read_global = True
         read_local = False
-    elif cache_mode == 'rootless':
+    elif cache_mode == 'local_strict':  # ignore the root cache for both read and write
         force_overwrite = False
         fail_if_no_cache = False
         write_root = False
         write_local = True
         read_global = False
         read_local = True
-    elif cache_mode == 'read_only':
+    elif cache_mode == 'read_only':  # read only from caches, no writing 
         force_overwrite = False
         fail_if_no_cache = False
         write_root = False
         write_local = False
         read_global = True
         read_local = True
-    elif cache_mode == 'read_only_strict':
+    elif cache_mode == 'read_only_strict':  # read only from caches, no writing, fail if no cache
         force_overwrite = False
         fail_if_no_cache = True
         write_root = False
         write_local = False
         read_global = True
         read_local = True
-    elif cache_mode == 'off':
+    elif cache_mode == 'off':  # completely disable caching
         force_overwrite = False
         fail_if_no_cache = False
         write_root = False
