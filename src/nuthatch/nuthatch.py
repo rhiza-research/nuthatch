@@ -419,7 +419,7 @@ def get_cache_mode(cache_mode):
         read_global = True
         read_local = True
     elif cache_mode == 'local_sync':  # sync the local cache to the root cache
-        force_overwrite = True 
+        force_overwrite = True
         fail_if_no_cache = False
         write_root = False
         write_local = True
@@ -432,7 +432,7 @@ def get_cache_mode(cache_mode):
         write_local = True
         read_global = False
         read_local = True
-    elif cache_mode == 'read_only':  # read only from caches, no writing 
+    elif cache_mode == 'read_only':  # read only from caches, no writing
         force_overwrite = False
         fail_if_no_cache = False
         write_root = False
@@ -576,7 +576,7 @@ def cache(cache=True,
             # Get the configuration information need for cache operations (e.g., cache locations, permissions, etc.)
             config = NuthatchConfig(wrapped_module=inspect.getmodule(func))
 
-            # If the cache mode is not set, figure out a reasonable default 
+            # If the cache mode is not set, figure out a reasonable default
             if cache_mode is None and 'root' in config:
                 cache_mode = 'write'
             elif cache_mode is None:
@@ -586,7 +586,7 @@ def cache(cache=True,
             if strict_read:
                 fail_if_no_cache = True
 
-            if write_local and config.defaultLocal() and not check_if_nested_fn():
+            if write_local and config.default_local and not check_if_nested_fn():
                 # If we're using the default local cache location, warn the user in case that's unexpected
                 # But only print this warning once, if we're in the top level function
                 logger.warning(f"Writing to default local cache location {config['local']['filesystem']}")
@@ -690,8 +690,8 @@ def cache(cache=True,
 
                     # If we're about to do computation, but we don't have cache configured, ask the user if they still want to compute the result
                     if (write_root and 'root' not in config) or (write_local and 'local' not in config):
-                        inp = input("""You are recomputing and a cache was not found to store the result. 
-                                       You can fix this by adding a valid cache to your nuthatch configuration. 
+                        inp = input("""You are recomputing and a cache was not found to store the result.
+                                       You can fix this by adding a valid cache to your nuthatch configuration.
                                        Would you still like to compute the result? (y/n)""")
                         if inp == 'y' or inp == 'Y':
                             pass

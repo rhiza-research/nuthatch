@@ -340,10 +340,6 @@ class NuthatchConfig:
         logger.debug("Config finished.")
         logger.debug(self.config)
 
-
-    def defaultLocal(self):
-        return self.default_local
-
     def __setitem__(self, key, value):
         self.config[key] = value
 
