@@ -41,7 +41,7 @@ def set_global_cache_variables(recompute=None, memoize=None, cache_mode=None, re
     global_cache_mode = cache_mode
 
     # More complex logic for recompute
-    if recompute == True:
+    if recompute:
         global_recompute = False
     elif isinstance(recompute, str) and recompute != '_all':
         # if a single function's name is passed, convert to a list
@@ -793,7 +793,7 @@ def cache(cache=True,
 
                 if write_cache.exists() and not upsert and ((write_local and location == 'local') or (write_root and location == 'root')):
                     # If the cache exists and we would need to write to it / overwrite it
-                    if force_overwrite == False:
+                    if not force_overwrite:
                         # Ask the user
                         inp = input(f"""A cache already exists at {write_cache.cache_key} for type {write_cache.get_backend()} in {location} cache.
                                     Are you sure you want to overwrite it? (y/n)""")

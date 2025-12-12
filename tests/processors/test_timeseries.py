@@ -124,9 +124,9 @@ def test_argument_validation():
         return True
 
     try:
-        bad_timeseries("2000-01-01", 'test')
+        bad_timeseries("2000-01-01", 'test') # noqa: F841
         assert False
-    except KeyError:
+    except ValueError:
         assert True
 
 def test_data_validation():
@@ -181,7 +181,6 @@ def test_memoize_post():
 
     # Save into memory with smaller bounds
     ds3 = simple_kwargs_timeseries(start_time="2000-06-04", end_time="2000-06-28", memoize=True)
-    import pdb; pdb.set_trace()
     ds4 = simple_kwargs_timeseries(start_time="2000-06-04", end_time="2000-06-28", memoize=True, cache_mode='off')
 
     assert ds3['time'].max().values == pd.Timestamp("2000-06-28")

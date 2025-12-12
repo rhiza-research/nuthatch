@@ -39,8 +39,8 @@ class timeseries(NuthatchProcessor):
         try:
             self.start_time = bound_args.arguments['start_time']
             self.end_time = bound_args.arguments['end_time']
-        except:
-            raise KeyError(
+        except KeyError:
+            raise ValueError(
                 "Time series functions must have the parameters 'start_time' and 'end_time'")
         return args, kwargs
 
