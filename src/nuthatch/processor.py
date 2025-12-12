@@ -49,6 +49,7 @@ class NuthatchProcessor(ABC):
 
             # If it's cacheable, pass it down
             # If it's a processor, pass it on for future use
+            # TODO: Consider how this works with chaining and test it
             if hasattr(func, '__nuthatch_cacheable__') or hasattr(func, '__nuthatch_processor__'):
                 if 'post_processors' not in kwargs:
                     kwargs['post_processors'] = []
