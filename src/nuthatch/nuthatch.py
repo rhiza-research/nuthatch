@@ -142,13 +142,11 @@ def check_cache_disable_if(cache_disable_if, cache_arg_values):
     elif isinstance(cache_disable_if, list):
         pass
     else:
-        raise ValueError(
-            "cache_disable_if only accepts a dict or list of dicts.")
+        raise ValueError("cache_disable_if only accepts a dict or list of dicts.")
 
     for d in cache_disable_if:
         if not isinstance(d, dict):
-            raise ValueError(
-                "cache_disable_if only accepts a dict or list of dicts.")
+            raise ValueError("cache_disable_if only accepts a dict or list of dicts.")
 
         # Get the common keys
         common_keys = set(cache_arg_values).intersection(d)
@@ -294,8 +292,7 @@ def instantiate_read_caches(config, cache_key, namespace, version, cache_arg_val
                 # Check if this filesystem is listed to be skipped in the cache configuration
                 if 'skipped_filesystems' in config['root'] and location_values['filesystem'] in config['root']['skipped_filesystems']:
                     if location_values['filesystem'] not in global_fs_warning:
-                        logger.warning(
-                            f"Skipping filesystem {location_values['filesystem']} because it has been added to the excluded filesystems list in ~/.nuthatch.toml. Please remove it if you now have access.")
+                        logger.warning(f"Skipping filesystem {location_values['filesystem']} because it has been added to the excluded filesystems list in ~/.nuthatch.toml. Please remove it if you now have access.")
                         global_fs_warning.append(location_values['filesystem'])
                     continue
 
@@ -306,8 +303,7 @@ def instantiate_read_caches(config, cache_key, namespace, version, cache_arg_val
                     caches[f"{location}"] = cache
                     found_cache = True
                 except Exception as e:  # noqa
-                    logger.warning(
-                        f"Failed to access the cache at {location_values['filesystem']}. Adding it to the excluded filesystems list at ~/.nuthatch.toml so future runs are faster. Please remove it if you gain access in the future.")
+                    logger.warning(f"Failed to access the cache at {location_values['filesystem']}. Adding it to the excluded filesystems list at ~/.nuthatch.toml so future runs are faster. Please remove it if you gain access in the future.")
                     set_global_skipped_filesystem(
                         location_values['filesystem'])
                     global_fs_warning.append(location_values['filesystem'])
@@ -599,8 +595,7 @@ def cache(cache=True,
             if write_local and config.defaultLocal() and check_if_nested_fn():
                 # If we're using the default local cache location, warn the user in case that's unexpected
                 # But only print this warning once, if we're in the top level function
-                logger.warning(
-                    f"Writing to default local cache location {config['local']['filesystem']}")
+                logger.warning(f"Writing to default local cache location {config['local']['filesystem']}")
 
             # Initialize the read caches dictionary
             read_caches = {}
@@ -636,8 +631,7 @@ def cache(cache=True,
             if not recompute and not upsert and memoize:
                 ds = recall_from_memory(memoizer_cache_key)
                 if ds:
-                    logger.info(
-                        f"Found cache for {memoizer_cache_key} in memory.")
+                    logger.info(f"Found cache for {memoizer_cache_key} in memory.")
                     compute_result = False
                     return ds
 
@@ -656,8 +650,7 @@ def cache(cache=True,
 
                     # First check if it's null
                     if read_cache.is_null():
-                        logger.info(
-                            f"Found null cache for {read_cache.cache_key} in {location} cache.")
+                        logger.info(f"Found null cache for {read_cache.cache_key} in {location} cache.")
                         if not retry_null_cache:
                             # We've found a null cache and we're not retrying, return None
                             return None
@@ -670,8 +663,7 @@ def cache(cache=True,
 
                     # If it's not null, see if the cache file exists
                     if read_cache.exists():
-                        logger.info(
-                            f"Found cache for {read_cache.cache_key} with backend {read_cache.get_backend()} in {location} cache")
+                        logger.info(f"Found cache for {read_cache.cache_key} with backend {read_cache.get_backend()} in {location} cache")
 
                         # Record the backend and location that was used to read the dataset
                         used_read_backend = read_cache.get_backend()
@@ -692,11 +684,9 @@ def cache(cache=True,
             #######################################################################################
             if compute_result:
                 if recompute:
-                    logger.info(
-                        f"Recompute for {cache_key} requested. Not checking for cached result.")
+                    logger.info(f"Recompute for {cache_key} requested. Not checking for cached result.")
                 elif upsert:
-                    logger.info(
-                        f"Computing {cache_key} to enable data upsert.")
+                    logger.info(f"Computing {cache_key} to enable data upsert.")
                 elif not cache:
                     # The function isn't cacheable, recomputing
                     pass
@@ -715,8 +705,7 @@ def cache(cache=True,
                         else:
                             raise RuntimeError(
                                 "No cache configured to store the result. Exiting.")
-                    logger.info(
-                        f"Cache doesn't exist for {cache_key} in namespace {namespace if namespace else 'default'}. Running function")
+                    logger.info(f"Cache doesn't exist for {cache_key} in namespace {namespace if namespace else 'default'}. Running function")
 
                 ##### COMPUTE THE RESULT BY CALLING THE UNDERLYING FUNCTION ######
                 ds = func(*args, **passed_kwargs)
@@ -726,8 +715,7 @@ def cache(cache=True,
             # 5. Save the computed result to memory and any other write caches
             #######################################################################################
             if memoize:
-                logger.info(
-                    f"Memoizing {memoizer_cache_key} in your local memory for fast recall.")
+                logger.info(f"Memoizing {memoizer_cache_key} in your local memory for fast recall.")
                 # Apply any post-processors to the dataset, so the filtered data is saved to memory
                 filtered_ds = ds
                 for processor in post_processors:
@@ -798,8 +786,7 @@ def cache(cache=True,
                                     Are you sure you want to overwrite it? (y/n)""")
                         write = True if inp == 'y' or inp == 'Y' else False
                     else:
-                        logger.info(
-                            f"Overwriting existing cache for {write_cache.cache_key} in {location} cache.")
+                        logger.info(f"Overwriting existing cache for {write_cache.cache_key} in {location} cache.")
                         write = True
                 else:
                     write = True
@@ -807,8 +794,7 @@ def cache(cache=True,
                 # If we have read value, return that rather
                 return_value = write_ds
                 if write:
-                    logger.info(
-                        f"Caching result for {write_cache.cache_key} in {write_cache.get_backend()} with namespace {namespace if namespace else 'default'} in {location} cache.")
+                    logger.info(f"Caching result for {write_cache.cache_key} in {write_cache.get_backend()} with namespace {namespace if namespace else 'default'} in {location} cache.")
                     if upsert:
                         return_value = write_cache.upsert(
                             write_ds, upsert_keys=upsert_keys)
