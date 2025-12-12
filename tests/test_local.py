@@ -13,15 +13,15 @@ def ls(el):
 
 def test_local_storage():
     # Cache = False, no caching
-    # ds = ls('josh')
-    # ds2 = ls('josh')
-    # assert ds != ds2
+    ds = ls('josh')
+    ds2 = ls('josh')
+    assert ds != ds2
 
-    # # Should store in local cache
-    # ds3 = ls('josh', cache_mode='local_overwrite', recompute=True)
-    # ds4 = ls('josh', cache_mode='local')
-    # assert ds3 != ds2
-    # assert ds3 == ds4
+    # Should store in local cache
+    ds3 = ls('josh', cache_mode='local_overwrite', recompute=True)
+    ds4 = ls('josh', cache_mode='local')
+    assert ds3 != ds2
+    assert ds3 == ds4
 
     # now cache a new one 
     ds5 = ls('josh', recompute=True, cache_mode='overwrite')
