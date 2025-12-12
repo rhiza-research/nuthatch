@@ -339,7 +339,7 @@ def instantiate_local_read_cache(config, cache_key, namespace, version, cache_ar
     try:
         return Cache(config['local'], cache_key, namespace, version, cache_arg_values, requested_backend, backend_kwargs)
     except Exception as e:
-        raise RuntimeError(f'Nuthatch is unable to access the configured local cache at {config["local"]["filesystem"]} with error "{type(e).__name__}: {e}.')
+        raise RuntimeError(f'Nuthatch is unable to access the configured local cache at {config["locali]["filesystem"]} with error "{type(e).__name__}: {e}.')
 
 
 
@@ -772,7 +772,8 @@ def cache(cache=True,
                         write_cache.set_null()
                     else:
                         logger.info("Null result not cached in upsert mode.")
-                    return None
+
+                    continue
 
                 if write_cache.exists() and not upsert and ((write_local and location == 'local') or (write_root and location == 'root')):
                     # If the cache exists and we would need to write to it / overwrite it
@@ -788,18 +789,19 @@ def cache(cache=True,
                     write = True
 
                 # If we have read value, return that rather
+                # This will get set to the last cache written, which is by default the local cache
                 return_value = write_ds
                 if write:
                     logger.info(f"Caching result for {write_cache.cache_key} in {write_cache.get_backend()} with namespace {namespace if namespace else 'default'} in {location} cache.")
                     if upsert:
-                        return_value = write_cache.upsert(
-                            write_ds, upsert_keys=upsert_keys)
+                        return_value = write_cache.upsert(write_ds, upsert_keys=upsert_keys)
                     else:
                         return_value = write_cache.write(write_ds)
 
                 if filepath_only:
                     # If we only need to return the filepath, return it
                     return_value = write_cache.get_uri()
+
             return return_value
 
         # Set a custom attribute to mark this as a cacheable function
