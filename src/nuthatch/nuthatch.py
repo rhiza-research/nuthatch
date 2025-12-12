@@ -755,6 +755,7 @@ def cache(cache=True,
                 return ds
 
             # Ensure that the result is written to the proper write cache(s)
+            # Need to set outside of the loop in case you don't have a write cache
             return_value = ds
             for location, write_cache in write_caches.items():
                 # If we're writing to the local cache, apply any post-processors to the dataset
