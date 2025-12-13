@@ -34,7 +34,7 @@ class NuthatchProcessor(ABC):
         """
         @functools.wraps(func)
         # Get function signature to access default values
-        def wrapper(*args, **kwargs):
+        def nuthatch_processor_wrapper(*args, **kwargs):
             # Extract validate data if present
             if 'validate_data' in kwargs:
                 passed_validate_data = kwargs['validate_data']
@@ -93,8 +93,8 @@ class NuthatchProcessor(ABC):
 
             return data
 
-        setattr(wrapper, '__nuthatch_processor__', self)
-        return wrapper
+        setattr(nuthatch_processor_wrapper, '__nuthatch_processor__', self)
+        return nuthatch_processor_wrapper
 
     def bind_signature(self, sig, *args, **kwargs):
         """Bind the function signature to the default values"""
