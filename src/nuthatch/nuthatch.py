@@ -67,7 +67,7 @@ def check_if_nested_fn():
     for frame_info in stack[3:]:
         frame = frame_info.frame
         func_name = frame.f_code.co_name
-        if func_name == "cacheable_wrapper":
+        if func_name == "nuthatch_cacheable_wrapper" or func_name == "nuthatch_processor_wrapper":
             # There is a cachable function upstream of this one
             return True
     # No cachable function upstream of this one
@@ -530,7 +530,7 @@ def cache(cache=True,
     def create_cacheable(func):
 
         @wraps(func)
-        def cacheable_wrapper(*args, **passed_kwargs):
+        def nuthatch_cacheable_wrapper(*args, **passed_kwargs):
             ###############################################################
             # 1. Handle arguments that determine the cache configuration
             ###############################################################
@@ -806,7 +806,7 @@ def cache(cache=True,
             return return_value
 
         # Set a custom attribute to mark this as a cacheable function
-        setattr(cacheable_wrapper, '__nuthatch_cacheable__', True)
-        return cacheable_wrapper
+        setattr(nuthatch_cacheable_wrapper, '__nuthatch_cacheable__', True)
+        return nuthatch_cacheable_wrapper
 
     return create_cacheable

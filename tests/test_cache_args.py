@@ -10,6 +10,38 @@ def set_filesystem():
 def set_filesystem2():
     return './.cache2'
 
+def test_far_nesting():
+
+    @cache()
+    def f1():
+        return np.random.randint(100000)
+
+    def f2():
+        return f1()
+
+    def f3():
+        return f2()
+
+    def f4():
+        return f3()
+
+    def f5():
+        return f4()
+
+    def f6():
+        return f5()
+
+    @cache()
+    def f7():
+        return f6()
+
+    # Put f1 in the local cache
+    num1 = f1(cache_mode='local')
+
+    # They should be the same because f1 should persist
+    num2 = f7(cache_mode='local_overwrite' , recompute=True)
+    assert num1 == num2
+
 def test_cache_disable_if():
     """Test cache_disable_if argument."""
     @cache(cache_args=['agg_days'],
