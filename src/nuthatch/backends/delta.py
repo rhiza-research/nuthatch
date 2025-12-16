@@ -32,7 +32,8 @@ class DeltaBackend(FileBackend):
         if protocol in ('s3', 's3a'):
             # AWS S3: First pass through any keys already in deltalake format
             aws_deltalake_keys = ['AWS_ACCESS_KEY_ID', 'AWS_SECRET_ACCESS_KEY', 'AWS_ENDPOINT_URL',
-                                  'AWS_SESSION_TOKEN', 'AWS_REGION', 'AWS_DEFAULT_REGION']
+                                  'AWS_SESSION_TOKEN', 'AWS_REGION', 'AWS_DEFAULT_REGION',
+                                  'allow_http', 'AWS_ALLOW_HTTP']
             for key in aws_deltalake_keys:
                 if key in original_options:
                     remapped_options[key] = original_options[key]
@@ -51,19 +52,36 @@ class DeltaBackend(FileBackend):
                     if 'endpoint_url' in original_options['client_kwargs']:
                         remapped_options['AWS_ENDPOINT_URL'] = original_options['client_kwargs']['endpoint_url']
 
+            # Auto-enable HTTP for non-HTTPS endpoints (e.g., LocalStack)
+            endpoint_url = remapped_options.get('AWS_ENDPOINT_URL', '')
+            if endpoint_url.startswith('http://') and 'allow_http' not in remapped_options:
+                remapped_options['allow_http'] = 'true'
+
             if 'AWS_SESSION_TOKEN' not in remapped_options and 'session_token' in original_options:
                 remapped_options['AWS_SESSION_TOKEN'] = original_options['session_token']
 
         elif protocol in ('gs', 'gcs'):
             # Google Cloud Storage: First pass through any keys already in deltalake format
-            gcs_deltalake_keys = ['GOOGLE_APPLICATION_CREDENTIALS', 'GOOGLE_CLOUD_PROJECT']
+            # NOTE: For emulator testing, use 'google_service_account' (reads gcs_base_url from JSON).
+            # GOOGLE_APPLICATION_CREDENTIALS also works but doesn't read gcs_base_url.
+            gcs_deltalake_keys = ['google_service_account', 'GOOGLE_APPLICATION_CREDENTIALS',
+                                  'GOOGLE_CLOUD_PROJECT', 'skip_signature']
             for key in gcs_deltalake_keys:
                 if key in original_options:
                     remapped_options[key] = original_options[key]
 
             # Then map fsspec keys to deltalake GCS keys (only if not already present)
-            if 'GOOGLE_APPLICATION_CREDENTIALS' not in remapped_options and 'token' in original_options:
-                remapped_options['GOOGLE_APPLICATION_CREDENTIALS'] = original_options['token']
+            # Use google_service_account to enable gcs_base_url support for emulator testing
+            if 'google_service_account' not in remapped_options and 'GOOGLE_APPLICATION_CREDENTIALS' not in remapped_options:
+                if 'service_account_file' in original_options:
+                    remapped_options['google_service_account'] = original_options['service_account_file']
+                elif 'token' in original_options:
+                    token = original_options['token']
+                    # Only map token if it's a file path string (not a special keyword or object)
+                    # gcsfs special keywords: 'anon', 'google_default', 'browser', 'cache', 'cloud'
+                    if isinstance(token, str) and token not in ('anon', 'google_default', 'browser', 'cache', 'cloud'):
+                        # Looks like a file path - map it
+                        remapped_options['google_service_account'] = token
             if 'GOOGLE_CLOUD_PROJECT' not in remapped_options and 'project' in original_options:
                 remapped_options['GOOGLE_CLOUD_PROJECT'] = original_options['project']
 
@@ -72,7 +90,8 @@ class DeltaBackend(FileBackend):
             azure_deltalake_keys = ['AZURE_STORAGE_ACCOUNT_NAME', 'AZURE_STORAGE_ACCOUNT_KEY',
                                    'AZURE_SAS_TOKEN', 'AZURE_STORAGE_CONNECTION_STRING',
                                    'AZURE_TENANT_ID', 'AZURE_CLIENT_ID', 'AZURE_CLIENT_SECRET',
-                                   'AZURE_ENDPOINT_SUFFIX']
+                                   'AZURE_ENDPOINT_SUFFIX', 'azure_storage_use_emulator',
+                                   'azure_storage_endpoint', 'allow_http']
             for key in azure_deltalake_keys:
                 if key in original_options:
                     remapped_options[key] = original_options[key]
@@ -96,8 +115,9 @@ class DeltaBackend(FileBackend):
             # For other protocols (file, etc.), pass through as-is
             remapped_options = original_options.copy()
 
-        # Update config with remapped options
-        self.config['filesystem_options'] = remapped_options
+        # Store remapped options separately - don't modify shared config
+        # The original filesystem_options are used by metastore/fsspec
+        self._delta_storage_options = remapped_options
 
     def write(self, data):
         """Write a pandas dataframe to a delta table."""
@@ -112,7 +132,7 @@ class DeltaBackend(FileBackend):
             raise RuntimeError("Delta backend only supports dask and pandas engines.")
 
 
-        write_deltalake(self.path, write_data, mode='overwrite', schema_mode='overwrite', storage_options=self.config['filesystem_options'].copy())
+        write_deltalake(self.path, write_data, mode='overwrite', schema_mode='overwrite', storage_options=self._delta_storage_options.copy())
         return data
 
 
@@ -122,10 +142,10 @@ class DeltaBackend(FileBackend):
 
     def read(self, engine=None):
         if engine == 'pandas' or engine == pd.DataFrame or engine is None:
-            return DeltaTable(self.path, storage_options=self.config['filesystem_options'].copy()).to_pandas()
+            return DeltaTable(self.path, storage_options=self._delta_storage_options.copy()).to_pandas()
         elif engine == 'dask' or engine == dd.DataFrame:
-            return dd.from_pandas(DeltaTable(self.path, storage_options=self.config['filesystem_options'].copy()).to_pandas())
-            #dd.from_polars(ps.read_delta(self.path, storage_options=self.config['filesystem_options'].copy())
-            #return ddt.read_deltalake(self.path, storage_options=self.config['filesystem_options'].copy())
+            return dd.from_pandas(DeltaTable(self.path, storage_options=self._delta_storage_options.copy()).to_pandas())
+            #dd.from_polars(ps.read_delta(self.path, storage_options=self._delta_storage_options.copy())
+            #return ddt.read_deltalake(self.path, storage_options=self._delta_storage_options.copy())
         else:
             raise RuntimeError("Delta backend only supports dask and pandas engines.")

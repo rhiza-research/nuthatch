@@ -108,7 +108,11 @@ def s3_test_bucket(localstack_container, s3_credentials):
 
 @pytest.fixture(scope="session")
 def gcs_container(request):
-    """Start a fake-gcs-server container for GCS testing."""
+    """Start a fake-gcs-server container for GCS testing.
+
+    Uses fake-gcs-server-xml which has XML API support (list-type=2 and multipart uploads)
+    required by delta-rs/object_store.
+    """
     if not CLOUD_DEPS_AVAILABLE or request.config.getoption("--no-cloud"):
         pytest.skip("Cloud testing disabled")
 
@@ -119,9 +123,10 @@ def gcs_container(request):
         s.bind(('', 0))
         external_port = s.getsockname()[1]
 
-    container = DockerContainer("fsouza/fake-gcs-server:latest")
+    # Use fake-gcs-server-xml with XML API support for delta-rs compatibility
+    container = DockerContainer("fake-gcs-server-xml:latest")
     container.with_bind_ports(4443, external_port)
-    container.with_command(f"-scheme http -external-url http://localhost:{external_port}")
+    container.with_command(f"-scheme http -backend memory -public-host localhost:{external_port} -external-url http://localhost:{external_port}")
     container.start()
 
     # Wait for server to be ready
@@ -145,11 +150,35 @@ def gcs_container(request):
 
 
 @pytest.fixture(scope="session")
-def gcs_credentials(gcs_container):
-    """Get GCS credentials for fake-gcs-server."""
+def gcs_credentials(gcs_container, tmp_path_factory):
+    """Get GCS credentials for fake-gcs-server.
+
+    Creates a fake service account JSON file with gcs_base_url pointing to the emulator.
+    Uses disable_oauth=true to skip authentication (matching arrow-rs CI config).
+    See: https://github.com/apache/arrow-rs-object-store/blob/main/.github/workflows/ci.yml
+    """
+    import json
+
+    endpoint = gcs_container._external_endpoint
+
+    # Use minimal credentials with disable_oauth=true (matches arrow-rs CI)
+    # object_store will skip authentication when disable_oauth is true
+    fake_creds = {
+        "gcs_base_url": endpoint,
+        "disable_oauth": True,
+        "client_email": "",
+        "private_key": "",
+        "private_key_id": "",
+    }
+
+    creds_dir = tmp_path_factory.mktemp("gcs_creds")
+    creds_file = creds_dir / "fake_service_account.json"
+    creds_file.write_text(json.dumps(fake_creds))
+
     return {
-        "endpoint_url": gcs_container._external_endpoint,
-        "token": "anon",
+        "endpoint_url": endpoint,
+        "token": "anon",  # For gcsfs/fsspec
+        "service_account_file": str(creds_file),  # For delta-rs/object_store
     }
 
 
@@ -180,16 +209,18 @@ def azurite_container(request):
     if not CLOUD_DEPS_AVAILABLE or request.config.getoption("--no-cloud"):
         pytest.skip("Cloud testing disabled")
 
+    # Bind to standard Azurite port 10000 so delta-rs emulator mode works
+    # delta-rs azure_storage_use_emulator expects 127.0.0.1:10000
     container = DockerContainer("mcr.microsoft.com/azure-storage/azurite:latest")
-    container.with_exposed_ports(10000)
+    container.with_bind_ports(10000, 10000)
     container.with_command("azurite-blob --blobHost 0.0.0.0 --blobPort 10000")
     container.start()
 
     # Wait for Azurite to be ready
     import time
     import socket
-    host = container.get_container_host_ip()
-    port = int(container.get_exposed_port(10000))
+    host = "127.0.0.1"
+    port = 10000
 
     for _ in range(30):
         try:
@@ -209,8 +240,9 @@ def azurite_container(request):
 @pytest.fixture(scope="session")
 def azure_credentials(azurite_container):
     """Get Azure credentials for Azurite."""
-    host = azurite_container.get_container_host_ip()
-    port = azurite_container.get_exposed_port(10000)
+    # Use fixed port 10000 for delta-rs emulator mode compatibility
+    host = "127.0.0.1"
+    port = 10000
 
     connection_string = (
         f"DefaultEndpointsProtocol=http;"
@@ -376,17 +408,26 @@ def cloud_provider(request, setup_cloud_containers, monkeypatch, tmp_path):
     elif provider == "gcs":
         gcs_info = info["gcs"]
         config['root']['filesystem'] = f"gs://{gcs_info['bucket']}/cache"
-        config['root']['filesystem_options'] = {'token': 'anon'}
+        config['root']['filesystem_options'] = {
+            'token': 'anon',  # For gcsfs/fsspec
+            'endpoint_url': gcs_info["credentials"]["endpoint_url"],  # For gcsfs custom endpoint
+            # Service account file with gcs_base_url for delta-rs/object_store
+            'service_account_file': gcs_info["credentials"]["service_account_file"],
+        }
         monkeypatch.setenv("STORAGE_EMULATOR_HOST", gcs_info["credentials"]["endpoint_url"])
 
     elif provider == "azure":
         azure_info = info["azure"]
-        config['root']['filesystem'] = f"az://{azure_info['container']}/cache"
+        # Use abfs:// (not az://) for delta-rs compatibility with Azurite
+        # delta-rs interprets az:// paths incorrectly, writing to container root
+        config['root']['filesystem'] = f"abfs://{azure_info['container']}/cache"
         config['root']['filesystem_options'] = {
             'account_name': azure_info["credentials"]["account_name"],
             'account_key': azure_info["credentials"]["account_key"],
             'account_host': f"{azure_info['credentials']['host']}:{azure_info['credentials']['port']}",
             'connection_string': azure_info["credentials"]["connection_string"],
+            # For delta-rs: use Azurite emulator (expects 127.0.0.1:10000)
+            'azure_storage_use_emulator': '1',
         }
 
     # Use test config provider to bypass disk loading
@@ -444,7 +485,10 @@ def gcs_storage(gcs_credentials, gcs_test_bucket, monkeypatch):
         'root': {
             'filesystem': filesystem,
             'metadata_location': 'filesystem',
-            'filesystem_options': {'token': 'anon'},
+            'filesystem_options': {
+                'token': 'anon',  # For gcsfs/fsspec
+                'service_account_file': gcs_credentials["service_account_file"],  # For delta-rs
+            },
         }
     }
     set_test_config_provider(lambda: config)
@@ -465,7 +509,8 @@ def azure_storage(azure_credentials, azure_test_container):
     """Configure nuthatch to use Azurite."""
     from nuthatch.config import set_test_config_provider
 
-    filesystem = f"az://{azure_test_container}/cache"
+    # Use abfs:// (not az://) for delta-rs compatibility with Azurite
+    filesystem = f"abfs://{azure_test_container}/cache"
     config = {
         'root': {
             'filesystem': filesystem,
