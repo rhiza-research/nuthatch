@@ -1,17 +1,59 @@
+import pytest
 from ..backends.tabular_test import multi_tab_test_pandas, multi_tab_test_dask
-from nuthatch.config import config_parameter
-from google.cloud import secretmanager
+from nuthatch.config import set_test_config_provider
 
-@config_parameter('password', location='root')
-def postgres_write_password():
-    """Get a postgres write password."""
-    client = secretmanager.SecretManagerServiceClient()
+# All tests in this module use postgres, not cloud storage
+pytestmark = pytest.mark.no_cloud
 
-    response = client.access_secret_version(
-        request={"name": "projects/750045969992/secrets/sheerwater-postgres-write-password/versions/latest"})
-    key = response.payload.data.decode("UTF-8")
+# Check if testcontainers is available
+try:
+    from testcontainers.postgres import PostgresContainer
+    POSTGRES_AVAILABLE = True
+except ImportError:
+    POSTGRES_AVAILABLE = False
 
-    return key
+
+@pytest.fixture(scope="module")
+def postgres_container():
+    """Start a PostgreSQL container for SQL backend testing."""
+    if not POSTGRES_AVAILABLE:
+        pytest.skip("testcontainers not installed")
+
+    container = PostgresContainer("postgres:15")
+    container.start()
+
+    yield container
+
+    container.stop()
+
+
+@pytest.fixture(autouse=True)
+def postgres_config(postgres_container, tmp_path):
+    """Configure nuthatch to use the PostgreSQL test container."""
+    # Get connection details from container
+    host = postgres_container.get_container_host_ip()
+    port = postgres_container.get_exposed_port(5432)
+
+    config = {
+        'root': {
+            # Filesystem for metastore
+            'filesystem': str(tmp_path / 'nuthatch_cache'),
+            'metadata_location': 'filesystem',
+            # SQL backend config
+            'sql': {
+                'driver': 'postgresql',
+                'username': postgres_container.username,
+                'password': postgres_container.password,
+                'host': host,
+                'port': port,
+                'database': postgres_container.dbname,
+            }
+        }
+    }
+
+    set_test_config_provider(lambda: config)
+    yield
+    set_test_config_provider(None)
 
 
 def test_sql():
