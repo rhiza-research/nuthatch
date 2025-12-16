@@ -18,10 +18,6 @@ Usage:
 import os
 import uuid
 import pytest
-from pathlib import Path
-
-# Path to test config file - nuthatch will find this before pyproject.toml
-TEST_CONFIG_PATH = Path(__file__).parent / "nuthatch.toml"
 
 # Check if testcontainers dependencies are available
 try:
@@ -56,12 +52,7 @@ def pytest_configure(config):
     config.addinivalue_line("markers", "s3: marks tests as requiring S3/LocalStack")
     config.addinivalue_line("markers", "gcs: marks tests as requiring GCS/fake-gcs-server")
     config.addinivalue_line("markers", "azure: marks tests as requiring Azure/Azurite")
-
-
-def pytest_unconfigure(config):
-    """Clean up test config file after test session."""
-    if TEST_CONFIG_PATH.exists():
-        TEST_CONFIG_PATH.unlink()
+    config.addinivalue_line("markers", "no_cloud: marks tests to skip cloud provider parametrization")
 
 
 # =============================================================================
@@ -278,6 +269,11 @@ def get_cloud_providers(config):
 
 def pytest_generate_tests(metafunc):
     """Parametrize all tests to run against each cloud provider."""
+    # Skip tests marked with @pytest.mark.no_cloud
+    if metafunc.definition.get_closest_marker("no_cloud"):
+        print(f"\n>>> pytest_generate_tests: SKIPPING {metafunc.function.__name__} (marked no_cloud)")
+        return
+
     providers = get_cloud_providers(metafunc.config)
     print(f"\n>>> pytest_generate_tests: {metafunc.function.__name__}, providers={providers}, CLOUD_DEPS={CLOUD_DEPS_AVAILABLE}")
 
@@ -289,25 +285,6 @@ def pytest_generate_tests(metafunc):
         # Always parametrize (even if cloud_provider was explicitly requested)
         metafunc.parametrize("cloud_provider", providers, indirect=True, scope="function")
         print(f">>> Parametrized {metafunc.function.__name__} with {providers}")
-
-
-def write_test_config(filesystem: str):
-    """Write a nuthatch.toml config file for testing.
-
-    This file is placed in the tests/ directory so nuthatch finds it
-    before the root pyproject.toml.
-    """
-    print(f"\n>>> WRITING TEST CONFIG: {TEST_CONFIG_PATH}")
-    print(f">>> FILESYSTEM: {filesystem}")
-    config_content = f'''# Auto-generated test config - DO NOT EDIT
-# This file is created by conftest.py and deleted after tests
-
-[nuthatch]
-filesystem = "{filesystem}"
-metadata_location = "filesystem"
-'''
-    TEST_CONFIG_PATH.write_text(config_content)
-    print(f">>> FILE EXISTS: {TEST_CONFIG_PATH.exists()}")
 
 
 # Store container info at session level for use in cloud_provider fixture
@@ -349,6 +326,10 @@ def _force_cloud_provider(request):
     pytest_generate_tests parametrizes tests with cloud_provider, but the fixture
     won't be invoked unless explicitly requested. This autouse fixture forces it.
     """
+    # Skip for tests marked with no_cloud
+    if request.node.get_closest_marker("no_cloud"):
+        return
+
     providers = get_cloud_providers(request.config)
     if providers:
         # Cloud testing is active - force the cloud_provider fixture to run
@@ -362,25 +343,24 @@ def _force_cloud_provider(request):
 
 
 @pytest.fixture
-def cloud_provider(request, setup_cloud_containers, monkeypatch):
+def cloud_provider(request, setup_cloud_containers, monkeypatch, tmp_path):
     """
     Configure nuthatch to use the specified cloud provider.
 
     This fixture is automatically applied to all tests when cloud deps are available.
-    Sets dynamic_parameters directly using the test module's name as the key.
+    Uses set_test_config_provider to bypass disk config loading entirely.
     """
     provider = request.param
     info = setup_cloud_containers
 
-    import nuthatch.config
-    nuthatch.config.dynamic_parameters.clear()
-
-    # Get the test module name - this is the key nuthatch.config uses to look up dynamic params
-    test_module = request.module.__name__.partition('.')[0]
+    from nuthatch.config import set_test_config_provider
 
     # Build config for this provider
-    # Include metadata_location since we're replacing the entire root dict
-    config = {'root': {'metadata_location': 'filesystem'}}
+    # Include 'local' for tests that use cache_local=True
+    config = {
+        'root': {'metadata_location': 'filesystem'},
+        'local': {'filesystem': str(tmp_path / 'local_cache')},
+    }
 
     if provider == "s3":
         s3_info = info["s3"]
@@ -396,6 +376,7 @@ def cloud_provider(request, setup_cloud_containers, monkeypatch):
     elif provider == "gcs":
         gcs_info = info["gcs"]
         config['root']['filesystem'] = f"gs://{gcs_info['bucket']}/cache"
+        config['root']['filesystem_options'] = {'token': 'anon'}
         monkeypatch.setenv("STORAGE_EMULATOR_HOST", gcs_info["credentials"]["endpoint_url"])
 
     elif provider == "azure":
@@ -408,14 +389,14 @@ def cloud_provider(request, setup_cloud_containers, monkeypatch):
             'connection_string': azure_info["credentials"]["connection_string"],
         }
 
-    # Set directly in dynamic_parameters using the test module's name
-    nuthatch.config.dynamic_parameters[test_module] = config
-    print(f">>> cloud_provider: set dynamic_parameters['{test_module}'] = {config}")
+    # Use test config provider to bypass disk loading
+    set_test_config_provider(lambda: config)
+    print(f">>> cloud_provider: set test config provider with {config}")
 
     yield provider
 
-    # Clean up dynamic parameters after test
-    nuthatch.config.dynamic_parameters.clear()
+    # Reset to normal disk-based config loading
+    set_test_config_provider(None)
 
 
 # =============================================================================
@@ -423,14 +404,25 @@ def cloud_provider(request, setup_cloud_containers, monkeypatch):
 # =============================================================================
 
 @pytest.fixture
-def s3_storage(s3_credentials, s3_test_bucket, monkeypatch):
+def s3_storage(s3_credentials, s3_test_bucket):
     """Configure nuthatch to use LocalStack S3."""
+    from nuthatch.config import set_test_config_provider
+
     filesystem = f"s3://{s3_test_bucket}/cache"
-    write_test_config(filesystem)
-    monkeypatch.setenv("AWS_ACCESS_KEY_ID", s3_credentials["aws_access_key_id"])
-    monkeypatch.setenv("AWS_SECRET_ACCESS_KEY", s3_credentials["aws_secret_access_key"])
-    monkeypatch.setenv("AWS_ENDPOINT_URL", s3_credentials["endpoint_url"])
-    monkeypatch.setenv("AWS_DEFAULT_REGION", s3_credentials["region_name"])
+    config = {
+        'root': {
+            'filesystem': filesystem,
+            'metadata_location': 'filesystem',
+            'filesystem_options': {
+                'key': s3_credentials["aws_access_key_id"],
+                'secret': s3_credentials["aws_secret_access_key"],
+                'client_kwargs': {
+                    'endpoint_url': s3_credentials["endpoint_url"],
+                },
+            },
+        }
+    }
+    set_test_config_provider(lambda: config)
 
     yield {
         "uri": filesystem,
@@ -439,15 +431,23 @@ def s3_storage(s3_credentials, s3_test_bucket, monkeypatch):
         "provider": "s3",
     }
 
-    if TEST_CONFIG_PATH.exists():
-        TEST_CONFIG_PATH.unlink()
+    set_test_config_provider(None)
 
 
 @pytest.fixture
 def gcs_storage(gcs_credentials, gcs_test_bucket, monkeypatch):
     """Configure nuthatch to use fake-gcs-server."""
+    from nuthatch.config import set_test_config_provider
+
     filesystem = f"gs://{gcs_test_bucket}/cache"
-    write_test_config(filesystem)
+    config = {
+        'root': {
+            'filesystem': filesystem,
+            'metadata_location': 'filesystem',
+            'filesystem_options': {'token': 'anon'},
+        }
+    }
+    set_test_config_provider(lambda: config)
     monkeypatch.setenv("STORAGE_EMULATOR_HOST", gcs_credentials["endpoint_url"])
 
     yield {
@@ -457,18 +457,28 @@ def gcs_storage(gcs_credentials, gcs_test_bucket, monkeypatch):
         "provider": "gcs",
     }
 
-    if TEST_CONFIG_PATH.exists():
-        TEST_CONFIG_PATH.unlink()
+    set_test_config_provider(None)
 
 
 @pytest.fixture
-def azure_storage(azure_credentials, azure_test_container, monkeypatch):
+def azure_storage(azure_credentials, azure_test_container):
     """Configure nuthatch to use Azurite."""
+    from nuthatch.config import set_test_config_provider
+
     filesystem = f"az://{azure_test_container}/cache"
-    write_test_config(filesystem)
-    monkeypatch.setenv("AZURE_STORAGE_ACCOUNT_NAME", azure_credentials["account_name"])
-    monkeypatch.setenv("AZURE_STORAGE_ACCOUNT_KEY", azure_credentials["account_key"])
-    monkeypatch.setenv("AZURE_STORAGE_CONNECTION_STRING", azure_credentials["connection_string"])
+    config = {
+        'root': {
+            'filesystem': filesystem,
+            'metadata_location': 'filesystem',
+            'filesystem_options': {
+                'account_name': azure_credentials["account_name"],
+                'account_key': azure_credentials["account_key"],
+                'account_host': f"{azure_credentials['host']}:{azure_credentials['port']}",
+                'connection_string': azure_credentials["connection_string"],
+            },
+        }
+    }
+    set_test_config_provider(lambda: config)
 
     yield {
         "uri": filesystem,
@@ -477,5 +487,4 @@ def azure_storage(azure_credentials, azure_test_container, monkeypatch):
         "provider": "azure",
     }
 
-    if TEST_CONFIG_PATH.exists():
-        TEST_CONFIG_PATH.unlink()
+    set_test_config_provider(None)
