@@ -82,7 +82,7 @@ allow-direct-references = true
 managed = true
 
 [tool.pytest.ini_options]
-log_cli = true
+log_cli = false
 log_cli_level = "INFO"
 log_cli_format = "%(asctime)s.%(msecs)03d %(levelname)s %(filename)s:%(lineno)s %(message)s"
 addopts = [
@@ -97,10 +97,10 @@ filterwarnings = [
     "ignore:Consolidated metadata is currently not part in the Zarr format 3 specification:zarr.errors.ZarrUserWarning",
 ]
 markers = [
-    "cloud: marks tests as requiring cloud storage containers (deselect with '-m \"not cloud\"')",
-    "s3: marks tests as requiring S3/LocalStack",
-    "gcs: marks tests as requiring GCS/fake-gcs-server",
-    "azure: marks tests as requiring Azure/Azurite",
+    "s3: test uses S3/LocalStack",
+    "gcs: test uses GCS/fake-gcs-server",
+    "azure: test uses Azure/Azurite",
+    "integration: run against live cloud (not local containers)",
 ]
 
 [tool.coverage.run]
