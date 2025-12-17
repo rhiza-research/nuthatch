@@ -200,7 +200,8 @@ def test_chained(cloud_storage):
     assert ds2['time'].max().values == pd.Timestamp("2000-06-28")
     assert ds2['time'].min().values == pd.Timestamp("2000-06-04")
 
-def test_bare(cloud_storage):
+def test_bare():
+    """Test bare timeseries processor without caching."""
     ds = simple_bare_timeseries(start_time="2000-01-01", end_time="2001-01-01")
     assert ds['time'].max().values == pd.Timestamp("2001-01-01")
     assert ds['time'].min().values == pd.Timestamp("2000-01-01")

@@ -105,14 +105,14 @@ def test_check_if_nested_fn():
 @pytest.mark.gcs
 @pytest.mark.azure
 def test_local_sync(cloud_storage):
-    data = num(10, recompute=True, force_overwrite=True)
+    data = num(10, recompute=True, cache_mode='overwrite')
 
     # Should sync the data to local
     data2 = num(10, cache_local=True)
 
     assert data == data2
 
-    data3 = num(10, recompute=True, force_overwrite=True)
+    data3 = num(10, recompute=True, cache_mode='overwrite')
     # Should resync the data to local
     data4 = num(10, cache_local=True)
 
