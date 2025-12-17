@@ -2,15 +2,12 @@ import pytest
 from nuthatch.config import NuthatchConfig, set_test_config_provider
 from nuthatch import config_parameter
 
-# These tests test the config system itself, not cloud storage
-pytestmark = pytest.mark.no_cloud
-
 
 @pytest.fixture(autouse=True)
 def reset_test_config_provider():
     """Ensure these tests use real config loading, not injected test config.
 
-    Shouldn't be needed since cloud_provider fixture cleans up after itself,
+    Shouldn't be needed since cloud_storage fixture cleans up after itself,
     but ensures an error in a previous test isn't leaving the config provider dirty.
     """
     set_test_config_provider(None)

@@ -1,6 +1,11 @@
 # Test different namespaces here
+import pytest
 from nuthatch import cache
 import numpy as np
+
+
+pytestmark = [pytest.mark.s3, pytest.mark.gcs, pytest.mark.azure]
+
 
 @cache(cache_args=['number'], version="test")
 def num(number=5):
@@ -17,7 +22,7 @@ def ls(el):
     return ret
 
 
-def test_namespace():
+def test_namespace(cloud_storage):
     """Test the basic function."""
     data = num(10, namespace="test1")
     data2 = num(10, namespace="test1")

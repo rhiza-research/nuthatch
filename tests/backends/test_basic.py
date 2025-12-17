@@ -1,5 +1,10 @@
+import pytest
 from nuthatch import cache
 import numpy as np
+
+
+pytestmark = [pytest.mark.s3, pytest.mark.gcs, pytest.mark.azure]
+
 
 @cache(cache_args=['number'])
 def num(number=5):
@@ -16,7 +21,7 @@ def ls(el):
     return ret
 
 
-def test_basic():
+def test_basic(cloud_storage):
     """Test the basic function."""
     num(10)
     ls('test')

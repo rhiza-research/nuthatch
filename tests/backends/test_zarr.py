@@ -1,7 +1,12 @@
+import pytest
 from nuthatch import cache
 import xarray as xr
 import numpy as np
 import pandas as pd
+
+
+pytestmark = [pytest.mark.s3, pytest.mark.gcs, pytest.mark.azure]
+
 
 @cache(cache_args=['name', 'species', 'stride'])
 def simple_array(start_time="2021-01-01", end_time="2021-02-01", name='test', species='coraciidae', stride='day'):
@@ -46,7 +51,7 @@ def chunked_array(start_time="2021-01-01", end_time="2021-02-01", name='test', s
     return ds
 
 
-def test_zarr():
+def test_zarr(cloud_storage):
     """Test the tabular function."""
     data = simple_array(name='josh', recompute=True, cache_mode='overwrite')
     data2 = simple_array(name='josh')
@@ -67,7 +72,7 @@ def test_zarr():
     assert data3.equals(data4)
 
 
-def test_chunking():
+def test_chunking(cloud_storage):
     chunked_array(name='josh', recompute=True, cache_mode='overwrite')
     data2 = chunked_array(name='josh')
     assert data2.chunks['time'][0] == 5

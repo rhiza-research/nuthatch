@@ -4,9 +4,13 @@ from nuthatch.config import NuthatchConfig
 import uuid
 
 
+# All tests in this module require cloud storage
+pytestmark = [pytest.mark.s3, pytest.mark.gcs, pytest.mark.azure]
+
+
 @pytest.fixture
-def cache_config():
-    """Get the location-specific config for Cache (uses test config provider from cloud_provider fixture)."""
+def cache_config(cloud_storage):
+    """Get the location-specific config for Cache (uses test config provider from cloud_storage fixture)."""
     config = NuthatchConfig(wrapped_module='tests')
     root = config['root']
     # Build location-specific config like the original test_config structure
