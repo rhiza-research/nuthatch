@@ -123,8 +123,9 @@ def gcs_container(request):
         s.bind(('', 0))
         external_port = s.getsockname()[1]
 
-    # Use fake-gcs-server-xml with XML API support for delta-rs compatibility
-    container = DockerContainer("fake-gcs-server-xml:latest")
+    # Use fake-gcs-server with XML API support for delta-rs compatibility
+    # Published from: https://github.com/rhiza-research/fake-gcs-server
+    container = DockerContainer("ghcr.io/rhiza-research/fake-gcs-server:latest")
     container.with_bind_ports(4443, external_port)
     container.with_command(f"-scheme http -backend memory -public-host localhost:{external_port} -external-url http://localhost:{external_port}")
     container.start()
