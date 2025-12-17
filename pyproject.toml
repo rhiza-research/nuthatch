@@ -92,6 +92,10 @@ addopts = [
     "--cov-report=html",
     "--cov-report=xml",
 ]
+filterwarnings = [
+    "ignore::DeprecationWarning:testcontainers.*:",
+    "ignore:Consolidated metadata is currently not part in the Zarr format 3 specification:zarr.errors.ZarrUserWarning",
+]
 markers = [
     "cloud: marks tests as requiring cloud storage containers (deselect with '-m \"not cloud\"')",
     "s3: marks tests as requiring S3/LocalStack",
