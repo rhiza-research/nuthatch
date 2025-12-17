@@ -182,7 +182,7 @@ class NuthatchConfig:
                     if parts[1] in ['ROOT', 'LOCAL', 'MIRROR'] or parts[1].startswith('MIRROR'):
                         if self._is_backend(parts[2].lower()):
                             if len(parts) == 3:
-                                logger.warn(f"Found nuthatch environment variable {key} with location and backend but not parameter name. Skipping.")
+                                logger.warning(f"Found nuthatch environment variable {key} with location and backend but not parameter name. Skipping.")
                             else:
                                 location_config = config.setdefault(parts[1].lower(), {})
                                 backend_config = location_config.setdefault(parts[2].lower(), {})
