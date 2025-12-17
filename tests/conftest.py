@@ -23,6 +23,47 @@ from testcontainers.localstack import LocalStackContainer
 from testcontainers.core.container import DockerContainer
 import s3fs
 
+import nuthatch.config
+
+
+class test_config:
+    """Context manager for setting test config.
+
+    Usage:
+        with test_config({'root': {'filesystem': 's3://test'}}) as ctx:
+            # nuthatch operations use this config
+            result = my_cached_function()
+            # Check if config was accessed
+            assert ctx.was_accessed
+
+        # To reset config to normal disk-based loading:
+        test_config.reset()
+    """
+
+    def __init__(self, config):
+        self.config = config
+        self.previous_provider = None
+        self.was_accessed = False
+
+    def __enter__(self):
+        self.previous_provider = nuthatch.config._test_config_provider
+
+        def tracking_provider():
+            self.was_accessed = True
+            return self.config
+
+        nuthatch.config._test_config_provider = tracking_provider
+        return self
+
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        nuthatch.config._test_config_provider = self.previous_provider
+        return False
+
+    @staticmethod
+    def reset():
+        """Reset to normal disk-based config loading."""
+        nuthatch.config._test_config_provider = None
+
 
 def pytest_configure(config):
     """Register custom markers."""
@@ -294,9 +335,12 @@ def cloud_storage(request, tmp_path, monkeypatch):
     The provider is determined by pytest_generate_tests based on markers.
     Local mode: uses containers (LocalStack, fake-gcs-server, Azurite)
     Integration mode (-m integration): uses live cloud credentials from env
-    """
-    from nuthatch.config import set_test_config_provider
 
+    Tests can either:
+    1. Use the fixture's config directly (it's automatically set as the test config provider)
+    2. Use the config dict to build their own config with test_config() context manager
+    """
+    
     provider = request.param
     integration = is_integration_mode(request)
 
@@ -372,24 +416,45 @@ def cloud_storage(request, tmp_path, monkeypatch):
                 'azure_storage_use_emulator': '1',
             }
 
-    # Track whether the config provider was actually accessed during the test
-    config_accessed = []
+    # Track whether config was explicitly accessed (for tests that derive their own config)
+    config_dict_accessed = []
 
-    def config_provider():
-        config_accessed.append(True)
-        return config
+    class CloudStorageResult(dict):
+        """Result object from cloud_storage fixture with config context support."""
 
-    # Use test config provider to bypass disk loading
-    set_test_config_provider(config_provider)
+        def __getitem__(self, key):
+            if key == "config":
+                config_dict_accessed.append(True)
+            return super().__getitem__(key)
 
-    yield {"provider": provider, "config": config, "integration": integration}
+        def config_context(self, custom_config):
+            """Return a context manager for using a custom config.
 
-    # Reset to normal disk-based config loading
-    set_test_config_provider(None)
+            Use this when you need to override the default config, e.g. for
+            testing mirror storage with multiple config phases.
+
+            Usage:
+                with cloud_storage.config_context(my_config):
+                    # nuthatch operations use my_config
+                    result = my_cached_function()
+            """
+            config_dict_accessed.append(True)  # Accessing config_context counts as usage
+            return test_config(custom_config)
+
+    result = CloudStorageResult({
+        "provider": provider,
+        "config": config,
+        "integration": integration
+    })
+
+    # Use context manager for clean setup/teardown with access tracking
+    with test_config(config) as ctx:
+        yield result
 
     # Verify the test actually used cloud storage
-    if not config_accessed:
-        # Find which markers are actually on this test
+    # Valid usage: either the config provider was invoked by nuthatch operations,
+    # OR the test explicitly accessed cloud_storage["config"] to derive its own config
+    if not ctx.was_accessed and not config_dict_accessed:
         present_markers = []
         for marker in ["s3", "gcs", "azure"]:
             if request.node.get_closest_marker(marker):
@@ -408,8 +473,7 @@ def cloud_storage(request, tmp_path, monkeypatch):
 @pytest.fixture
 def s3_storage(request, s3_credentials, s3_test_bucket, tmp_path):
     """Configure nuthatch to use LocalStack S3."""
-    from nuthatch.config import set_test_config_provider
-
+    
     if is_integration_mode(request):
         bucket = os.environ.get("AWS_TEST_BUCKET")
         if not bucket:
@@ -443,23 +507,19 @@ def s3_storage(request, s3_credentials, s3_test_bucket, tmp_path):
             'local': {'filesystem': str(tmp_path / 'local_cache')},
         }
 
-    set_test_config_provider(lambda: config)
-
-    yield {
-        "uri": filesystem,
-        "bucket": s3_test_bucket,
-        "credentials": s3_credentials,
-        "provider": "s3",
-    }
-
-    set_test_config_provider(None)
+    with test_config(config):
+        yield {
+            "uri": filesystem,
+            "bucket": s3_test_bucket,
+            "credentials": s3_credentials,
+            "provider": "s3",
+        }
 
 
 @pytest.fixture
 def gcs_storage(request, gcs_credentials, gcs_test_bucket, monkeypatch, tmp_path):
     """Configure nuthatch to use fake-gcs-server."""
-    from nuthatch.config import set_test_config_provider
-
+    
     if is_integration_mode(request):
         bucket = os.environ.get("GCS_TEST_BUCKET")
         if not bucket:
@@ -488,23 +548,19 @@ def gcs_storage(request, gcs_credentials, gcs_test_bucket, monkeypatch, tmp_path
         }
         monkeypatch.setenv("STORAGE_EMULATOR_HOST", gcs_credentials["endpoint_url"])
 
-    set_test_config_provider(lambda: config)
-
-    yield {
-        "uri": filesystem,
-        "bucket": gcs_test_bucket,
-        "credentials": gcs_credentials,
-        "provider": "gcs",
-    }
-
-    set_test_config_provider(None)
+    with test_config(config):
+        yield {
+            "uri": filesystem,
+            "bucket": gcs_test_bucket,
+            "credentials": gcs_credentials,
+            "provider": "gcs",
+        }
 
 
 @pytest.fixture
 def azure_storage(request, azure_credentials, azure_test_container, tmp_path):
     """Configure nuthatch to use Azurite."""
-    from nuthatch.config import set_test_config_provider
-
+    
     if is_integration_mode(request):
         container = os.environ.get("AZURE_TEST_CONTAINER")
         if not container:
@@ -537,16 +593,13 @@ def azure_storage(request, azure_credentials, azure_test_container, tmp_path):
             'local': {'filesystem': str(tmp_path / 'local_cache')},
         }
 
-    set_test_config_provider(lambda: config)
-
-    yield {
-        "uri": filesystem,
-        "container": azure_test_container,
-        "credentials": azure_credentials,
-        "provider": "azure",
-    }
-
-    set_test_config_provider(None)
+    with test_config(config):
+        yield {
+            "uri": filesystem,
+            "container": azure_test_container,
+            "credentials": azure_credentials,
+            "provider": "azure",
+        }
 
 
 # =============================================================================
@@ -587,8 +640,7 @@ def postgres_storage(request, postgres_credentials, tmp_path):
     Local mode: uses PostgreSQL container
     Integration mode (-m integration): uses live PostgreSQL credentials from env
     """
-    from nuthatch.config import set_test_config_provider
-
+    
     if is_integration_mode(request):
         host = os.environ.get("POSTGRES_HOST")
         if not host:
@@ -612,8 +664,5 @@ def postgres_storage(request, postgres_credentials, tmp_path):
         }
     }
 
-    set_test_config_provider(lambda: config)
-
-    yield {"credentials": credentials, "config": config}
-
-    set_test_config_provider(None)
+    with test_config(config):
+        yield {"credentials": credentials, "config": config}
