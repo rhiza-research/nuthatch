@@ -20,9 +20,68 @@ import pytest
 
 from testcontainers.localstack import LocalStackContainer
 from testcontainers.core.container import DockerContainer
+import asyncio
 import s3fs
 
 import nuthatch.config
+
+
+def pytest_sessionfinish(session, exitstatus):
+    """Clean up fsspec/s3fs resources to prevent 'Loop is not running' errors at exit.
+
+    This addresses a known issue in fsspec/s3fs where weakref finalizers try to
+    run async cleanup after the event loop has stopped. We detach those finalizers
+    here while the loop is still running.
+
+    See: https://github.com/fsspec/s3fs/issues/768
+         https://github.com/fsspec/adlfs/issues/495
+    """
+    import gc
+    import weakref
+    from fsspec.asyn import loop as fsspec_loop_ref, iothread
+
+    fsspec_loop = fsspec_loop_ref[0]
+    if fsspec_loop is None:
+        return
+
+    # Close all cached s3fs instances using fsspec's loop while it's running
+    for _, fs in list(s3fs.S3FileSystem._cache.items()):
+        try:
+            if hasattr(fs, '_s3') and fs._s3 is not None and fsspec_loop.is_running():
+                future = asyncio.run_coroutine_threadsafe(
+                    fs._s3.__aexit__(None, None, None),
+                    fsspec_loop
+                )
+                future.result(timeout=5)
+        except Exception:
+            pass
+
+    # Clear instance caches
+    s3fs.S3FileSystem.clear_instance_cache()
+
+    # Detach fsspec finalizers that would fail at interpreter exit
+    def detach_fsspec_finalizers():
+        for ref, info in list(weakref.finalize._registry.items()):
+            try:
+                func_name = getattr(info.func, '__name__', '')
+                if func_name in ('close_session', 'sync', '_close_pool_connections'):
+                    ref.detach()
+            except Exception:
+                pass
+
+    detach_fsspec_finalizers()
+    gc.collect()
+    detach_fsspec_finalizers()  # Detach any created during GC
+
+    # Stop fsspec's event loop
+    if fsspec_loop.is_running():
+        fsspec_loop.call_soon_threadsafe(fsspec_loop.stop)
+        if iothread[0] is not None:
+            iothread[0].join(timeout=5)
+        fsspec_loop.close()
+        fsspec_loop_ref[0] = None
+        iothread[0] = None
+
 
 
 class test_config:
@@ -148,6 +207,8 @@ def s3_test_bucket(localstack_container, s3_credentials):
     """Create a test bucket in LocalStack S3."""
     bucket_name = f"nuthatch-test-{uuid.uuid4().hex[:8]}"
 
+    # Create sync filesystem - don't pass loop= or asynchronous= parameters
+    # per s3fs issue #768 recommendation
     fs = s3fs.S3FileSystem(
         key=s3_credentials["aws_access_key_id"],
         secret=s3_credentials["aws_secret_access_key"],
@@ -157,7 +218,7 @@ def s3_test_bucket(localstack_container, s3_credentials):
 
     yield bucket_name
 
-    # Cleanup
+    # Cleanup bucket contents
     try:
         fs.rm(bucket_name, recursive=True)
     except Exception:
