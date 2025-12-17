@@ -1,6 +1,8 @@
 from nuthatch.backend import FileBackend, register_backend
 import xarray as xr
 import numpy as np
+import fsspec
+import json
 
 import logging
 logger = logging.getLogger(__name__)
@@ -110,6 +112,45 @@ def is_single_chunk(ds):
         return False
 
 
+def is_azure_path(path):
+    """Check if the path is an Azure Blob Storage path."""
+    protocol = fsspec.utils.get_protocol(path)
+    return protocol in ('az', 'abfs', 'abfss')
+
+
+def manual_consolidate_metadata(store):
+    """Manually consolidate zarr metadata for stores where automatic consolidation fails.
+
+    This is a workaround for zarr 3.x + adlfs bug where directory listing doesn't work
+    correctly, causing automatic metadata consolidation to miss array definitions.
+    See: https://github.com/zarr-developers/zarr-python/issues/2830
+
+    Args:
+        store: An fsspec mapper or similar store object with keys() method
+    """
+    metadata = {}
+    for key in store.keys():
+        # Collect zarr v2 metadata files
+        if key.endswith('.zarray') or key.endswith('.zattrs') or key.endswith('.zgroup'):
+            try:
+                metadata[key] = json.loads(store[key])
+            except (json.JSONDecodeError, KeyError):
+                logger.warning(f"Failed to read metadata key: {key}")
+                continue
+
+    if not metadata:
+        logger.warning("No metadata found to consolidate")
+        return
+
+    consolidated = {
+        "zarr_consolidated_format": 1,
+        "metadata": metadata
+    }
+
+    store['.zmetadata'] = json.dumps(consolidated).encode('utf-8')
+    logger.debug(f"Manually consolidated {len(metadata)} metadata keys")
+
+
 @register_backend
 class ZarrBackend(FileBackend):
     """
@@ -168,15 +209,22 @@ class ZarrBackend(FileBackend):
             # We must auto open chunks. This tries to use the underlying zarr chunking if possible.
             # Setting chunks=True triggers what I think is an xarray/zarr engine bug where
             # every chunk is only 4B!
+
+            # For Azure, we need to use consolidated=True due to zarr 3.x + adlfs bug
+            # where directory listing doesn't work correctly
+            consolidated = None
+            if is_azure_path(self.path):
+                consolidated = True
+
             if self.auto_rechunk:
                 # If rechunk is passed then check to see if the rechunk array
                 # matches chunking. If not then rechunk
                 if engine == xr.DataArray:
-                    ds_remote = xr.open_dataarray(self.path, engine='zarr', chunks={}, decode_timedelta=True)
+                    ds_remote = xr.open_dataarray(self.path, engine='zarr', chunks={}, decode_timedelta=True, consolidated=consolidated)
                     if not isinstance(self.chunking, dict):
                         raise ValueError("If auto_rechunk is True, a chunking dict must be supplied.")
                 else:
-                    ds_remote = xr.open_dataset(self.path, engine='zarr', chunks={}, decode_timedelta=True)
+                    ds_remote = xr.open_dataset(self.path, engine='zarr', chunks={}, decode_timedelta=True, consolidated=consolidated)
                     if not isinstance(self.chunking, dict):
                         raise ValueError("If auto_rechunk is True, a chunking dict must be supplied.")
 
@@ -199,16 +247,18 @@ class ZarrBackend(FileBackend):
 
                     # Reopen the dataset - will use the appropriate global or local cache
                     return xr.open_dataset(self.path, engine='zarr',
-                                           chunks={}, decode_timedelta=True, storage_options=self.config['filesystem_options'].copy())
+                                           chunks={}, decode_timedelta=True, storage_options=self.config['filesystem_options'].copy(),
+                                           consolidated=consolidated)
                 else:
                     # Requested chunks already match rechunk.
                     return xr.open_dataset(self.path, engine='zarr',
-                                           chunks={}, decode_timedelta=True, storage_options=self.config['filesystem_options'].copy())
+                                           chunks={}, decode_timedelta=True, storage_options=self.config['filesystem_options'].copy(),
+                                           consolidated=consolidated)
             else:
                 if engine == xr.DataArray:
-                    return xr.open_dataarray(self.path, engine='zarr', chunks={}, decode_timedelta=True, storage_options=self.config['filesystem_options'].copy())
+                    return xr.open_dataarray(self.path, engine='zarr', chunks={}, decode_timedelta=True, storage_options=self.config['filesystem_options'].copy(), consolidated=consolidated)
                 else:
-                    return xr.open_dataset(self.path, engine='zarr', chunks={}, decode_timedelta=True, storage_options=self.config['filesystem_options'].copy())
+                    return xr.open_dataset(self.path, engine='zarr', chunks={}, decode_timedelta=True, storage_options=self.config['filesystem_options'].copy(), consolidated=consolidated)
         else:
             raise NotImplementedError(f"Zarr backend does not support reading zarrs to {engine} engine")
 
@@ -237,7 +287,17 @@ class ZarrBackend(FileBackend):
             if self.fs.exists(path):
                 self.fs.rm(path, recursive=True)
 
-            ds.to_zarr(store=path, mode='w', storage_options=self.config['filesystem_options'].copy())
+            # Azure workaround: zarr 3.x + adlfs has a bug where directory listing doesn't work,
+            # causing xarray to return empty datasets. Use zarr v2 format with manual metadata
+            # consolidation, which builds .zmetadata using store.keys() (works with adlfs).
+            # See: https://github.com/zarr-developers/zarr-python/issues/2830
+            if is_azure_path(path):
+                ds.to_zarr(store=path, mode='w', storage_options=self.config['filesystem_options'].copy(),
+                        zarr_format=2, consolidated=False)
+                store = fsspec.get_mapper(path, **self.config['filesystem_options'].copy())
+                manual_consolidate_metadata(store)
+            else:
+                ds.to_zarr(store=path, mode='w', storage_options=self.config['filesystem_options'].copy())
         except ValueError as e:
             if chunking == 'auto':
                 logger.error("Writing to backend zarr failed and chunking is set to 'auto'. This could be the problem. Try setting chunks explictly in the nuthatch function.")
