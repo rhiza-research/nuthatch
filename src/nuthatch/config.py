@@ -21,20 +21,9 @@ logger = logging.getLogger(__name__)
 dynamic_parameters = {}
 
 # Test hook - set this to bypass disk loading during tests
+# This is manipulated by test_config in conftest.py
 _test_config_provider = None
 
-
-def set_test_config_provider(provider):
-    """Set a function that returns config dict, bypassing disk loading.
-
-    For testing: call with a lambda or function that returns the desired config.
-    Call with None to reset to normal disk-based loading.
-
-    Example:
-        set_test_config_provider(lambda: {'root': {'filesystem': 's3://test'}})
-    """
-    global _test_config_provider
-    _test_config_provider = provider
 
 def set_global_skipped_filesystem(filesystem):
     config_file = os.path.expanduser('~/.nuthatch.toml')
