@@ -15,14 +15,8 @@ jobs:
         python-version: ['3.12']
     permissions:
       contents: read
-      id-token: write
     steps:
     - uses: actions/checkout@v4
-
-    - name: Auth to Google Cloud
-      uses: google-github-actions/auth@v2
-      with:
-        credentials_json: ${{ secrets.GCLOUD_CREDENTIALS }}
 
     - name: Set up Python ${{ matrix.python-version }}
       uses: actions/setup-python@v5
@@ -36,7 +30,7 @@ jobs:
 
     - name: Install dependencies
       run: |
-        uv pip install --system -e . --group dev
+        uv pip install --system -e . --group dev --group cloud-test
 
     - name: Run tests with pytest
       run: |
