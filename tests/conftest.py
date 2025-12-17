@@ -9,10 +9,9 @@ Tests must explicitly:
 2. Request the cloud_storage fixture
 
 Usage:
-    pytest                          # Run against local containers
-    pytest -m integration           # Run against live cloud services
-    pytest -m s3                    # Run only S3 tests
-    pytest -m "gcs and integration" # Run GCS tests against live GCS
+    pytest -m gcs                   # Run GCS tests against fake-gcs-server container
+    pytest -m gcs --integration     # Run GCS tests against live GCS
+    pytest -m s3 --integration      # Run S3 tests against live AWS
 """
 
 import os
@@ -65,27 +64,43 @@ class test_config:
         nuthatch.config._test_config_provider = None
 
 
+def pytest_addoption(parser):
+    """Add custom CLI options."""
+    parser.addoption(
+        "--integration",
+        action="store_true",
+        default=False,
+        help="Run against live cloud services instead of local containers",
+    )
+
+
 def pytest_configure(config):
     """Register custom markers."""
     config.addinivalue_line("markers", "s3: marks tests as requiring S3/LocalStack")
     config.addinivalue_line("markers", "gcs: marks tests as requiring GCS/fake-gcs-server")
     config.addinivalue_line("markers", "azure: marks tests as requiring Azure/Azurite")
-    config.addinivalue_line("markers", "integration: run against live cloud (not local containers)")
 
 
 def pytest_generate_tests(metafunc):
-    """Parametrize cloud_storage based on which provider markers are on the test."""
+    """Parametrize cloud_storage based on which provider markers are on the test.
+
+    Respects -m filter: if -m gcs is passed, only parametrize with gcs even if
+    the test also has s3/azure markers.
+    """
     if "cloud_storage" not in metafunc.fixturenames:
         return
 
+    # Get the marker expression from CLI (e.g., "gcs", "s3", "gcs or s3")
+    markexpr = metafunc.config.getoption("-m", default="")
+
     # Check which provider markers are on this test
     providers = []
-    if metafunc.definition.get_closest_marker("s3"):
-        providers.append("s3")
-    if metafunc.definition.get_closest_marker("gcs"):
-        providers.append("gcs")
-    if metafunc.definition.get_closest_marker("azure"):
-        providers.append("azure")
+    for provider in ["gcs", "s3", "azure"]:
+        if metafunc.definition.get_closest_marker(provider):
+            # If a marker filter is set, only include providers that match
+            if markexpr and provider not in markexpr:
+                continue
+            providers.append(provider)
 
     if not providers:
         pytest.fail(f"Test {metafunc.function.__name__} requests cloud_storage but has no provider markers (@pytest.mark.s3, @pytest.mark.gcs, @pytest.mark.azure)")
@@ -94,8 +109,11 @@ def pytest_generate_tests(metafunc):
 
 
 def is_integration_mode(request):
-    """Check if running in integration mode (live cloud, not containers)."""
-    return request.node.get_closest_marker("integration") is not None
+    """Check if running in integration mode (live cloud, not containers).
+
+    Pass --integration to run against live cloud.
+    """
+    return request.config.getoption("--integration")
 
 
 # =============================================================================
@@ -360,6 +378,7 @@ def cloud_storage(request, tmp_path, monkeypatch):
             config['root']['filesystem_options'] = {
                 'key': os.environ.get("AWS_ACCESS_KEY_ID"),
                 'secret': os.environ.get("AWS_SECRET_ACCESS_KEY"),
+                'token': os.environ.get("AWS_SESSION_TOKEN"),  # For SSO/assumed role credentials
             }
         else:
             s3_credentials = request.getfixturevalue("s3_credentials")
@@ -486,6 +505,7 @@ def s3_storage(request, s3_credentials, s3_test_bucket, tmp_path):
                 'filesystem_options': {
                     'key': os.environ.get("AWS_ACCESS_KEY_ID"),
                     'secret': os.environ.get("AWS_SECRET_ACCESS_KEY"),
+                    'token': os.environ.get("AWS_SESSION_TOKEN"),
                 },
             },
             'local': {'filesystem': str(tmp_path / 'local_cache')},
