@@ -8,6 +8,7 @@ import xarray as xr
 import logging
 logger = logging.getLogger(__name__)
 
+
 class timeseries(NuthatchProcessor):
     """
     Processor for timeseries data.
@@ -93,8 +94,13 @@ class timeseries(NuthatchProcessor):
         else:
             raise RuntimeError(f"Cannot filter timeseries for data type {type(ds)}")
 
+        # Set start and end time as attributesi
+        if start_time is None:
+            start_time = ds[time_col].min().values
+        if end_time is None:
+            end_time = ds[time_col].max().values
+        ds = ds.assign_attrs({'start_time': start_time, 'end_time': end_time})
         return ds
-
 
     def validate(self, ds):
         start_time = self.start_time

@@ -213,13 +213,19 @@ class ZarrBackend(FileBackend):
 
         try:
             chunk_size, chunk_with_labels = get_chunk_size(ds)
-
-            if chunk_size > self.chunk_size_upper_limit_mb or chunk_size < self.chunk_size_lower_limit_mb:
-                logger.warning(f"WARNING: Chunk size is {chunk_size}MB. Target approx 100MB.")
+            # Don't print the size warning if everything is in a single chunk and it's still too small.
+            single_chunk = all([len(x) == 1 for x in ds.chunks.values()])
+            if (chunk_size > self.chunk_size_upper_limit_mb) or (chunk_size < self.chunk_size_lower_limit_mb and not single_chunk):
+                logger.warning(f"WARNING: zarr chunk size is {chunk_size}MB, which is outside the reccomended bounds and will hurt performance. Target approx 100MB.")
                 logger.warning(chunk_with_labels)
         except ValueError:
             logger.warning("Failed to get chunks size! Continuing with unknown chunking...")
+        try:
+            ds.to_zarr(store=path, mode='w')
+        except ValueError as e:
+            if chunking == 'auto': 
+                logger.error("Writing to backend zarr failed and cunking is set to 'auto'. This could be the problem. Try setting chunks explictly in the nuthatch function.")
+            raise e
 
-        ds.to_zarr(store=path, mode='w')
 
 
