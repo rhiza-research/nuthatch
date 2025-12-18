@@ -610,7 +610,7 @@ def cache(cache=True,
             if cache_mode is None and 'root' in config:
                 cache_mode = 'write'
             elif cache_mode is None:
-                cache_mode = 'local_strict'
+                cache_mode = 'local_api'
             write_global, write_local, read_global, read_local, force_overwrite, strict_read = get_cache_mode(
                 cache_mode)
             # If strict read is set, overwrite fail if no cache. Otherwise, use the value from the decorator
@@ -633,7 +633,7 @@ def cache(cache=True,
                     caches, mirror_exception = instantiate_read_caches(
                         config, cache_key, namespace, version, cache_arg_values, backend, backend_kwargs)
                 except RuntimeError as e:
-                    if read_global == True or write_global == True:
+                    if read_global == True or write_global == True: # noqa: E712, must check the boolean
                         raise e
                     else:
                         # If we're not writing to the global cache, we can continue
@@ -717,7 +717,7 @@ def cache(cache=True,
             # 4. If we need to compute the result, do so by calling the function
             #######################################################################################
             if compute_result:
-                if fail_if_no_cache and cache == True:
+                if fail_if_no_cache and cache == True: # noqa: E712, must check the boolean
                     # If this is a cachable function and we're in strict read mode, raise an error
                     raise RuntimeError(
                         f"Computation has been disabled by strict read mode and cache doesn't exist for {cache_print}.")
