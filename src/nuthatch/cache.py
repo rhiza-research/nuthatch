@@ -208,7 +208,8 @@ class NuthatchMetastore(Metastore):
 
         if verbose:
             if '*' in full_path:
-                raise ValueError("Verbose list a full path with a specified backend")
+                raise ValueError("Can only print verbose information for a specific, fully specified cache path. "
+                                 "Please re-run with a specific cache path.")
             df = ps.read_parquet(full_path)
             return df
         else:

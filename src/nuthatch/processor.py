@@ -8,6 +8,7 @@ import functools
 import logging
 logger = logging.getLogger(__name__)
 
+
 class NuthatchProcessor(ABC):
     """
     Base class for all Nuthatch processors.
@@ -18,6 +19,7 @@ class NuthatchProcessor(ABC):
     It can be used in combination with cacheable to, for instance, post process cached values or inject
     repeated arguments into a cacheable function.
     """
+
     def __init__(self, **kwargs):
         """
         Initialize a processor.
@@ -71,11 +73,11 @@ class NuthatchProcessor(ABC):
             if self.validate_data and not self.validate(data):
                 raise ValueError("Data failed validation. Please manually overwrite data to proceed.")
 
-                #if 'force_overwrite' in kwargs and kwargs['force_overwrite']:
+                # if 'force_overwrite' in kwargs and kwargs['force_overwrite']:
                 #    logger.info("Data validation failed and force_overwrite set. Overwriting the result.")
                 #    kwargs['recompute'] = True #TODO - does this mess with recompute?
                 #    data = self.func(*args, **kwargs)
-                #else:
+                # else:
                 #    inp = input("""Data failed validation. Would you like to overwrite the result (y/n)?""")
                 #    if inp == 'y' or inp == 'Y':
                 #        if 'recompute' in kwargs:
