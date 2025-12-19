@@ -118,7 +118,17 @@ def cli():
 @click.option('--backend', help='Backend to use', required=True)
 @click.option('--location', help='Location to search', default='root')
 def import_data(cache_key, namespace, version, backend, location):
-    """Import data from a glob pattern."""
+    """Import existing data files into the nuthatch cache.
+
+    Scans for data files matching CACHE_KEY and registers them in the
+    nuthatch metastore without re-writing the data.
+
+    \b
+    Examples:
+      nuthatch import "mydata/*" --backend zarr    # Import zarr stores
+      nuthatch import "results/*" --backend basic  # Import pickle files
+      nuthatch import "empty/*" --backend null     # Mark keys as null
+    """
 
     # First instantiate the backend based on the passed backend
     global root_module
@@ -137,14 +147,13 @@ def import_data(cache_key, namespace, version, backend, location):
         base_path = config[location]['filesystem']
         extension = 'null'
 
-        if 'filesystem_options' not in config:
-            config['filesystem_options'] = {}
+        fs_options = config[location].get('filesystem_options', {})
 
         if namespace:
             path = os.path.join(base_path, cache_key, namespace) + '.null'
         else:
             path = os.path.join(base_path, cache_key)  + '.null'
-        fs = fsspec.core.url_to_fs(base_path, **config['filesystem_options'])[0]
+        fs = fsspec.core.url_to_fs(base_path, **fs_options)[0]
 
     cache_keys = []
     if  fs is not None:
@@ -216,6 +225,20 @@ def list_helper(cache_key, namespace, backend, location, verbose=False):
 @click.option('--location', help='Location to search', default='root')
 @click.option('--verbose', '-v', is_flag=True, help='List all information about the cache')
 def list_caches(cache_key, namespace, backend, location, verbose):
+    """List cache entries matching a pattern.
+
+    CACHE_KEY is an optional glob pattern to filter results.
+
+    \b
+    Pattern examples:
+      nuthatch list              # List all single-level cache keys
+      nuthatch list "mydata*"    # Keys starting with 'mydata' (single-level)
+      nuthatch list "proj/*"     # All keys under 'proj/' (multi-level)
+      nuthatch list "a/b/*"      # All keys under 'a/b/' (3+ levels)
+
+    Note: Patterns without '/' only match single-level cache keys.
+    For hierarchical keys, include the path structure explicitly.
+    """
 
     caches = list_helper(cache_key, namespace, backend, location, verbose)
 
@@ -239,12 +262,22 @@ def list_caches(cache_key, namespace, backend, location, verbose):
 @click.option('--location', help='Location to search', default='root')
 @click.option('--force', '-f', is_flag=True, help='Force deletion without confirmation')
 @click.option('--metadata-only', '-m', is_flag=True, help='Only delete the metadata for the cache, not the underlying data.')
-def delete_cache(cache_key, namespace, backend, location, force, metadata_only):
-    """Clear cache entries."""
+def delete_cache(cache_key: str, namespace: str | None, backend: str | None, location: str, force: bool, metadata_only: bool):
+    """Delete cache entries matching a pattern.
+
+    CACHE_KEY is a glob pattern to match entries for deletion.
+
+    \b
+    Pattern examples:
+      nuthatch delete "mydata"      # Delete exact key 'mydata'
+      nuthatch delete "mydata*"     # Delete keys starting with 'mydata' (single-level)
+      nuthatch delete "proj/*"      # Delete all keys under 'proj/' (multi-level)
+
+    Note: Patterns without '/' only match single-level cache keys.
+    """
     caches = list_helper(cache_key, namespace, backend, location)
     global root_module
     config = NuthatchConfig(wrapped_module=root_module)
-    cache = Cache(config[location], None, namespace, None, None, backend, {})
 
     if len(caches) == 0:
         print("No caches found to delete.")
@@ -252,12 +285,12 @@ def delete_cache(cache_key, namespace, backend, location, force, metadata_only):
 
     click.confirm(f"Are you sure you want to delete {len(caches)} cache entries?\n{str(caches[['cache_key', 'backend']])}\n", abort=True)
 
-    for cache in caches.to_dict(orient='records'):
-        if cache['backend'] == 'null':
-            cache = Cache(config, cache['cache_key'], namespace, None, None, None, {})
+    for cache_entry in caches.to_dict(orient='records'):
+        if cache_entry['backend'] == 'null':
+            cache = Cache(config[location], cache_entry['cache_key'], namespace, None, None, None, {})
         else:
-            cache = Cache(config, cache['cache_key'], namespace, None, None, cache['backend'], {})
-        click.echo(f"Deleting {cache.cache_key} from {cache.location} with backend {cache.backend_name}.")
+            cache = Cache(config[location], cache_entry['cache_key'], namespace, None, None, cache_entry['backend'], {})
+        click.echo(f"Deleting {cache.cache_key} from {location} with backend {cache.backend_name}.")
         if metadata_only:
             cache._delete_metadata()
         else:
@@ -269,7 +302,16 @@ def delete_cache(cache_key, namespace, backend, location, force, metadata_only):
 @click.option('--from-location', help='Location to copy data to', default='root')
 @click.option('--to-location', help='Location to copy data to', default='mirror')
 def copy_cache(cache_key, namespace, from_location, to_location):
-    """Copy cache entries."""
+    """Copy cache entries between locations.
+
+    Copies data matching CACHE_KEY from one location to another
+    (e.g., from root to a mirror or local cache).
+
+    \b
+    Examples:
+      nuthatch cp "mydata*" --from-location root --to-location local
+      nuthatch cp "proj/*" --to-location mirror
+    """
     caches = list_helper(cache_key, namespace, None, from_location)
     from_config = get_config(location=from_location, requested_parameters=Cache.config_parameters)
     to_config = get_config(location=to_location, requested_parameters=Cache.config_parameters)[to_location]
@@ -297,9 +339,19 @@ def copy_cache(cache_key, namespace, from_location, to_location):
 @cli.command('print-config')
 @click.option('--location', help='Location to search', default='root')
 @click.option('--backend', help='Backend to use')
-@click.option('--show-secrets', '-s', is_flag=True, help='Only delete the metadata for the cache, not the underlying data.')
+@click.option('--show-secrets', '-s', is_flag=True, help='Show secret values instead of masking them.')
 def get_config_value(location, backend, show_secrets):
-    """Get configuration value for a specific key."""
+    """Print nuthatch configuration.
+
+    Displays the current configuration for a location and optionally
+    a specific backend. Secrets are masked by default.
+
+    \b
+    Examples:
+      nuthatch print-config                    # Show root config
+      nuthatch print-config --backend zarr     # Show zarr backend config
+      nuthatch print-config -s                 # Show secrets unmasked
+    """
     # Get the root module we are executing from from the dynamic secrets path or the project name
     global root_module
     mask = (not show_secrets)
