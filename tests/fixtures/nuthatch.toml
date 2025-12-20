@@ -1,0 +1,6 @@
+[tool.nuthatch]
+filesystem = "/tmp/nuthatch-cache"
+metadata_location = "filesystem"
+
+[tool.nuthatch.local]
+filesystem = "/tmp/nuthatch-local-cache"

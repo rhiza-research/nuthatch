@@ -1,87 +1,27 @@
 """
-Pytest fixtures for cloud storage testing with testcontainers.
+Pytest fixtures for cloud storage testing.
 
 This module provides fixtures for testing nuthatch backends against
-LocalStack (S3), fake-gcs-server (GCS), and Azurite (Azure Blob Storage).
+cloud storage providers (S3, GCS, Azure Blob Storage) and PostgreSQL.
 
-Tests must explicitly:
-1. Mark which provider(s) they support: @pytest.mark.s3, @pytest.mark.gcs, @pytest.mark.azure
-2. Request the cloud_storage fixture
+Configuration is entirely environment-driven:
+- Docker (docker-compose.test.yml): Environment variables point to emulators
+  (LocalStack, fake-gcs-server, Azurite) running in isolated network
+- Local (.envrc): Environment variables contain real cloud credentials
 
 Usage:
-    pytest -m gcs                   # Run GCS tests against fake-gcs-server container
-    pytest -m gcs --integration     # Run GCS tests against live GCS
-    pytest -m s3 --integration      # Run S3 tests against live AWS
+    # Run in Docker with emulators (isolated, no internet):
+    docker compose -f docker-compose.test.yml run --rm test
+
+    # Run locally with real cloud credentials:
+    pytest -m gcs
 """
 
 import os
 import uuid
 import pytest
 
-from testcontainers.localstack import LocalStackContainer
-from testcontainers.core.container import DockerContainer
-import asyncio
-import s3fs
-
 import nuthatch.config
-
-
-def pytest_sessionfinish(session, exitstatus):
-    """Clean up fsspec/s3fs resources to prevent 'Loop is not running' errors at exit.
-
-    This addresses a known issue in fsspec/s3fs where weakref finalizers try to
-    run async cleanup after the event loop has stopped. We detach those finalizers
-    here while the loop is still running.
-
-    See: https://github.com/fsspec/s3fs/issues/768
-         https://github.com/fsspec/adlfs/issues/495
-    """
-    import gc
-    import weakref
-    from fsspec.asyn import loop as fsspec_loop_ref, iothread
-
-    fsspec_loop = fsspec_loop_ref[0]
-    if fsspec_loop is None:
-        return
-
-    # Close all cached s3fs instances using fsspec's loop while it's running
-    for _, fs in list(s3fs.S3FileSystem._cache.items()):
-        try:
-            if hasattr(fs, '_s3') and fs._s3 is not None and fsspec_loop.is_running():
-                future = asyncio.run_coroutine_threadsafe(
-                    fs._s3.__aexit__(None, None, None),
-                    fsspec_loop
-                )
-                future.result(timeout=5)
-        except Exception:
-            pass
-
-    # Clear instance caches
-    s3fs.S3FileSystem.clear_instance_cache()
-
-    # Detach fsspec finalizers that would fail at interpreter exit
-    def detach_fsspec_finalizers():
-        for ref, info in list(weakref.finalize._registry.items()):
-            try:
-                func_name = getattr(info.func, '__name__', '')
-                if func_name in ('close_session', 'sync', '_close_pool_connections'):
-                    ref.detach()
-            except Exception:
-                pass
-
-    detach_fsspec_finalizers()
-    gc.collect()
-    detach_fsspec_finalizers()  # Detach any created during GC
-
-    # Stop fsspec's event loop
-    if fsspec_loop.is_running():
-        fsspec_loop.call_soon_threadsafe(fsspec_loop.stop)
-        if iothread[0] is not None:
-            iothread[0].join(timeout=5)
-        fsspec_loop.close()
-        fsspec_loop_ref[0] = None
-        iothread[0] = None
-
 
 
 class test_config:
@@ -123,21 +63,68 @@ class test_config:
         nuthatch.config._test_config_provider = None
 
 
-def pytest_addoption(parser):
-    """Add custom CLI options."""
-    parser.addoption(
-        "--integration",
-        action="store_true",
-        default=False,
-        help="Run against live cloud services instead of local containers",
-    )
-
-
 def pytest_configure(config):
     """Register custom markers."""
     config.addinivalue_line("markers", "s3: marks tests as requiring S3/LocalStack")
     config.addinivalue_line("markers", "gcs: marks tests as requiring GCS/fake-gcs-server")
     config.addinivalue_line("markers", "azure: marks tests as requiring Azure/Azurite")
+
+
+def pytest_sessionfinish(session, exitstatus):
+    """Clear fsspec caches and detach finalizers to prevent async cleanup errors at exit."""
+    import gc
+    import weakref
+
+    # Force close all aiohttp connectors synchronously
+    try:
+        import aiohttp
+        for obj in gc.get_objects():
+            try:
+                if isinstance(obj, aiohttp.TCPConnector) and not obj.closed:
+                    obj._close()
+            except Exception:
+                pass
+    except ImportError:
+        pass
+
+    # Clear fsspec caches
+    try:
+        import gcsfs
+        gcsfs.GCSFileSystem.clear_instance_cache()
+    except ImportError:
+        pass
+
+    try:
+        import s3fs
+        s3fs.S3FileSystem.clear_instance_cache()
+    except ImportError:
+        pass
+
+    try:
+        import adlfs
+        adlfs.AzureBlobFileSystem.clear_instance_cache()
+    except ImportError:
+        pass
+
+    # Detach fsspec finalizers that would fail at interpreter exit
+    for ref in list(weakref.finalize._registry):
+        try:
+            info = weakref.finalize._registry.get(ref)
+            if info and getattr(info.func, '__name__', '') in ('close_session', 'sync'):
+                ref.detach()
+        except Exception:
+            pass
+
+    gc.collect()
+
+    # Detach any new finalizers created during GC
+    for ref in list(weakref.finalize._registry):
+        try:
+            info = weakref.finalize._registry.get(ref)
+            if info and getattr(info.func, '__name__', '') in ('close_session', 'sync'):
+                ref.detach()
+        except Exception:
+            pass
 
 
 def pytest_generate_tests(metafunc):
@@ -153,231 +140,234 @@ def pytest_generate_tests(metafunc):
     markexpr = metafunc.config.getoption("-m", default="")
 
     # Check which provider markers are on this test
-    providers = []
+    all_markers = []
+    filtered_providers = []
     for provider in ["gcs", "s3", "azure"]:
         if metafunc.definition.get_closest_marker(provider):
+            all_markers.append(provider)
             # If a marker filter is set, only include providers that match
             if markexpr and provider not in markexpr:
                 continue
-            providers.append(provider)
+            filtered_providers.append(provider)
 
-    if not providers:
+    # Fail if test has NO markers at all (developer error)
+    if not all_markers:
         pytest.fail(f"Test {metafunc.function.__name__} requests cloud_storage but has no provider markers (@pytest.mark.s3, @pytest.mark.gcs, @pytest.mark.azure)")
 
-    metafunc.parametrize("cloud_storage", providers, indirect=True)
+    # If markers exist but none match the filter, skip parametrization (test will be deselected)
+    if not filtered_providers:
+        return
+
+    metafunc.parametrize("cloud_storage", filtered_providers, indirect=True)
 
 
-def is_integration_mode(request):
-    """Check if running in integration mode (live cloud, not containers).
 
-    Pass --integration to run against live cloud.
+
+# =============================================================================
+# Session-scoped Credential Fixtures
+#
+# These fixtures read credentials from environment variables.
+# - Docker: env vars point to emulators (set by docker-compose.test.yml)
+# - Local: env vars contain real cloud credentials (set by .envrc)
+# =============================================================================
+
+@pytest.fixture(scope="session")
+def s3_credentials():
+    """Get S3 credentials from environment.
+
+    Environment variables:
+    - AWS_ENDPOINT_URL: Custom S3 endpoint (e.g., LocalStack emulator)
+    - AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY: AWS credentials
+    - AWS_DEFAULT_REGION: AWS region (defaults to us-east-1)
     """
-    return request.config.getoption("--integration")
+    access_key = os.environ.get("AWS_ACCESS_KEY_ID")
+    secret_key = os.environ.get("AWS_SECRET_ACCESS_KEY")
+    if not access_key or not secret_key:
+        raise RuntimeError("S3 credentials not configured (set AWS_ACCESS_KEY_ID/AWS_SECRET_ACCESS_KEY)")
 
-
-# =============================================================================
-# Session-scoped Container Fixtures
-# =============================================================================
-
-@pytest.fixture(scope="session")
-def localstack_container():
-    """Start a LocalStack container for S3 testing."""
-    container = LocalStackContainer(image="localstack/localstack:latest")
-    container.with_services("s3")
-    container.start()
-
-    yield container
-
-    container.stop()
-
-
-@pytest.fixture(scope="session")
-def s3_credentials(localstack_container):
-    """Get S3 credentials for LocalStack."""
     return {
-        "aws_access_key_id": "test",
-        "aws_secret_access_key": "test",
-        "endpoint_url": localstack_container.get_url(),
-        "region_name": "us-east-1",
+        "aws_access_key_id": access_key,
+        "aws_secret_access_key": secret_key,
+        "aws_session_token": os.environ.get("AWS_SESSION_TOKEN"),
+        "endpoint_url": os.environ.get("AWS_ENDPOINT_URL"),
+        "region_name": os.environ.get("AWS_DEFAULT_REGION", "us-east-1"),
     }
 
 
 @pytest.fixture(scope="session")
-def s3_test_bucket(localstack_container, s3_credentials):
-    """Create a test bucket in LocalStack S3."""
-    bucket_name = f"nuthatch-test-{uuid.uuid4().hex[:8]}"
+def s3_test_bucket(s3_credentials):
+    """Create a test bucket in S3/LocalStack."""
+    import requests
+    from botocore.auth import SigV4Auth
+    from botocore.awsrequest import AWSRequest
+    from botocore.credentials import Credentials
 
-    # Create sync filesystem - don't pass loop= or asynchronous= parameters
-    # per s3fs issue #768 recommendation
-    fs = s3fs.S3FileSystem(
-        key=s3_credentials["aws_access_key_id"],
-        secret=s3_credentials["aws_secret_access_key"],
-        endpoint_url=s3_credentials["endpoint_url"],
+    bucket_name = f"nuthatch-test-{uuid.uuid4().hex[:8]}"
+    endpoint = s3_credentials.get("endpoint_url", "https://s3.amazonaws.com")
+
+    # Create AWS credentials for signing
+    credentials = Credentials(
+        access_key=s3_credentials["aws_access_key_id"],
+        secret_key=s3_credentials["aws_secret_access_key"],
+        token=s3_credentials.get("aws_session_token"),
     )
-    fs.mkdir(bucket_name)
+
+    # Create bucket via signed S3 REST API
+    url = f"{endpoint}/{bucket_name}"
+    request = AWSRequest(method="PUT", url=url)
+    SigV4Auth(credentials, "s3", s3_credentials.get("region", "us-east-1")).add_auth(request)
+    response = requests.put(url, headers=dict(request.headers))
+    response.raise_for_status()
 
     yield bucket_name
 
-    # Cleanup bucket contents
+    # Cleanup: delete all objects then the bucket
     try:
-        fs.rm(bucket_name, recursive=True)
+        # List and delete objects
+        list_url = f"{endpoint}/{bucket_name}?list-type=2"
+        request = AWSRequest(method="GET", url=list_url)
+        SigV4Auth(credentials, "s3", s3_credentials.get("region", "us-east-1")).add_auth(request)
+        response = requests.get(list_url, headers=dict(request.headers))
+
+        if response.ok:
+            # Parse XML response to get object keys
+            import xml.etree.ElementTree as ET
+            root = ET.fromstring(response.content)
+            ns = {"s3": "http://s3.amazonaws.com/doc/2006-03-01/"}
+            for content in root.findall(".//s3:Contents", ns):
+                key = content.find("s3:Key", ns)
+                if key is not None:
+                    del_url = f"{endpoint}/{bucket_name}/{key.text}"
+                    del_request = AWSRequest(method="DELETE", url=del_url)
+                    SigV4Auth(credentials, "s3", s3_credentials.get("region", "us-east-1")).add_auth(del_request)
+                    requests.delete(del_url, headers=dict(del_request.headers))
+
+        # Delete bucket
+        del_bucket_url = f"{endpoint}/{bucket_name}"
+        request = AWSRequest(method="DELETE", url=del_bucket_url)
+        SigV4Auth(credentials, "s3", s3_credentials.get("region", "us-east-1")).add_auth(request)
+        requests.delete(del_bucket_url, headers=dict(request.headers))
     except Exception:
         pass
 
 
 @pytest.fixture(scope="session")
-def gcs_container():
-    """Start a fake-gcs-server container for GCS testing.
+def gcs_credentials():
+    """Get GCS credentials from environment.
 
-    Uses fake-gcs-server-xml which has XML API support (list-type=2 and multipart uploads)
-    required by delta-rs/object_store.
+    Environment variables:
+    - STORAGE_EMULATOR_HOST: GCS emulator endpoint (e.g., fake-gcs-server)
+    - GOOGLE_APPLICATION_CREDENTIALS: Service account file path
     """
-    # Use a fixed external port so fake-gcs-server can generate correct URLs
-    import socket
-    # Find an available port
-    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
-        s.bind(('', 0))
-        external_port = s.getsockname()[1]
+    endpoint = os.environ.get("STORAGE_EMULATOR_HOST")
+    service_account_file = os.environ.get("GOOGLE_APPLICATION_CREDENTIALS")
 
-    # Use fake-gcs-server with XML API support for delta-rs compatibility
-    # Published from: https://github.com/rhiza-research/fake-gcs-server
-    container = DockerContainer("ghcr.io/rhiza-research/fake-gcs-server:latest")
-    container.with_bind_ports(4443, external_port)
-    container.with_command(f"-scheme http -backend memory -public-host localhost:{external_port} -external-url http://localhost:{external_port}")
-    container.start()
+    if not service_account_file and not endpoint:
+        raise RuntimeError("GCS credentials not configured (set GOOGLE_APPLICATION_CREDENTIALS or STORAGE_EMULATOR_HOST)")
 
-    # Wait for server to be ready
-    import time
-    import requests
-    endpoint = f"http://localhost:{external_port}"
+    result = {"service_account_file": service_account_file}
+    if endpoint:
+        # Emulator mode
+        result["endpoint_url"] = endpoint
+        result["token"] = "anon"
 
-    for _ in range(30):
-        try:
-            requests.get(f"{endpoint}/storage/v1/b", timeout=1)
-            break
-        except Exception:
-            time.sleep(1)
-
-    # Store the endpoint for later use
-    container._external_endpoint = endpoint
-
-    yield container
-
-    container.stop()
+    return result
 
 
 @pytest.fixture(scope="session")
-def gcs_credentials(gcs_container, tmp_path_factory):
-    """Get GCS credentials for fake-gcs-server.
-
-    Creates a fake service account JSON file with gcs_base_url pointing to the emulator.
-    Uses disable_oauth=true to skip authentication (matching arrow-rs CI config).
-    See: https://github.com/apache/arrow-rs-object-store/blob/main/.github/workflows/ci.yml
-    """
-    import json
-
-    endpoint = gcs_container._external_endpoint
-
-    # Use minimal credentials with disable_oauth=true (matches arrow-rs CI)
-    # object_store will skip authentication when disable_oauth is true
-    fake_creds = {
-        "gcs_base_url": endpoint,
-        "disable_oauth": True,
-        "client_email": "",
-        "private_key": "",
-        "private_key_id": "",
-    }
-
-    creds_dir = tmp_path_factory.mktemp("gcs_creds")
-    creds_file = creds_dir / "fake_service_account.json"
-    creds_file.write_text(json.dumps(fake_creds))
-
-    return {
-        "endpoint_url": endpoint,
-        "token": "anon",  # For gcsfs/fsspec
-        "service_account_file": str(creds_file),  # For delta-rs/object_store
-    }
-
-
-@pytest.fixture(scope="session")
-def gcs_test_bucket(gcs_container, gcs_credentials):
-    """Create a test bucket in fake-gcs-server."""
+def gcs_test_bucket(gcs_credentials):
+    """Create a test bucket in GCS/fake-gcs-server."""
     import requests
+    import gcsfs
 
     bucket_name = f"nuthatch-test-{uuid.uuid4().hex[:8]}"
-    endpoint = gcs_credentials["endpoint_url"]
+    endpoint = gcs_credentials.get("endpoint_url")
 
-    response = requests.post(
-        f"{endpoint}/storage/v1/b",
-        json={"name": bucket_name},
-    )
-    response.raise_for_status()
+    if endpoint:
+        # Create bucket via REST API for fake-gcs-server
+        response = requests.post(
+            f"{endpoint}/storage/v1/b",
+            json={"name": bucket_name},
+        )
+        response.raise_for_status()
+    else:
+        # Create bucket via gcsfs for real GCS
+        fs = gcsfs.GCSFileSystem()
+        fs.mkdir(bucket_name)
 
     yield bucket_name
 
-# https://learn.microsoft.com/en-us/azure/storage/common/storage-connect-azurite?tabs=blob-storage#use-a-well-known-storage-account-and-key
-AZURITE_ACCOUNT_NAME = "devstoreaccount1"
-AZURITE_ACCOUNT_KEY = "Eby8vdM02xNOcqFlqUwJPLlmEtlCDXJ1OUzFT50uSRZ6IFsuFq2UVErCz4I6tq/K1SZFPTOtr/KBHBeksoGMGw=="
+    # Cleanup
+    try:
+        if endpoint:
+            requests.delete(f"{endpoint}/storage/v1/b/{bucket_name}")
+        else:
+            fs = gcsfs.GCSFileSystem()
+            fs.rm(bucket_name, recursive=True)
+    except Exception:
+        pass
 
 
 @pytest.fixture(scope="session")
-def azurite_container():
-    """Start an Azurite container for Azure Blob Storage testing."""
-    # Bind to standard Azurite port 10000 so delta-rs emulator mode works
-    # delta-rs azure_storage_use_emulator expects 127.0.0.1:10000
-    container = DockerContainer("mcr.microsoft.com/azure-storage/azurite:latest")
-    container.with_bind_ports(10000, 10000)
-    container.with_command("azurite-blob --blobHost 0.0.0.0 --blobPort 10000")
-    container.start()
+def azure_credentials():
+    """Get Azure credentials from environment.
 
-    # Wait for Azurite to be ready
-    import time
-    import socket
-    host = "127.0.0.1"
-    port = 10000
+    Environment variables:
+    - AZURE_STORAGE_ACCOUNT: Azure storage account name
+    - AZURE_STORAGE_KEY: Azure storage account key
+    - AZURE_STORAGE_ENDPOINT: Custom endpoint (e.g., Azurite emulator)
+    - AZURE_STORAGE_CONNECTION_STRING: Full connection string (alternative to above)
+    """
+    account_name = os.environ.get("AZURE_STORAGE_ACCOUNT")
+    account_key = os.environ.get("AZURE_STORAGE_KEY")
+    endpoint = os.environ.get("AZURE_STORAGE_ENDPOINT")
+    connection_string = os.environ.get("AZURE_STORAGE_CONNECTION_STRING")
 
-    for _ in range(30):
-        try:
-            sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-            sock.settimeout(1)
-            sock.connect((host, port))
-            sock.close()
-            break
-        except Exception:
-            time.sleep(1)
+    if not account_name and not connection_string:
+        raise RuntimeError("Azure credentials not configured (set AZURE_STORAGE_ACCOUNT or AZURE_STORAGE_CONNECTION_STRING)")
 
-    yield container
+    # Build connection string if not provided
+    if not connection_string and account_name and account_key:
+        if endpoint:
+            # Emulator mode - parse host:port from endpoint
+            from urllib.parse import urlparse
+            parsed = urlparse(endpoint)
+            host = parsed.hostname
+            port = parsed.port or 10000
+            connection_string = (
+                f"DefaultEndpointsProtocol=http;"
+                f"AccountName={account_name};"
+                f"AccountKey={account_key};"
+                f"BlobEndpoint=http://{host}:{port}/{account_name};"
+            )
+        else:
+            # Real Azure
+            connection_string = (
+                f"DefaultEndpointsProtocol=https;"
+                f"AccountName={account_name};"
+                f"AccountKey={account_key};"
+                f"EndpointSuffix=core.windows.net"
+            )
 
-    container.stop()
-
-
-@pytest.fixture(scope="session")
-def azure_credentials(azurite_container):
-    """Get Azure credentials for Azurite."""
-    # Use fixed port 10000 for delta-rs emulator mode compatibility
-    host = "127.0.0.1"
-    port = 10000
-
-    connection_string = (
-        f"DefaultEndpointsProtocol=http;"
-        f"AccountName={AZURITE_ACCOUNT_NAME};"
-        f"AccountKey={AZURITE_ACCOUNT_KEY};"
-        f"BlobEndpoint=http://{host}:{port}/{AZURITE_ACCOUNT_NAME};"
-    )
-
-    return {
-        "account_name": AZURITE_ACCOUNT_NAME,
-        "account_key": AZURITE_ACCOUNT_KEY,
+    result = {
+        "account_name": account_name,
+        "account_key": account_key,
         "connection_string": connection_string,
-        "blob_endpoint": f"http://{host}:{port}/{AZURITE_ACCOUNT_NAME}",
-        "host": host,
-        "port": port,
     }
 
+    if endpoint:
+        from urllib.parse import urlparse
+        parsed = urlparse(endpoint)
+        result["host"] = parsed.hostname
+        result["port"] = parsed.port or 10000
+        result["blob_endpoint"] = f"http://{parsed.hostname}:{parsed.port or 10000}/{account_name}"
+
+    return result
+
 
 @pytest.fixture(scope="session")
-def azure_test_container(azurite_container, azure_credentials):
-    """Create a test container in Azurite."""
+def azure_test_container(azure_credentials):
+    """Create a test container in Azure/Azurite."""
     from azure.storage.blob import BlobServiceClient
 
     container_name = f"nuthatch-test-{uuid.uuid4().hex[:8]}"
@@ -406,22 +396,51 @@ def azure_test_container(azurite_container, azure_credentials):
 #       ...
 # =============================================================================
 
+
+
+def _write_config_to_disk(config):
+    """Write nuthatch config to ~/.nuthatch.toml for CLI tests.
+
+    The CLI reads config from disk, so we need to write the test config
+    to ~/.nuthatch.toml for CLI commands to use the correct settings.
+    """
+    import tomli_w
+    from pathlib import Path
+
+    config_path = Path.home() / ".nuthatch.toml"
+
+    # Convert config to the format expected in .nuthatch.toml
+    # The file uses [tool.nuthatch] section
+    toml_config = {"tool": {"nuthatch": config.get("root", {})}}
+    if "local" in config:
+        toml_config["tool"]["nuthatch"]["local"] = config["local"]
+
+    with open(config_path, "wb") as f:
+        tomli_w.dump(toml_config, f)
+
+    return config_path
+
+
 @pytest.fixture
 def cloud_storage(request, tmp_path, monkeypatch):
     """
     Configure nuthatch for the parametrized cloud provider.
 
     The provider is determined by pytest_generate_tests based on markers.
-    Local mode: uses containers (LocalStack, fake-gcs-server, Azurite)
-    Integration mode (-m integration): uses live cloud credentials from env
+    Configuration comes from environment variables set by either:
+    - docker-compose.test.yml (emulators)
+    - .envrc (real cloud credentials)
 
     Tests can either:
     1. Use the fixture's config directly (it's automatically set as the test config provider)
     2. Use the config dict to build their own config with test_config() context manager
     """
-    
+
     provider = request.param
-    integration = is_integration_mode(request)
+
+    # Use a unique cache directory per test to prevent test pollution
+    # This is important because the bucket is session-scoped but tests should be isolated
+    test_cache_id = uuid.uuid4().hex[:8]
 
     # Build config for this provider
     # Include 'local' for tests that use cache_local=True
@@ -431,70 +450,54 @@ def cloud_storage(request, tmp_path, monkeypatch):
     }
 
     if provider == "s3":
-        if integration:
-            bucket = os.environ.get("AWS_TEST_BUCKET")
-            if not bucket:
-                pytest.skip("AWS_TEST_BUCKET not set for integration test")
-            config['root']['filesystem'] = f"s3://{bucket}/nuthatch-test-{uuid.uuid4().hex[:8]}"
-            config['root']['filesystem_options'] = {
-                'key': os.environ.get("AWS_ACCESS_KEY_ID"),
-                'secret': os.environ.get("AWS_SECRET_ACCESS_KEY"),
-                'token': os.environ.get("AWS_SESSION_TOKEN"),  # For SSO/assumed role credentials
-            }
-        else:
-            s3_credentials = request.getfixturevalue("s3_credentials")
-            s3_test_bucket = request.getfixturevalue("s3_test_bucket")
-            config['root']['filesystem'] = f"s3://{s3_test_bucket}/cache"
-            config['root']['filesystem_options'] = {
-                'key': s3_credentials["aws_access_key_id"],
-                'secret': s3_credentials["aws_secret_access_key"],
-                'client_kwargs': {
-                    'endpoint_url': s3_credentials["endpoint_url"],
-                },
-            }
+        s3_credentials = request.getfixturevalue("s3_credentials")
+        s3_test_bucket = request.getfixturevalue("s3_test_bucket")
+        config['root']['filesystem'] = f"s3://{s3_test_bucket}/cache-{test_cache_id}"
+
+        fs_options = {
+            'key': s3_credentials["aws_access_key_id"],
+            'secret': s3_credentials["aws_secret_access_key"],
+        }
+        if s3_credentials.get("aws_session_token"):
+            fs_options['token'] = s3_credentials["aws_session_token"]
+        if s3_credentials.get("endpoint_url"):
+            fs_options['client_kwargs'] = {'endpoint_url': s3_credentials["endpoint_url"]}
+        config['root']['filesystem_options'] = fs_options
 
     elif provider == "gcs":
-        if integration:
-            bucket = os.environ.get("GCS_TEST_BUCKET")
-            if not bucket:
-                pytest.skip("GCS_TEST_BUCKET not set for integration test")
-            config['root']['filesystem'] = f"gs://{bucket}/nuthatch-test-{uuid.uuid4().hex[:8]}"
-            config['root']['filesystem_options'] = {}
-        else:
-            gcs_credentials = request.getfixturevalue("gcs_credentials")
-            gcs_test_bucket = request.getfixturevalue("gcs_test_bucket")
-            config['root']['filesystem'] = f"gs://{gcs_test_bucket}/cache"
-            config['root']['filesystem_options'] = {
-                'token': 'anon',  # For gcsfs/fsspec
-                'endpoint_url': gcs_credentials["endpoint_url"],  # For gcsfs custom endpoint
-                # Service account file with gcs_base_url for delta-rs/object_store
-                'service_account_file': gcs_credentials["service_account_file"],
-            }
+        gcs_credentials = request.getfixturevalue("gcs_credentials")
+        gcs_test_bucket = request.getfixturevalue("gcs_test_bucket")
+        config['root']['filesystem'] = f"gs://{gcs_test_bucket}/cache-{test_cache_id}"
+
+        fs_options = {}
+        if gcs_credentials.get("endpoint_url"):
+            # Emulator mode
+            fs_options['token'] = 'anon'
+            fs_options['endpoint_url'] = gcs_credentials["endpoint_url"]
+            fs_options['service_account_file'] = gcs_credentials["service_account_file"]
             monkeypatch.setenv("STORAGE_EMULATOR_HOST", gcs_credentials["endpoint_url"])
+        else:
+            # Real GCS - use default credentials
+            fs_options['service_account_file'] = gcs_credentials.get("service_account_file")
+        config['root']['filesystem_options'] = fs_options
 
     elif provider == "azure":
-        if integration:
-            container = os.environ.get("AZURE_TEST_CONTAINER")
-            if not container:
-                pytest.skip("AZURE_TEST_CONTAINER not set for integration test")
-            config['root']['filesystem'] = f"abfs://{container}/nuthatch-test-{uuid.uuid4().hex[:8]}"
-            config['root']['filesystem_options'] = {
-                'connection_string': os.environ.get("AZURE_STORAGE_CONNECTION_STRING"),
-            }
-        else:
-            azure_credentials = request.getfixturevalue("azure_credentials")
-            azure_test_container = request.getfixturevalue("azure_test_container")
-            # Use abfs:// (not az://) for delta-rs compatibility with Azurite
-            # delta-rs interprets az:// paths incorrectly, writing to container root
-            config['root']['filesystem'] = f"abfs://{azure_test_container}/cache"
-            config['root']['filesystem_options'] = {
-                'account_name': azure_credentials["account_name"],
-                'account_key': azure_credentials["account_key"],
-                'account_host': f"{azure_credentials['host']}:{azure_credentials['port']}",
-                'connection_string': azure_credentials["connection_string"],
-                # For delta-rs: use Azurite emulator (expects 127.0.0.1:10000)
-                'azure_storage_use_emulator': '1',
-            }
+        azure_credentials = request.getfixturevalue("azure_credentials")
+        azure_test_container = request.getfixturevalue("azure_test_container")
+        config['root']['filesystem'] = f"abfs://{azure_test_container}/cache-{test_cache_id}"
+
+        fs_options = {
+            'account_name': azure_credentials.get("account_name"),
+            'account_key': azure_credentials.get("account_key"),
+            'connection_string': azure_credentials["connection_string"],
+        }
+        if azure_credentials.get("host"):
+            # Emulator mode - use account_host for fsspec/adlfs
+            fs_options['account_host'] = f"{azure_credentials['host']}:{azure_credentials['port']}"
+            # delta-rs needs explicit endpoint URL (NOT azure_storage_use_emulator which defaults to localhost)
+            fs_options['azure_storage_endpoint'] = azure_credentials['blob_endpoint']
+            fs_options['allow_http'] = 'true'
+        config['root']['filesystem_options'] = fs_options
 
     # Track whether config was explicitly accessed (for tests that derive their own config)
     config_dict_accessed = []
@@ -524,11 +527,13 @@ def cloud_storage(request, tmp_path, monkeypatch):
     result = CloudStorageResult({
         "provider": provider,
         "config": config,
-        "integration": integration
     })
 
     # Use context manager for clean setup/teardown with access tracking
     with test_config(config) as ctx:
+        # Write config to disk so CLI commands can read it
+        # Do this INSIDE the context after test_config is set
+        _write_config_to_disk(config)
         yield result
 
     # Verify the test actually used cloud storage
@@ -552,41 +557,26 @@ def cloud_storage(request, tmp_path, monkeypatch):
 
 @pytest.fixture
 def s3_storage(request, s3_credentials, s3_test_bucket, tmp_path):
-    """Configure nuthatch to use LocalStack S3."""
-    
-    if is_integration_mode(request):
-        bucket = os.environ.get("AWS_TEST_BUCKET")
-        if not bucket:
-            pytest.skip("AWS_TEST_BUCKET not set for integration test")
-        filesystem = f"s3://{bucket}/nuthatch-test-{uuid.uuid4().hex[:8]}"
-        config = {
-            'root': {
-                'filesystem': filesystem,
-                'metadata_location': 'filesystem',
-                'filesystem_options': {
-                    'key': os.environ.get("AWS_ACCESS_KEY_ID"),
-                    'secret': os.environ.get("AWS_SECRET_ACCESS_KEY"),
-                    'token': os.environ.get("AWS_SESSION_TOKEN"),
-                },
-            },
-            'local': {'filesystem': str(tmp_path / 'local_cache')},
-        }
-    else:
-        filesystem = f"s3://{s3_test_bucket}/cache"
-        config = {
-            'root': {
-                'filesystem': filesystem,
-                'metadata_location': 'filesystem',
-                'filesystem_options': {
-                    'key': s3_credentials["aws_access_key_id"],
-                    'secret': s3_credentials["aws_secret_access_key"],
-                    'client_kwargs': {
-                        'endpoint_url': s3_credentials["endpoint_url"],
-                    },
-                },
-            },
-            'local': {'filesystem': str(tmp_path / 'local_cache')},
-        }
+    """Configure nuthatch to use S3/LocalStack."""
+    filesystem = f"s3://{s3_test_bucket}/cache"
+
+    fs_options = {
+        'key': s3_credentials["aws_access_key_id"],
+        'secret': s3_credentials["aws_secret_access_key"],
+    }
+    if s3_credentials.get("aws_session_token"):
+        fs_options['token'] = s3_credentials["aws_session_token"]
+    if s3_credentials.get("endpoint_url"):
+        fs_options['client_kwargs'] = {'endpoint_url': s3_credentials["endpoint_url"]}
+
+    config = {
+        'root': {
+            'filesystem': filesystem,
+            'metadata_location': 'filesystem',
+            'filesystem_options': fs_options,
+        },
+        'local': {'filesystem': str(tmp_path / 'local_cache')},
+    }
 
     with test_config(config):
         yield {
@@ -599,35 +589,26 @@ def s3_storage(request, s3_credentials, s3_test_bucket, tmp_path):
 
 @pytest.fixture
 def gcs_storage(request, gcs_credentials, gcs_test_bucket, monkeypatch, tmp_path):
-    """Configure nuthatch to use fake-gcs-server."""
-    
-    if is_integration_mode(request):
-        bucket = os.environ.get("GCS_TEST_BUCKET")
-        if not bucket:
-            pytest.skip("GCS_TEST_BUCKET not set for integration test")
-        filesystem = f"gs://{bucket}/nuthatch-test-{uuid.uuid4().hex[:8]}"
-        config = {
-            'root': {
-                'filesystem': filesystem,
-                'metadata_location': 'filesystem',
-                'filesystem_options': {},  # Uses application default credentials
-            },
-            'local': {'filesystem': str(tmp_path / 'local_cache')},
-        }
-    else:
-        filesystem = f"gs://{gcs_test_bucket}/cache"
-        config = {
-            'root': {
-                'filesystem': filesystem,
-                'metadata_location': 'filesystem',
-                'filesystem_options': {
-                    'token': 'anon',  # For gcsfs/fsspec
-                    'service_account_file': gcs_credentials["service_account_file"],  # For delta-rs
-                },
-            },
-            'local': {'filesystem': str(tmp_path / 'local_cache')},
-        }
+    """Configure nuthatch to use GCS/fake-gcs-server."""
+    filesystem = f"gs://{gcs_test_bucket}/cache"
+
+    fs_options = {}
+    if gcs_credentials.get("endpoint_url"):
+        fs_options['token'] = 'anon'
+        fs_options['endpoint_url'] = gcs_credentials["endpoint_url"]
+        fs_options['service_account_file'] = gcs_credentials["service_account_file"]
         monkeypatch.setenv("STORAGE_EMULATOR_HOST", gcs_credentials["endpoint_url"])
+    else:
+        fs_options['service_account_file'] = gcs_credentials.get("service_account_file")
+
+    config = {
+        'root': {
+            'filesystem': filesystem,
+            'metadata_location': 'filesystem',
+            'filesystem_options': fs_options,
+        },
+        'local': {'filesystem': str(tmp_path / 'local_cache')},
+    }
 
     with test_config(config):
         yield {
@@ -640,39 +621,29 @@ def gcs_storage(request, gcs_credentials, gcs_test_bucket, monkeypatch, tmp_path
 
 @pytest.fixture
 def azure_storage(request, azure_credentials, azure_test_container, tmp_path):
-    """Configure nuthatch to use Azurite."""
-    
-    if is_integration_mode(request):
-        container = os.environ.get("AZURE_TEST_CONTAINER")
-        if not container:
-            pytest.skip("AZURE_TEST_CONTAINER not set for integration test")
-        filesystem = f"abfs://{container}/nuthatch-test-{uuid.uuid4().hex[:8]}"
-        config = {
-            'root': {
-                'filesystem': filesystem,
-                'metadata_location': 'filesystem',
-                'filesystem_options': {
-                    'connection_string': os.environ.get("AZURE_STORAGE_CONNECTION_STRING"),
-                },
-            },
-            'local': {'filesystem': str(tmp_path / 'local_cache')},
-        }
-    else:
-        filesystem = f"abfs://{azure_test_container}/cache"
-        config = {
-            'root': {
-                'filesystem': filesystem,
-                'metadata_location': 'filesystem',
-                'filesystem_options': {
-                    'account_name': azure_credentials["account_name"],
-                    'account_key': azure_credentials["account_key"],
-                    'account_host': f"{azure_credentials['host']}:{azure_credentials['port']}",
-                    'connection_string': azure_credentials["connection_string"],
-                    'azure_storage_use_emulator': '1',
-                },
-            },
-            'local': {'filesystem': str(tmp_path / 'local_cache')},
-        }
+    """Configure nuthatch to use Azure/Azurite."""
+    filesystem = f"abfs://{azure_test_container}/cache"
+
+    fs_options = {
+        'account_name': azure_credentials.get("account_name"),
+        'account_key': azure_credentials.get("account_key"),
+        'connection_string': azure_credentials["connection_string"],
+    }
+    if azure_credentials.get("host"):
+        # Emulator mode - use account_host for fsspec/adlfs
+        fs_options['account_host'] = f"{azure_credentials['host']}:{azure_credentials['port']}"
+        # delta-rs needs explicit endpoint URL (NOT azure_storage_use_emulator which defaults to localhost)
+        fs_options['azure_storage_endpoint'] = azure_credentials['blob_endpoint']
+        fs_options['allow_http'] = 'true'
+
+    config = {
+        'root': {
+            'filesystem': filesystem,
+            'metadata_location': 'filesystem',
+            'filesystem_options': fs_options,
+        },
+        'local': {'filesystem': str(tmp_path / 'local_cache')},
+    }
 
     with test_config(config):
         yield {
@@ -688,62 +659,36 @@ def azure_storage(request, azure_credentials, azure_test_container, tmp_path):
 # =============================================================================
 
 @pytest.fixture(scope="session")
-def postgres_container():
-    """Start a PostgreSQL container for SQL backend testing."""
-    from testcontainers.postgres import PostgresContainer
+def postgres_credentials():
+    """Get PostgreSQL credentials from environment.
 
-    container = PostgresContainer("postgres:15")
-    container.start()
+    Environment variables:
+    - POSTGRES_HOST, POSTGRES_PORT, POSTGRES_USER, POSTGRES_PASSWORD, POSTGRES_DB
+    """
+    host = os.environ.get("POSTGRES_HOST")
+    if not host:
+        raise RuntimeError("PostgreSQL not configured (set POSTGRES_HOST)")
 
-    yield container
-
-    container.stop()
-
-
-@pytest.fixture(scope="session")
-def postgres_credentials(postgres_container):
-    """Get PostgreSQL credentials from the test container."""
     return {
         "driver": "postgresql",
-        "username": postgres_container.username,
-        "password": postgres_container.password,
-        "host": postgres_container.get_container_host_ip(),
-        "port": postgres_container.get_exposed_port(5432),
-        "database": postgres_container.dbname,
+        "username": os.environ.get("POSTGRES_USER", "test"),
+        "password": os.environ.get("POSTGRES_PASSWORD", "test"),
+        "host": host,
+        "port": int(os.environ.get("POSTGRES_PORT", "5432")),
+        "database": os.environ.get("POSTGRES_DB", "nuthatch_test"),
     }
 
 
 @pytest.fixture
 def postgres_storage(request, postgres_credentials, tmp_path):
-    """
-    Configure nuthatch to use PostgreSQL for SQL backend.
-
-    Local mode: uses PostgreSQL container
-    Integration mode (-m integration): uses live PostgreSQL credentials from env
-    """
-    
-    if is_integration_mode(request):
-        host = os.environ.get("POSTGRES_HOST")
-        if not host:
-            pytest.skip("POSTGRES_HOST not set for integration test")
-        credentials = {
-            "driver": os.environ.get("POSTGRES_DRIVER", "postgresql"),
-            "username": os.environ.get("POSTGRES_USERNAME"),
-            "password": os.environ.get("POSTGRES_PASSWORD"),
-            "host": host,
-            "port": os.environ.get("POSTGRES_PORT", 5432),
-            "database": os.environ.get("POSTGRES_DATABASE"),
-        }
-    else:
-        credentials = postgres_credentials
-
+    """Configure nuthatch to use PostgreSQL for SQL backend."""
     config = {
         'root': {
             'filesystem': str(tmp_path / 'nuthatch_cache'),
             'metadata_location': 'filesystem',
-            'sql': credentials,
+            'sql': postgres_credentials,
         }
     }
 
     with test_config(config):
-        yield {"credentials": credentials, "config": config}
+        yield {"credentials": postgres_credentials, "config": config}
