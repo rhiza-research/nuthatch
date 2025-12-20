@@ -14,3 +14,15 @@ wheels/
 
 .coverage
 coverage.xml 
+
+# direnv config
+.envrc
+
+# gcs integration test service account
+nuthatch-test-sa-key.json
+
+# terraform files
+.terraform
+*.tfstate
+*.tfstate.backup
+*.tfvars
