@@ -1,0 +1,46 @@
+# Dockerfile for running nuthatch tests in isolation
+FROM python:3.12-slim
+
+# Install system dependencies
+# - git, curl: for uv and version detection
+# - gdal-bin, libgdal-dev: for rasterio (required by terracotta)
+# - build-essential: gcc/g++ for compiling native extensions
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    git \
+    curl \
+    gdal-bin \
+    libgdal-dev \
+    build-essential \
+    && rm -rf /var/lib/apt/lists/*
+
+# Install uv
+RUN curl -LsSf https://astral.sh/uv/install.sh | sh
+ENV PATH="/root/.local/bin:$PATH"
+
+WORKDIR /app
+
+# Copy project files
+COPY pyproject.toml uv.lock README.md ./
+COPY src/ ./src/
+COPY tests/ ./tests/
+
+# Create a minimal git repo for version detection
+# hatch-vcs uses setuptools-scm which needs a git repo to determine version
+RUN git init && \
+    git config user.email "test@test.com" && \
+    git config user.name "Test" && \
+    git add -A && \
+    git commit -m "test build" && \
+    git tag v0.0.0
+
+# Install dependencies
+RUN uv sync --group dev
+
+# Create default test config (may be overwritten by _write_config_to_disk during tests)
+RUN mkdir -p /root && cp ./tests/fixtures/nuthatch.toml /root/.nuthatch.toml
+
+# Add venv to PATH so we can run pytest directly without uv run
+ENV PATH="/app/.venv/bin:$PATH"
+
+# Default command runs tests directly from venv
+ENTRYPOINT ["pytest"]

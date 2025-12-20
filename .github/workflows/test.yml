@@ -8,38 +8,21 @@ on:
 
 jobs:
   test:
-    runs-on: ${{ matrix.os }}
-    strategy:
-      matrix:
-        os: [ubuntu-latest]
-        python-version: ['3.12']
+    runs-on: ubuntu-latest
     permissions:
       contents: read
     steps:
     - uses: actions/checkout@v4
 
-    - name: Set up Python ${{ matrix.python-version }}
-      uses: actions/setup-python@v5
-      with:
-        python-version: ${{ matrix.python-version }}
-
-    - name: Install uv
+    - name: Run tests with docker compose
       run: |
-        curl -LsSf https://astral.sh/uv/install.sh | sh
-        echo "$HOME/.cargo/bin" >> $GITHUB_PATH
-
-    - name: Install dependencies
-      run: |
-        uv pip install --system -e . --group dev --group cloud-test
-
-    - name: Run tests with pytest
-      run: |
-        pytest -v --cov=nuthatch --cov-report=xml --cov-report=term
+        docker compose run --rm -v $(pwd)/coverage:/app/coverage test \
+          -v --cov-report=xml:/app/coverage/coverage.xml --cov-report=term
 
     - name: Upload coverage to Codecov
       uses: codecov/codecov-action@v4
       with:
-        file: ./coverage.xml
+        file: ./coverage/coverage.xml
         flags: unittests
-        name: codecov-${{ matrix.os }}-py${{ matrix.python-version }}
+        name: codecov-ubuntu
         fail_ci_if_error: false

@@ -35,24 +35,20 @@ dependencies = [
 # dependencies can be installed independently
 [dependency-groups]
 dev = [
-    "pooch",
-    "google-cloud-secret-manager",
-    "gcsfs",
-    "pytest>=7.0.0",
-    "pytest-cov>=4.0.0",
-    "pytest-mock>=3.10.0",
-    "ruff>=0.1.0",
-]
-
-cloud-test = [
-    "testcontainers[localstack]>=4.13.3",
-    "s3fs>=2025.12.0",
-    "gcsfs>=2025.12.0",
-    "adlfs>=2025.8.0",
-    "azure-storage-blob>=12.27.1",
-    "requests>=2.32.5",
-    "pytest>=7.0.0",
-    "pytest-cov>=4.0.0",
+    # Testing framework and plugins
+    "pytest>=7.0.0",           # Test runner
+    "pytest-cov>=4.0.0",       # Code coverage reporting
+    "pytest-mock>=3.10.0",     # Mock object support for tests
+    # Cloud storage filesystem interfaces (for testing with emulators)
+    "gcsfs",                   # Google Cloud Storage filesystem
+    "s3fs",                    # AWS S3 filesystem
+    "adlfs",                   # Azure Data Lake Storage filesystem
+    "azure-storage-blob",      # Azure Blob Storage SDK
+    # Utilities
+    "pooch",                   # Download and cache test data files
+    "google-cloud-secret-manager",  # Access secrets from GCP Secret Manager
+    "requests",                # HTTP client for API calls
+    "ruff>=0.1.0",             # Linter and code formatter
 ]
 
 [project.scripts]
@@ -93,14 +89,12 @@ addopts = [
     "--cov-report=xml",
 ]
 filterwarnings = [
-    "ignore::DeprecationWarning:testcontainers.*:",
     "ignore:Consolidated metadata is currently not part in the Zarr format 3 specification:zarr.errors.ZarrUserWarning",
 ]
 markers = [
     "s3: test uses S3/LocalStack",
     "gcs: test uses GCS/fake-gcs-server",
     "azure: test uses Azure/Azurite",
-    "integration: run against live cloud (not local containers)",
 ]
 
 [tool.coverage.run]
