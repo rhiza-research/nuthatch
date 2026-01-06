@@ -307,41 +307,29 @@ def instantiate_read_caches(config, cache_key, namespace, version, cache_arg_val
             continue
 
         cache = None
-        if location.startswith('mirror'):
-            # First, try to set up a mirror (read-only) cache
-            if 'filesystem' in location_values:
-                # Check if this filesystem is listed to be skipped in the cache configuration
-                if 'skipped_filesystems' in config['root'] and location_values['filesystem'] in config['root']['skipped_filesystems']:
-                    if location_values['filesystem'] not in global_fs_warning:
-                        logger.warning(
-                            f"Skipping filesystem {location_values['filesystem']} because it has been added to the excluded filesystems list in ~/.nuthatch.toml. Please remove it if you now have access.")
-                        global_fs_warning.append(location_values['filesystem'])
-                    continue
-
-                try:
-                    # If this is not a skipped filesystem, try to instantiate the cache
-                    cache = Cache(location_values, cache_key, namespace, version,
-                                  cache_arg_values, requested_backend, backend_kwargs)
-                    caches[f"{location}"] = cache
-                    found_cache = True
-                except Exception as e:  # noqa
+        # First, try to set up a mirror (read-only) cache
+        if 'filesystem' in location_values:
+            # Check if this filesystem is listed to be skipped in the cache configuration
+            if 'skipped_filesystems' in config['root'] and location_values['filesystem'] in config['root']['skipped_filesystems']:
+                if location_values['filesystem'] not in global_fs_warning:
                     logger.warning(
-                        f"Failed to access the cache at {location_values['filesystem']}. Adding it to the excluded filesystems list at ~/.nuthatch.toml so future runs are faster. Please remove it if you gain access in the future.")
-                    set_global_skipped_filesystem(
-                        location_values['filesystem'])
+                        f"Skipping filesystem {location_values['filesystem']} because it has been added to the excluded filesystems list in ~/.nuthatch.toml. Please remove it if you now have access.")
                     global_fs_warning.append(location_values['filesystem'])
-                    mirror_exception = f'Failed to access configured nuthatch mirror "{location}" with error "{type(e).__name__}: {e}". If you couldn`t access the expected data, this could be the reason.'
-        else:
-            if 'filesystem' in location_values:
-                try:
-                    # Try to instantiate the read-write root cache
-                    cache = Cache(location_values, cache_key, namespace, version,
-                                  cache_arg_values, requested_backend, backend_kwargs)
-                    caches[location] = cache
-                    found_cache = True
-                except Exception as e:
-                    # If we can't instantiate the root cache, raise an error
-                    logger.warning(f'Nuthatch is unable to access the configured root cache at {location_values["filesystem"]} with error "{type(e).__name__}: {e}." If you think you should have access to the root cache, please ensure that you have correct access credentials for the configured root cache.')
+                continue
+
+            try:
+                # If this is not a skipped filesystem, try to instantiate the cache
+                cache = Cache(location_values, cache_key, namespace, version,
+                              cache_arg_values, requested_backend, backend_kwargs)
+                caches[f"{location}"] = cache
+                found_cache = True
+            except Exception as e:  # noqa
+                logger.warning(
+                    f"Failed to access the cache at {location_values['filesystem']}. Adding it to the excluded filesystems list at ~/.nuthatch.toml so future runs are faster. Please remove it if you gain access in the future.")
+                set_global_skipped_filesystem(
+                    location_values['filesystem'])
+                global_fs_warning.append(location_values['filesystem'])
+                mirror_exception = f'Failed to access configured nuthatch cache "{location}" with error "{type(e).__name__}: {e}". If you couldn`t access the expected data, this could be the reason.'
 
     if not found_cache:
         raise RuntimeError("No Nuthatch configuration has been found.\n"
