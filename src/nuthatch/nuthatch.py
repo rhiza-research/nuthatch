@@ -261,11 +261,15 @@ def get_cache_key(func, cache_arg_values):
     cache_print = func.__name__ + '/' + '/'.join([f'{x[0]}_{x[1]}' for x in zip(imkeys, imvalues)])
     return cache_key, cache_print
 
+
 def root_cache_is_valid(config):
     if 'root' not in config or 'filesystem' not in config['root']:
         return False
 
     location_values = config['root']
+
+    if 'skipped_filesystems' in config['root'] and location_values['filesystem'] in config['root']['skipped_filesystems']:
+        return False
 
     try:
         # Try to instantiate the read-write root cache
