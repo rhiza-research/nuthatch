@@ -665,7 +665,7 @@ def cache(cache=True,
             # If we're not recomputing and not upserting and we have memoization enabled, try to recall from memory
             if not recompute and not upsert and memoize:
                 ds = recall_from_memory(memoizer_cache_key)
-                if ds:
+                if ds is not None:
                     logger.info(f"Found cache for {memoizer_cache_print} in memory.")
                     compute_result = False
                     return ds
