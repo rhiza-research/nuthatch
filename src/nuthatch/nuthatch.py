@@ -261,6 +261,19 @@ def get_cache_key(func, cache_arg_values):
     cache_print = func.__name__ + '/' + '/'.join([f'{x[0]}_{x[1]}' for x in zip(imkeys, imvalues)])
     return cache_key, cache_print
 
+def root_cache_is_valid(config):
+    if 'root' not in config or 'filesystem' not in config['root']:
+        return False
+
+    location_values = config['root']
+
+    try:
+        # Try to instantiate the read-write root cache
+        Cache(location_values, 'validity_check', None, None, {}, None, {})
+        return True
+    except Exception:
+        return False
+
 
 def instantiate_read_caches(config, cache_key, namespace, version, cache_arg_values, requested_backend, backend_kwargs):
     """Returns a priority ordered list of caches to read from.
@@ -328,8 +341,7 @@ def instantiate_read_caches(config, cache_key, namespace, version, cache_arg_val
                     found_cache = True
                 except Exception as e:
                     # If we can't instantiate the root cache, raise an error
-                    raise RuntimeError(
-                        f'Nuthatch is unable to access the configured root cache at {location_values["filesystem"]} with error "{type(e).__name__}: {e}." If you configure a root cache it must be accessible. Please ensure that you have correct access credentials for the configured root cache.')
+                    logger.warning(f'Nuthatch is unable to access the configured root cache at {location_values["filesystem"]} with error "{type(e).__name__}: {e}." If you think you should have access to the root cache, please ensure that you have correct access credentials for the configured root cache.')
 
     if not found_cache:
         raise RuntimeError("No Nuthatch configuration has been found.\n"
@@ -608,7 +620,7 @@ def cache(cache=True,
             config = NuthatchConfig(wrapped_module=inspect.getmodule(func))
 
             # If the cache mode is not set, figure out a reasonable default
-            if cache_mode is None and 'root' in config and 'filesystem' in config['root']:
+            if cache_mode is None and root_cache_is_valid(config):
                 cache_mode = 'write'
             elif cache_mode is None:
                 cache_mode = 'local_api'
