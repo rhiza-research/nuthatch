@@ -63,11 +63,12 @@ def check_if_nested_fn():
     """Check if the current scope is downstream from another cached function."""
     # Get the current frame
     stack = inspect.stack()
-    # skip the first two frames (this function and the current cacheable function)
-    for frame_info in stack[4:]:
+
+    # skip the first three frames (this function, check args, and the current cacheable function)
+    for frame_info in stack[3:]:
         frame = frame_info.frame
         func_name = frame.f_code.co_name
-        if func_name == "nuthatch_cacheable_wrapper" or func_name == "nuthatch_processor_wrapper":
+        if func_name == "nuthatch_cacheable_wrapper":
             # There is a cachable function upstream of this one
             return True
     # No cachable function upstream of this one
