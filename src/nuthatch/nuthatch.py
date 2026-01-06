@@ -257,7 +257,7 @@ def get_cache_key(func, cache_arg_values):
             imvalues.append(str(val))
 
     cache_key = func.__name__ + '/' + '_'.join(flat_values)
-    cache_print = func.__name__ + '/' + '/'.join([f'{x[0]}_{x[1]}' for x in zip(imkeys, sorted_values)])
+    cache_print = func.__name__ + '/' + '/'.join([f'{x[0]}_{x[1]}' for x in zip(imkeys, imvalues)])
     return cache_key, cache_print
 
 
@@ -633,7 +633,7 @@ def cache(cache=True,
                     caches, mirror_exception = instantiate_read_caches(
                         config, cache_key, namespace, version, cache_arg_values, backend, backend_kwargs)
                 except RuntimeError as e:
-                    if read_global == True or write_global == True: # noqa: E712, must check the boolean
+                    if read_global == True or write_global == True:  # noqa: E712, must check the boolean
                         raise e
                     else:
                         # If we're not writing to the global cache, we can continue
@@ -717,7 +717,7 @@ def cache(cache=True,
             # 4. If we need to compute the result, do so by calling the function
             #######################################################################################
             if compute_result:
-                if fail_if_no_cache and cache == True: # noqa: E712, must check the boolean
+                if fail_if_no_cache and cache == True:  # noqa: E712, must check the boolean
                     # If this is a cachable function and we're in strict read mode, raise an error
                     raise RuntimeError(
                         f"Computation has been disabled by strict read mode and cache doesn't exist for {cache_print}.")
@@ -743,7 +743,7 @@ def cache(cache=True,
                         else:
                             raise RuntimeError("No cache configured to store the result. Exiting.")
                     logger.info(
-                        f"Cache doesn't exist for {cache_print} in namespace {namespace if namespace else 'default'} in {location} cache.")
+                        f"Cache doesn't exist for {cache_print} in namespace {namespace if namespace else 'default'}. Running function.")
 
                 # Print a warning if the data processing is computationally intensive
                 logger.info(f"Processing data by running sheerwater function {func.__name__}... ")
