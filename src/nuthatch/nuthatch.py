@@ -608,7 +608,7 @@ def cache(cache=True,
             config = NuthatchConfig(wrapped_module=inspect.getmodule(func))
 
             # If the cache mode is not set, figure out a reasonable default
-            if cache_mode is None and 'root' in config:
+            if cache_mode is None and 'root' in config and 'filesystem' in config['root']:
                 cache_mode = 'write'
             elif cache_mode is None:
                 cache_mode = 'local_api'
