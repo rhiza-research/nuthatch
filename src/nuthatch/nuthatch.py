@@ -452,7 +452,7 @@ def get_cache_mode(cache_mode):
         fail_if_no_cache = True
         write_global = False
         write_local = True
-        read_global = False
+        read_global = True
         read_local = True
     elif cache_mode == 'read_only':  # read only from caches, no writing
         force_overwrite = False
@@ -612,8 +612,9 @@ def cache(cache=True,
                 cache_mode = 'write'
             elif cache_mode is None:
                 cache_mode = 'local_api'
-            write_global, write_local, read_global, read_local, force_overwrite, strict_read = get_cache_mode(
-                cache_mode)
+
+            write_global, write_local, read_global, read_local, \
+                force_overwrite, strict_read = get_cache_mode(cache_mode)
             # If strict read is set, overwrite fail if no cache. Otherwise, use the value from the decorator
             if strict_read:
                 fail_if_no_cache = True
