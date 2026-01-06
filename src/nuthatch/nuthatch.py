@@ -851,6 +851,8 @@ def cache(cache=True,
                     # If we only need to return the filepath, return it
                     return_value = write_cache.get_uri()
 
+            for processor in post_processors:
+                return_value = processor(return_value)
             return return_value
 
         # Set a custom attribute to mark this as a cacheable function
