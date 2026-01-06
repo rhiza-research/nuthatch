@@ -98,6 +98,18 @@ def drop_encoded_chunks(ds):
     return ds
 
 
+def is_single_chunk(ds):
+    """Check if a dataset is a single chunk."""
+    if ds is None:
+        return True
+    elif isinstance(ds, xr.DataArray):
+        return all([len(x) == 1 for x in ds.chunks])
+    elif isinstance(ds, xr.Dataset):
+        return all([len(x) == 1 for x in ds.chunks.values()])
+    else:
+        return False
+
+
 @register_backend
 class ZarrBackend(FileBackend):
     """
@@ -131,7 +143,8 @@ class ZarrBackend(FileBackend):
         super().__init__(cacheable_config, cache_key, namespace, args, backend_kwargs, extension='zarr')
 
         if 'chunking' in backend_kwargs and 'chunk_by_arg' in backend_kwargs:
-            self.chunking = merge_chunk_by_arg(self.backend_kwargs['chunking'], self.backend_kwargs['chunk_by_arg'], args)
+            self.chunking = merge_chunk_by_arg(
+                self.backend_kwargs['chunking'], self.backend_kwargs['chunk_by_arg'], args)
         else:
             self.chunking = backend_kwargs.get('chunking', 'auto')
 
@@ -170,7 +183,7 @@ class ZarrBackend(FileBackend):
                 # Compare the dict to the rechunk dict
                 if not chunking_compare(ds_remote, self.chunking):
                     logger.info("Rechunk was passed and cached chunks do not match rechunk request. "
-                          "Performing rechunking.")
+                                "Performing rechunking.")
 
                     # write to a temp cache map
                     # writing to temp cache is necessary because if you overwrite
@@ -199,7 +212,6 @@ class ZarrBackend(FileBackend):
         else:
             raise NotImplementedError(f"Zarr backend does not support reading zarrs to {engine} engine")
 
-
     def chunk_to_zarr(self, ds, path):
         """Write a dataset to a zarr cache map and check the chunking."""
         ds = drop_encoded_chunks(ds)
@@ -213,13 +225,16 @@ class ZarrBackend(FileBackend):
 
         try:
             chunk_size, chunk_with_labels = get_chunk_size(ds)
-
-            if chunk_size > self.chunk_size_upper_limit_mb or chunk_size < self.chunk_size_lower_limit_mb:
-                logger.warning(f"WARNING: Chunk size is {chunk_size}MB. Target approx 100MB.")
+            # Don't print the size warning if everything is in a single chunk and it's still too small.
+            single_chunk = is_single_chunk(ds)
+            if (chunk_size > self.chunk_size_upper_limit_mb) or (chunk_size < self.chunk_size_lower_limit_mb and not single_chunk):
+                logger.warning(f"WARNING: zarr chunk size is {chunk_size}MB, which is outside the reccomended bounds and will hurt performance. Target approx 100MB.")
                 logger.warning(chunk_with_labels)
         except ValueError:
             logger.warning("Failed to get chunks size! Continuing with unknown chunking...")
-
-        ds.to_zarr(store=path, mode='w')
-
-
+        try:
+            ds.to_zarr(store=path, mode='w')
+        except ValueError as e:
+            if chunking == 'auto':
+                logger.error("Writing to backend zarr failed and chunking is set to 'auto'. This could be the problem. Try setting chunks explictly in the nuthatch function.")
+            raise e

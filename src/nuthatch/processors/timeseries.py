@@ -8,6 +8,7 @@ import xarray as xr
 import logging
 logger = logging.getLogger(__name__)
 
+
 class timeseries(NuthatchProcessor):
     """
     Processor for timeseries data.
@@ -48,13 +49,20 @@ class timeseries(NuthatchProcessor):
         start_time = self.start_time
         end_time = self.end_time
 
-        if isinstance(ds, xr.Dataset):
+        if isinstance(ds, xr.Dataset) or isinstance(ds, xr.DataArray):
             match_time = [t for t in self.timeseries if t in ds.dims]
             if len(match_time) == 0:
                 raise RuntimeError(f"Timeseries must have a dimension named {self.timeseries} for slicing.")
 
             time_col = match_time[0]
             ds = ds.sel({time_col: slice(start_time, end_time)})
+            # Set start and end time as attributes
+            if start_time is None:
+                start_time = ds[time_col].min().values
+            if end_time is None:
+                end_time = ds[time_col].max().values
+            ds = ds.assign_attrs({'start_time': start_time, 'end_time': end_time})
+
         elif isinstance(ds, pd.DataFrame) or isinstance(ds, dd.DataFrame):
             match_time = [t for t in self.timeseries if t in ds.columns]
 
@@ -94,7 +102,6 @@ class timeseries(NuthatchProcessor):
             raise RuntimeError(f"Cannot filter timeseries for data type {type(ds)}")
 
         return ds
-
 
     def validate(self, ds):
         start_time = self.start_time
