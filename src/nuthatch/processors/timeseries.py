@@ -94,7 +94,7 @@ class timeseries(NuthatchProcessor):
         else:
             raise RuntimeError(f"Cannot filter timeseries for data type {type(ds)}")
 
-        # Set start and end time as attributesi
+        # Set start and end time as attributes
         if start_time is None:
             start_time = ds[time_col].min().values
         if end_time is None:

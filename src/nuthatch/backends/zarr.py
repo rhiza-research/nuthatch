@@ -223,8 +223,8 @@ class ZarrBackend(FileBackend):
         try:
             ds.to_zarr(store=path, mode='w')
         except ValueError as e:
-            if chunking == 'auto': 
-                logger.error("Writing to backend zarr failed and cunking is set to 'auto'. This could be the problem. Try setting chunks explictly in the nuthatch function.")
+            if chunking == 'auto':
+                logger.error("Writing to backend zarr failed and chunking is set to 'auto'. This could be the problem. Try setting chunks explictly in the nuthatch function.")
             raise e
 
 
