@@ -12,6 +12,10 @@ variable "azure_location" {
   default     = "eastus"
 }
 
+# login via azure cli and set subscription
+# az login
+# export ARM_SUBSCRIPTION_ID=$(az account show --query id -o tsv)
+
 provider "azurerm" {
   features {}
 }
@@ -35,7 +39,7 @@ resource "azurerm_storage_account" "test" {
 
 resource "azurerm_storage_container" "test" {
   name                  = var.azure_container_name
-  storage_account_name  = azurerm_storage_account.test.name
+  storage_account_id    = azurerm_storage_account.test.id
   container_access_type = "private"
 }
 

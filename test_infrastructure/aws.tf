@@ -12,6 +12,10 @@ variable "aws_region" {
   default     = "us-east-1"
 }
 
+# login via awsapps.com/start/#/?tab=accounts
+# copy Access keys to ~/.aws/credentials (option 2)
+# name the profile "rhiza"
+
 variable "aws_profile" {
   description = "AWS credentials profile"
   type        = string
