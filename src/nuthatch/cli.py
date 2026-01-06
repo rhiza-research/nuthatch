@@ -262,7 +262,7 @@ def list_caches(cache_key, namespace, backend, location, verbose):
 @click.option('--location', help='Location to search', default='root')
 @click.option('--force', '-f', is_flag=True, help='Force deletion without confirmation')
 @click.option('--metadata-only', '-m', is_flag=True, help='Only delete the metadata for the cache, not the underlying data.')
-def delete_cache(cache_key: str, namespace: str | None, backend: str | None, location: str, force: bool, metadata_only: bool):
+def delete_cache(cache_key, namespace, backend, location, force, metadata_only):
     """Delete cache entries matching a pattern.
 
     CACHE_KEY is a glob pattern to match entries for deletion.
