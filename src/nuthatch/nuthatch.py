@@ -748,8 +748,9 @@ def cache(cache=True,
                         f"Cache doesn't exist for {cache_print} in namespace {namespace if namespace else 'default'}. Running function.")
 
                 # Print a warning if the data processing is computationally intensive
-                logger.info(f"Processing data by running function {func.__name__}... ")
-                logger.info("Data processing can be computationally intensive. Ensure you have sufficient compute resources.")
+                if cache:
+                    logger.info(f"Processing data by running function {func.__name__}... ")
+                    logger.info("Data processing can be computationally intensive. Ensure you have sufficient compute resources.")
 
                 ##### COMPUTE THE RESULT BY CALLING THE UNDERLYING FUNCTION ######
                 ds = func(*args, **passed_kwargs)
