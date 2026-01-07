@@ -262,6 +262,23 @@ def get_cache_key(func, cache_arg_values):
     return cache_key, cache_print
 
 
+def root_cache_is_valid(config):
+    if 'root' not in config or 'filesystem' not in config['root']:
+        return False
+
+    location_values = config['root']
+
+    if 'skipped_filesystems' in config['root'] and location_values['filesystem'] in config['root']['skipped_filesystems']:
+        return False
+
+    try:
+        # Try to instantiate the read-write root cache
+        Cache(location_values, 'validity_check', None, None, {}, None, {})
+        return True
+    except Exception:
+        return False
+
+
 def instantiate_read_caches(config, cache_key, namespace, version, cache_arg_values, requested_backend, backend_kwargs):
     """Returns a priority ordered list of caches to read from.
 
@@ -275,7 +292,7 @@ def instantiate_read_caches(config, cache_key, namespace, version, cache_arg_val
 
     Returns:
         caches (dict): A dictionary of caches to read from.
-        mirror_exception (str): An exception message if we have a mirror exception.
+        cache_exception (str): An exception message if we have a mirror exception.
     """
     # The general order of priority to check validity is:
     # (1) local if local is requested and local config is provided
@@ -286,7 +303,7 @@ def instantiate_read_caches(config, cache_key, namespace, version, cache_arg_val
     caches = {}
     found_cache = False
 
-    mirror_exception = None
+    cache_exception = None
     global global_fs_warning
     for location, location_values in config.items():
         # If the cache is local, we don't need to instantiate it
@@ -294,42 +311,29 @@ def instantiate_read_caches(config, cache_key, namespace, version, cache_arg_val
             continue
 
         cache = None
-        if location.startswith('mirror'):
-            # First, try to set up a mirror (read-only) cache
-            if 'filesystem' in location_values:
-                # Check if this filesystem is listed to be skipped in the cache configuration
-                if 'skipped_filesystems' in config['root'] and location_values['filesystem'] in config['root']['skipped_filesystems']:
-                    if location_values['filesystem'] not in global_fs_warning:
-                        logger.warning(
-                            f"Skipping filesystem {location_values['filesystem']} because it has been added to the excluded filesystems list in ~/.nuthatch.toml. Please remove it if you now have access.")
-                        global_fs_warning.append(location_values['filesystem'])
-                    continue
-
-                try:
-                    # If this is not a skipped filesystem, try to instantiate the cache
-                    cache = Cache(location_values, cache_key, namespace, version,
-                                  cache_arg_values, requested_backend, backend_kwargs)
-                    caches[f"{location}"] = cache
-                    found_cache = True
-                except Exception as e:  # noqa
+        # First, try to set up a mirror (read-only) cache
+        if 'filesystem' in location_values:
+            # Check if this filesystem is listed to be skipped in the cache configuration
+            if 'skipped_filesystems' in config['root'] and location_values['filesystem'] in config['root']['skipped_filesystems']:
+                if location_values['filesystem'] not in global_fs_warning:
                     logger.warning(
-                        f"Failed to access the cache at {location_values['filesystem']}. Adding it to the excluded filesystems list at ~/.nuthatch.toml so future runs are faster. Please remove it if you gain access in the future.")
-                    set_global_skipped_filesystem(
-                        location_values['filesystem'])
+                        f"Skipping filesystem {location_values['filesystem']} because it has been added to the excluded filesystems list in ~/.nuthatch.toml. Please remove it if you now have access.")
                     global_fs_warning.append(location_values['filesystem'])
-                    mirror_exception = f'Failed to access configured nuthatch mirror "{location}" with error "{type(e).__name__}: {e}". If you couldn`t access the expected data, this could be the reason.'
-        else:
-            if 'filesystem' in location_values:
-                try:
-                    # Try to instantiate the read-write root cache
-                    cache = Cache(location_values, cache_key, namespace, version,
-                                  cache_arg_values, requested_backend, backend_kwargs)
-                    caches[location] = cache
-                    found_cache = True
-                except Exception as e:
-                    # If we can't instantiate the root cache, raise an error
-                    raise RuntimeError(
-                        f'Nuthatch is unable to access the configured root cache at {location_values["filesystem"]} with error "{type(e).__name__}: {e}." If you configure a root cache it must be accessible. Please ensure that you have correct access credentials for the configured root cache.')
+                continue
+
+            try:
+                # If this is not a skipped filesystem, try to instantiate the cache
+                cache = Cache(location_values, cache_key, namespace, version,
+                              cache_arg_values, requested_backend, backend_kwargs)
+                caches[f"{location}"] = cache
+                found_cache = True
+            except Exception as e:  # noqa
+                logger.warning(
+                    f"Failed to access the cache at {location_values['filesystem']}. Adding it to the excluded filesystems list at ~/.nuthatch.toml so future runs are faster. Please remove it if you gain access in the future.")
+                set_global_skipped_filesystem(
+                    location_values['filesystem'])
+                global_fs_warning.append(location_values['filesystem'])
+                cache_exception = f'Failed to access configured nuthatch cache "{location}" with error "{type(e).__name__}: {e}". If you couldn`t access the expected data, this could be the reason.'
 
     if not found_cache:
         raise RuntimeError("No Nuthatch configuration has been found.\n"
@@ -341,7 +345,7 @@ def instantiate_read_caches(config, cache_key, namespace, version, cache_arg_val
         root = caches.pop('root')
         caches = {'root': root, **caches}
 
-    return (caches, mirror_exception)
+    return (caches, cache_exception)
 
 
 def instantiate_local_read_cache(config, cache_key, namespace, version, cache_arg_values, requested_backend, backend_kwargs):
@@ -608,7 +612,7 @@ def cache(cache=True,
             config = NuthatchConfig(wrapped_module=inspect.getmodule(func))
 
             # If the cache mode is not set, figure out a reasonable default
-            if cache_mode is None and 'root' in config and 'filesystem' in config['root']:
+            if cache_mode is None and root_cache_is_valid(config):
                 cache_mode = 'write'
             elif cache_mode is None:
                 cache_mode = 'local_api'
@@ -627,12 +631,12 @@ def cache(cache=True,
             # Initialize the read caches dictionary
             read_caches = {}
 
-            mirror_exception = None  # a boolean to track if we have failed to access a mirror cache
+            cache_exception = None  # a boolean to track if we have failed to access a mirror cache
             if cache and read_global:
                 # If the cache is enabled, we will need to read from the caches (and the mirrors, if configured.)
                 # if the memoizer and local cache fail to hit
                 try:
-                    caches, mirror_exception = instantiate_read_caches(
+                    caches, cache_exception = instantiate_read_caches(
                         config, cache_key, namespace, version, cache_arg_values, backend, backend_kwargs)
                 except RuntimeError as e:
                     if read_global == True or write_global == True:  # noqa: E712, must check the boolean
@@ -712,8 +716,8 @@ def cache(cache=True,
                             found = True
                             break
 
-                if not found and mirror_exception:
-                    logger.warning(mirror_exception)
+                if not found and cache_exception:
+                    logger.warning(cache_exception)
 
             ########################################################################################
             # 4. If we need to compute the result, do so by calling the function
