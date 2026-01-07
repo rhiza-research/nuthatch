@@ -292,7 +292,7 @@ def instantiate_read_caches(config, cache_key, namespace, version, cache_arg_val
 
     Returns:
         caches (dict): A dictionary of caches to read from.
-        mirror_exception (str): An exception message if we have a mirror exception.
+        cache_exception (str): An exception message if we have a mirror exception.
     """
     # The general order of priority to check validity is:
     # (1) local if local is requested and local config is provided
@@ -303,7 +303,7 @@ def instantiate_read_caches(config, cache_key, namespace, version, cache_arg_val
     caches = {}
     found_cache = False
 
-    mirror_exception = None
+    cache_exception = None
     global global_fs_warning
     for location, location_values in config.items():
         # If the cache is local, we don't need to instantiate it
@@ -333,7 +333,7 @@ def instantiate_read_caches(config, cache_key, namespace, version, cache_arg_val
                 set_global_skipped_filesystem(
                     location_values['filesystem'])
                 global_fs_warning.append(location_values['filesystem'])
-                mirror_exception = f'Failed to access configured nuthatch cache "{location}" with error "{type(e).__name__}: {e}". If you couldn`t access the expected data, this could be the reason.'
+                cache_exception = f'Failed to access configured nuthatch cache "{location}" with error "{type(e).__name__}: {e}". If you couldn`t access the expected data, this could be the reason.'
 
     if not found_cache:
         raise RuntimeError("No Nuthatch configuration has been found.\n"
@@ -345,7 +345,7 @@ def instantiate_read_caches(config, cache_key, namespace, version, cache_arg_val
         root = caches.pop('root')
         caches = {'root': root, **caches}
 
-    return (caches, mirror_exception)
+    return (caches, cache_exception)
 
 
 def instantiate_local_read_cache(config, cache_key, namespace, version, cache_arg_values, requested_backend, backend_kwargs):
@@ -631,12 +631,12 @@ def cache(cache=True,
             # Initialize the read caches dictionary
             read_caches = {}
 
-            mirror_exception = None  # a boolean to track if we have failed to access a mirror cache
+            cache_exception = None  # a boolean to track if we have failed to access a mirror cache
             if cache and read_global:
                 # If the cache is enabled, we will need to read from the caches (and the mirrors, if configured.)
                 # if the memoizer and local cache fail to hit
                 try:
-                    caches, mirror_exception = instantiate_read_caches(
+                    caches, cache_exception = instantiate_read_caches(
                         config, cache_key, namespace, version, cache_arg_values, backend, backend_kwargs)
                 except RuntimeError as e:
                     if read_global == True or write_global == True:  # noqa: E712, must check the boolean
@@ -716,8 +716,8 @@ def cache(cache=True,
                             found = True
                             break
 
-                if not found and mirror_exception:
-                    logger.warning(mirror_exception)
+                if not found and cache_exception:
+                    logger.warning(cache_exception)
 
             ########################################################################################
             # 4. If we need to compute the result, do so by calling the function
