@@ -112,8 +112,7 @@ exclude_lines = [
 
 
 [tool.nuthatch]
-filesystem = "s3://sheerwater-public/caches"
-#filesystem = "gs://sheerwater-datalake/caches"
+filesystem = "gs://sheerwater-datalake/caches"
 host = "postgres.sheerwater.rhizaresearch.org"
 port = 5432
 database = "postgres"
