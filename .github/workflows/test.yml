@@ -11,13 +11,28 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: read
+      checks: write
+      pull-requests: write
     steps:
     - uses: actions/checkout@v4
 
     - name: Run tests with docker compose
       run: |
+        mkdir -p coverage
         docker compose run --rm -v $(pwd)/coverage:/app/coverage test \
-          -v --cov-report=xml:/app/coverage/coverage.xml --cov-report=term
+          -v \
+          --junitxml=/app/coverage/junit.xml \
+          --cov-report=xml:/app/coverage/coverage.xml \
+          --cov-report=term
+
+    - name: Publish Test Results
+      uses: dorny/test-reporter@v1
+      if: always()
+      with:
+        name: Test Results
+        path: coverage/junit.xml
+        reporter: java-junit
+        fail-on-error: false
 
     - name: Upload coverage to Codecov
       uses: codecov/codecov-action@v4
@@ -26,3 +41,13 @@ jobs:
         flags: unittests
         name: codecov-ubuntu
         fail_ci_if_error: false
+
+    - name: Upload test artifacts
+      uses: actions/upload-artifact@v4
+      if: always()
+      with:
+        name: test-results
+        path: |
+          coverage/junit.xml
+          coverage/coverage.xml
+        retention-days: 30
