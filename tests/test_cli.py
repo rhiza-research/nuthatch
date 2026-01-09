@@ -250,32 +250,45 @@ class TestListCommand:
 
         # Create cache entries with different namespaces
         config = NuthatchConfig(wrapped_module='tests')
-        cache1 = Cache(config['root'], "key1", "ns1", None, {}, 'basic', {})
+        cache1 = Cache(config['root'], "nsfilter/key1", "ns1", None, {}, 'basic', {})
         cache1.write("data1")
 
-        cache2 = Cache(config['root'], "key2", "ns2", None, {}, 'basic', {})
+        cache2 = Cache(config['root'], "nsfilter/key2", "ns2", None, {}, 'basic', {})
         cache2.write("data2")
 
         runner = CliRunner()
-        result = runner.invoke(cli, ["list", "--namespace", "ns1"])
+        result = runner.invoke(cli, ["list", "nsfilter/*", "--namespace", "ns1"])
         assert result.exit_code == 0
-        # Should show ns1 entries
-        if "No caches found" not in result.output:
-            assert "ns1" in result.output or "key1" in result.output
+        # Should show ns1 entries but not ns2
+        assert "ns1" in result.output
+        assert "ns2" not in result.output
 
     def test_list_with_cache_key_pattern(self, cloud_storage):
         """list command filters by cache key pattern."""
         from nuthatch.cache import Cache
         from nuthatch.config import NuthatchConfig
 
-        # Use 2-level key for CLI glob compatibility
         config = NuthatchConfig(wrapped_module='tests')
-        cache = Cache(config['root'], "pattern/key", None, None, {}, 'basic', {})
-        cache.write("test data")
+        # Create matching and non-matching caches
+        cache1 = Cache(config['root'], "pattern/match", None, None, {}, 'basic', {})
+        cache1.write("matching data")
+
+        cache2 = Cache(config['root'], "other/nomatch", None, None, {}, 'basic', {})
+        cache2.write("non-matching data")
 
         runner = CliRunner()
-        result = runner.invoke(cli, ["list", "pattern*"])
+        result = runner.invoke(cli, ["list", "pattern/*"])
         assert result.exit_code == 0
+        # Should show matching pattern but not other
+        assert "pattern/match" in result.output
+        assert "other/nomatch" not in result.output
+
+    def test_list_help(self):
+        """list --help shows command help."""
+        runner = CliRunner()
+        result = runner.invoke(cli, ["list", "--help"])
+        assert result.exit_code == 0
+        assert "cache_key" in result.output.lower() or "namespace" in result.output.lower()
 
 
 # =============================================================================
@@ -317,6 +330,13 @@ class TestPrintConfigCommand:
         result = runner.invoke(cli, ["print-config"])
         # Secrets should be masked (shown as asterisks)
         assert result.exit_code == 0
+
+    def test_print_config_help(self):
+        """print-config --help shows command help."""
+        runner = CliRunner()
+        result = runner.invoke(cli, ["print-config", "--help"])
+        assert result.exit_code == 0
+        assert "location" in result.output.lower()
 
 
 # =============================================================================
@@ -387,6 +407,13 @@ class TestDeleteCommand:
         result = runner.invoke(cli, ["delete", "delforce/key", "-f"], input="y\n")
         assert result.exit_code == 0
 
+    def test_delete_help(self):
+        """delete --help shows command help."""
+        runner = CliRunner()
+        result = runner.invoke(cli, ["delete", "--help"])
+        assert result.exit_code == 0
+        assert "cache_key" in result.output.lower()
+
 
 # =============================================================================
 # Import Command Tests
@@ -419,27 +446,41 @@ class TestImportCommand:
         assert result.exit_code == 0
         assert "No caches found" in result.output
 
+    def test_import_existing_data(self, cloud_storage):
+        """import command imports existing data files into cache."""
+        from nuthatch.cache import Cache
+        from nuthatch.config import NuthatchConfig
 
-# =============================================================================
-# Edge Cases and Error Handling
-# =============================================================================
+        config = NuthatchConfig(wrapped_module='tests')
 
-class TestCliEdgeCases:
-    """Tests for CLI edge cases and error handling."""
+        # Create a cache entry normally (creates both data file and metadata)
+        cache = Cache(config['root'], "importtest/data", None, None, {}, 'basic', {})
+        cache.write({"imported": "data"})
+        assert cache.exists()
 
-    def test_list_help(self):
-        """list --help shows command help."""
+        # Delete only the metadata, leaving the data file on disk
+        cache._delete_metadata()
+
+        # Verify cache no longer "exists" (metadata is gone)
+        cache_before = Cache(config['root'], "importtest/data", None, None, {}, 'basic', {})
+        assert not cache_before.exists()
+
+        # But the data file should still be there
+        assert cache_before.backend.exists()
+
         runner = CliRunner()
-        result = runner.invoke(cli, ["list", "--help"])
+        result = runner.invoke(
+            cli,
+            ["import", "importtest/*", "--backend", "basic"],
+            input="y\n"
+        )
         assert result.exit_code == 0
-        assert "cache_key" in result.output.lower() or "namespace" in result.output.lower()
+        assert "Imported" in result.output
 
-    def test_delete_help(self):
-        """delete --help shows command help."""
-        runner = CliRunner()
-        result = runner.invoke(cli, ["delete", "--help"])
-        assert result.exit_code == 0
-        assert "cache_key" in result.output.lower()
+        # Verify cache now exists again (metadata was recreated)
+        cache_after = Cache(config['root'], "importtest/data", None, None, {}, 'basic', {})
+        assert cache_after.exists()
+        assert cache_after.read() == {"imported": "data"}
 
     def test_import_help(self):
         """import --help shows command help."""
@@ -448,12 +489,83 @@ class TestCliEdgeCases:
         assert result.exit_code == 0
         assert "backend" in result.output.lower()
 
-    def test_print_config_help(self):
-        """print-config --help shows command help."""
+
+# =============================================================================
+# Copy Command Tests
+# =============================================================================
+
+
+@pytest.mark.s3
+@pytest.mark.gcs
+@pytest.mark.azure
+class TestCopyCommand:
+    """Tests for the 'cp' command."""
+
+    def test_cp_no_caches(self, cloud_storage):
+        """cp command shows no caches when none exist."""
         runner = CliRunner()
-        result = runner.invoke(cli, ["print-config", "--help"])
+        result = runner.invoke(cli, ["cp", "nonexistent/key", "--to-location", "local"])
         assert result.exit_code == 0
-        assert "location" in result.output.lower()
+        assert "No caches found" in result.output
+
+    def test_cp_with_confirmation_abort(self, cloud_storage):
+        """cp command prompts for confirmation and can be aborted."""
+        from nuthatch.cache import Cache
+        from nuthatch.config import NuthatchConfig
+
+        # Create a cache entry to copy
+        config = NuthatchConfig(wrapped_module='tests')
+        cache = Cache(config['root'], "cptest/key", None, None, {}, 'basic', {})
+        cache.write({"test": "data"})
+
+        runner = CliRunner()
+        # Input 'n' to abort copy
+        result = runner.invoke(cli, ["cp", "cptest/key", "--to-location", "local"], input="n\n")
+        assert result.exit_code == 1  # Aborted
+
+    def test_cp_confirmed(self, cloud_storage):
+        """cp command copies cache when confirmed."""
+        from nuthatch.cache import Cache
+        from nuthatch.config import NuthatchConfig
+
+        # Create a cache entry to copy
+        config = NuthatchConfig(wrapped_module='tests')
+        cache = Cache(config['root'], "cpconf/key", None, None, {}, 'basic', {})
+        cache.write({"test": "copy data"})
+
+        runner = CliRunner()
+        # Input 'y' to confirm copy
+        result = runner.invoke(
+            cli,
+            ["cp", "cpconf/key", "--from-location", "root", "--to-location", "local"],
+            input="y\n"
+        )
+        assert result.exit_code == 0
+        assert "Copy" in result.output
+
+        # Verify cache was copied to local
+        local_cache = Cache(config['local'], "cpconf/key", None, None, {}, 'basic', {})
+        assert local_cache.exists()
+        assert local_cache.read() == {"test": "copy data"}
+
+    def test_cp_with_namespace(self, cloud_storage):
+        """cp command works with namespace option."""
+        from nuthatch.cache import Cache
+        from nuthatch.config import NuthatchConfig
+
+        # Create a cache entry with namespace
+        config = NuthatchConfig(wrapped_module='tests')
+        cache = Cache(config['root'], "cpns/key", "test_ns", None, {}, 'basic', {})
+        cache.write("namespaced data")
+
+        runner = CliRunner()
+        result = runner.invoke(
+            cli,
+            ["cp", "cpns/key", "--namespace", "test_ns", "--to-location", "local"],
+            input="n\n"  # Abort after confirming the cache is found
+        )
+        # Should find the cache (abort confirms it was found)
+        assert result.exit_code == 1 or "No caches found" not in result.output
 
     def test_cp_help(self):
         """cp --help shows command help."""

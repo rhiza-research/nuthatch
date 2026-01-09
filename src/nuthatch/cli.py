@@ -313,9 +313,10 @@ def copy_cache(cache_key, namespace, from_location, to_location):
       nuthatch cp "proj/*" --to-location mirror
     """
     caches = list_helper(cache_key, namespace, None, from_location)
-    from_config = get_config(location=from_location, requested_parameters=Cache.config_parameters)
-    to_config = get_config(location=to_location, requested_parameters=Cache.config_parameters)[to_location]
-    print(to_config)
+    global root_module
+    config = NuthatchConfig(wrapped_module=root_module)
+    from_config = config[from_location]
+    to_config = config[to_location]
 
     if len(caches) == 0:
         print("No caches found to copy.")
@@ -323,15 +324,15 @@ def copy_cache(cache_key, namespace, from_location, to_location):
 
     click.confirm(f"Are you sure you want to copy {len(caches)} cache entries?\n{str(caches[['cache_key', 'backend']])}\n", abort=True)
 
-    for cache in caches.to_dict(orient='records'):
-        if cache['backend'] == 'null':
-            from_cache = Cache(from_config, cache['cache_key'], namespace, None, None, from_location, None, {})
-            to_cache = Cache(to_config, cache['cache_key'], namespace, None, None, to_location, None, {})
+    for cache_entry in caches.to_dict(orient='records'):
+        if cache_entry['backend'] == 'null':
+            from_cache = Cache(from_config, cache_entry['cache_key'], namespace, None, None, None, {})
+            to_cache = Cache(to_config, cache_entry['cache_key'], namespace, None, None, None, {})
         else:
-            from_cache = Cache(from_config, cache['cache_key'], namespace, None, None, from_location, cache['backend'], {})
-            to_cache = Cache(to_config, cache['cache_key'], namespace, None, None, to_location, cache['backend'], {})
+            from_cache = Cache(from_config, cache_entry['cache_key'], namespace, None, None, cache_entry['backend'], {})
+            to_cache = Cache(to_config, cache_entry['cache_key'], namespace, None, None, cache_entry['backend'], {})
 
-        click.echo(f"Copy {cache.cache_key} from {from_location} to {to_location} with backend {from_cache.backend}.")
+        click.echo(f"Copy {cache_entry['cache_key']} from {from_location} to {to_location} with backend {from_cache.backend_name}.")
         to_cache.sync(from_cache)
 
 
