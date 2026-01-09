@@ -22,7 +22,7 @@ dependencies = [
     "terracotta",
     "gitpython",
     "psycopg2-binary",
-    "zarr",
+    "zarr<3",
     "click",
     "polars",
     "dateparser",
@@ -89,7 +89,6 @@ addopts = [
     "--cov-report=xml",
 ]
 filterwarnings = [
-    "ignore:Consolidated metadata is currently not part in the Zarr format 3 specification:zarr.errors.ZarrUserWarning",
 ]
 markers = [
     "s3: test uses S3/LocalStack",
