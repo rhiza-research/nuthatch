@@ -74,14 +74,14 @@ Docker must be running for container tests.
 
 ## Integration Testing (Live Cloud)
 
-To run tests against real cloud services instead of containers:
+To run tests against real cloud services instead of containers, run the test suite directly on the host machine (outside of Docker). The dockerized tests run all emulated containers; running on the host uses your local cloud credentials.
 
 ```bash
-uv run pytest --integration                # All cloud tests against live services
-uv run pytest -m gcs --integration         # GCS tests only
-uv run pytest -m s3 --integration          # S3 tests only
-uv run pytest -m azure --integration       # Azure tests only
-uv run pytest -m "s3 or gcs" --integration # Multiple providers
+uv run pytest                    # All cloud tests against live services
+uv run pytest -m gcs             # GCS tests only
+uv run pytest -m s3              # S3 tests only
+uv run pytest -m azure           # Azure tests only
+uv run pytest -m "s3 or gcs"     # Multiple providers
 ```
 
 ### Required Environment Variables
@@ -130,7 +130,6 @@ def test_my_feature(cloud_storage):
     """Test runs once per marked provider."""
     # cloud_storage["provider"] is "s3", "gcs", or "azure"
     # cloud_storage["config"] has the nuthatch config
-    # cloud_storage["integration"] is True if --integration was passed
 
     from nuthatch import cache
 
