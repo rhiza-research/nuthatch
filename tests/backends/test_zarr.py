@@ -120,7 +120,7 @@ def single_chunk_array(name='test'):
     return ds
 
 
-def test_single_chunk_no_warning(caplog):
+def test_single_chunk_no_warning(cloud_storage, caplog):
     """Test that single chunk datasets don't trigger warnings when below lower limit."""
     with caplog.at_level(logging.WARNING):
         single_chunk_array(name='single_chunk_test', recompute=True, cache_mode='overwrite')
