@@ -212,6 +212,87 @@ class TestCliGroup:
 
 
 # =============================================================================
+# Home Directory Isolation Tests
+# =============================================================================
+
+@pytest.mark.s3
+@pytest.mark.gcs
+@pytest.mark.azure
+class TestHomeIsolation:
+    """Tests that verify test isolation from real user home directory."""
+
+    def test_config_writes_to_temp_home_not_real_home(self, cloud_storage):
+        """Verify _write_config_to_disk writes to temp home, not real ~/.nuthatch.toml."""
+        from pathlib import Path
+
+        # cloud_storage fixture sets HOME to a temp directory and writes config there
+        # Verify that Path.home() returns a temp path, not the real home
+        current_home = Path.home()
+
+        # The cloud_storage fixture should have set HOME to tmp_path/home
+        assert "tmp" in str(current_home) or "pytest" in str(current_home), \
+            f"HOME should be a temp directory, got: {current_home}"
+
+        # Verify the .nuthatch.toml was written to the temp home
+        temp_config_path = current_home / ".nuthatch.toml"
+        assert temp_config_path.exists(), \
+            f"Config should be written to temp home: {temp_config_path}"
+
+        # Verify the config contains our test filesystem (proves it's the test config)
+        test_filesystem = cloud_storage["config"]["root"]["filesystem"]
+        config_content = temp_config_path.read_text()
+        assert test_filesystem in config_content, \
+            f"Temp config should contain test filesystem path: {test_filesystem}"
+
+    def test_config_reads_from_temp_home(self, cloud_storage):
+        """Verify NuthatchConfig reads from temp home, not real home."""
+        from pathlib import Path
+        import tomllib
+
+        # Read the temp config file directly
+        temp_config_path = Path.home() / ".nuthatch.toml"
+        assert temp_config_path.exists(), "Temp config should exist"
+
+        with open(temp_config_path, "rb") as f:
+            disk_config = tomllib.load(f)
+
+        # The config written to disk should match the test config
+        test_filesystem = cloud_storage["config"]["root"]["filesystem"]
+
+        # The disk config should have our test filesystem path
+        assert "tool" in disk_config
+        assert "nuthatch" in disk_config["tool"]
+        assert disk_config["tool"]["nuthatch"]["filesystem"] == test_filesystem, \
+            f"Disk config filesystem should match test config: {test_filesystem}"
+
+    def test_real_home_not_modified(self, cloud_storage):
+        """Verify the real user home .nuthatch.toml is not touched during tests."""
+        import os
+        from pathlib import Path
+        import pwd
+
+        # Get what would be the real home if HOME wasn't patched
+        real_home = Path(pwd.getpwuid(os.getuid()).pw_dir)
+
+        # The current HOME should NOT be the real home
+        current_home = Path.home()
+        assert current_home != real_home, \
+            f"Current HOME ({current_home}) should differ from real home ({real_home})"
+
+        # Verify the paths are different
+        real_config = real_home / ".nuthatch.toml"
+        temp_config = current_home / ".nuthatch.toml"
+
+        assert str(real_config) != str(temp_config), \
+            "Real and temp config paths must be different"
+
+        # Extra verification: the temp config should contain our test-specific path
+        test_filesystem = cloud_storage["config"]["root"]["filesystem"]
+        assert test_filesystem in temp_config.read_text(), \
+            "Temp config should contain test-specific filesystem path"
+
+
+# =============================================================================
 # List Command Tests
 # =============================================================================
 

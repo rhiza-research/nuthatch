@@ -435,6 +435,11 @@ def cloud_storage(request, tmp_path, monkeypatch):
     1. Use the fixture's config directly (it's automatically set as the test config provider)
     2. Use the config dict to build their own config with test_config() context manager
     """
+    # Use a temp directory as HOME to prevent overwriting real ~/.nuthatch.toml
+    # This ensures tests are isolated from the user's actual config
+    fake_home = tmp_path / "home"
+    fake_home.mkdir()
+    monkeypatch.setenv("HOME", str(fake_home))
 
     provider = request.param
 
