@@ -6,6 +6,8 @@ import numpy as np
 import pandas as pd
 import xarray as xr
 
+pytestmark = [pytest.mark.s3, pytest.mark.gcs, pytest.mark.azure]
+
 
 @cache(cache_args=['number'], version="test")
 def num(number=5):
@@ -21,9 +23,6 @@ def ls(el):
     return ret
 
 
-@pytest.mark.s3
-@pytest.mark.gcs
-@pytest.mark.azure
 def test_core(cloud_storage):
     """Test the basic function."""
     data = num(10)
@@ -41,9 +40,6 @@ def test_core(cloud_storage):
     assert data6 != data
 
 
-@pytest.mark.s3
-@pytest.mark.gcs
-@pytest.mark.azure
 def test_filepath(cloud_storage):
     data = num(10, filepath_only=True)
     assert data.endswith('.pkl')
@@ -101,9 +97,6 @@ def test_check_if_nested_fn():
     assert result.attrs['is_nested'] == True  # noqa: E712
 
 
-@pytest.mark.s3
-@pytest.mark.gcs
-@pytest.mark.azure
 def test_local_sync(cloud_storage):
     data = num(10, recompute=True, cache_mode='overwrite')
 
