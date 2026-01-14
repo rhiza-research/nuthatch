@@ -99,7 +99,10 @@ class timeseries(NuthatchProcessor):
                         end_time = end_time.tz_convert(time_col_tz)
                     ds = ds[ds[time_col] <= end_time]
         else:
-            raise RuntimeError(f"Cannot filter timeseries for data type {type(ds)}")
+            if ds is None:
+                logger.warning("No data returned for timeseries slicing.")
+            else:
+                raise RuntimeError(f"Cannot filter timeseries for data type {type(ds)}")
 
         return ds
 
