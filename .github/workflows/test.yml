@@ -8,44 +8,46 @@ on:
 
 jobs:
   test:
-    runs-on: ${{ matrix.os }}
-    strategy:
-      matrix:
-        os: [ubuntu-latest]
-        python-version: ['3.12']
+    runs-on: ubuntu-latest
     permissions:
       contents: read
-      id-token: write
+      checks: write
+      pull-requests: write
     steps:
     - uses: actions/checkout@v4
 
-    - name: Auth to Google Cloud
-      uses: google-github-actions/auth@v2
+    - name: Run tests with docker compose
+      run: |
+        mkdir -p coverage
+        docker compose run --rm -v $(pwd)/coverage:/app/coverage test \
+          -v \
+          --junitxml=/app/coverage/junit.xml \
+          --cov-report=xml:/app/coverage/coverage.xml \
+          --cov-report=term
+
+    - name: Publish Test Results
+      uses: dorny/test-reporter@v1
+      if: always()
       with:
-        credentials_json: ${{ secrets.GCLOUD_CREDENTIALS }}
-
-    - name: Set up Python ${{ matrix.python-version }}
-      uses: actions/setup-python@v5
-      with:
-        python-version: ${{ matrix.python-version }}
-
-    - name: Install uv
-      run: |
-        curl -LsSf https://astral.sh/uv/install.sh | sh
-        echo "$HOME/.cargo/bin" >> $GITHUB_PATH
-
-    - name: Install dependencies
-      run: |
-        uv pip install --system -e . --group dev
-
-    - name: Run tests with pytest
-      run: |
-        pytest -v --cov=nuthatch --cov-report=xml --cov-report=term
+        name: Test Results
+        path: coverage/junit.xml
+        reporter: java-junit
+        fail-on-error: false
 
     - name: Upload coverage to Codecov
       uses: codecov/codecov-action@v4
       with:
-        file: ./coverage.xml
+        file: ./coverage/coverage.xml
         flags: unittests
-        name: codecov-${{ matrix.os }}-py${{ matrix.python-version }}
+        name: codecov-ubuntu
         fail_ci_if_error: false
+
+    - name: Upload test artifacts
+      uses: actions/upload-artifact@v4
+      if: always()
+      with:
+        name: test-results
+        path: |
+          coverage/junit.xml
+          coverage/coverage.xml
+        retention-days: 30

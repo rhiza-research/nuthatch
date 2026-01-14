@@ -23,7 +23,7 @@ def test_local_storage():
     assert ds3 != ds2
     assert ds3 == ds4
 
-    # now cache a new one 
+    # now cache a new one
     ds5 = ls('josh', recompute=True, cache_mode='overwrite')
     # Get the current local (not synced)
     ds5b = ls('josh', cache_mode='local')

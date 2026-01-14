@@ -22,24 +22,33 @@ dependencies = [
     "terracotta",
     "gitpython",
     "psycopg2-binary",
-    "zarr",
+    "zarr<3",
     "click",
     "polars",
     "dateparser",
-    "tomli-w"
+    "tomli-w",
+    "s3fs",
+    "adlfs"
 ]
 
 # TODO: Make backend submodules so that their
 # dependencies can be installed independently
 [dependency-groups]
 dev = [
-    "pooch",
-    "google-cloud-secret-manager",
-    "gcsfs",
-    "pytest>=7.0.0",
-    "pytest-cov>=4.0.0",
-    "pytest-mock>=3.10.0",
-    "ruff>=0.1.0",
+    # Testing framework and plugins
+    "pytest>=7.0.0",           # Test runner
+    "pytest-cov>=4.0.0",       # Code coverage reporting
+    "pytest-mock>=3.10.0",     # Mock object support for tests
+    # Cloud storage filesystem interfaces (for testing with emulators)
+    "gcsfs",                   # Google Cloud Storage filesystem
+    "s3fs",                    # AWS S3 filesystem
+    "adlfs",                   # Azure Data Lake Storage filesystem
+    "azure-storage-blob",      # Azure Blob Storage SDK
+    # Utilities
+    "pooch",                   # Download and cache test data files
+    "google-cloud-secret-manager",  # Access secrets from GCP Secret Manager
+    "requests",                # HTTP client for API calls
+    "ruff>=0.1.0",             # Linter and code formatter
 ]
 
 [project.scripts]
@@ -69,7 +78,7 @@ allow-direct-references = true
 managed = true
 
 [tool.pytest.ini_options]
-log_cli = true
+log_cli = false
 log_cli_level = "INFO"
 log_cli_format = "%(asctime)s.%(msecs)03d %(levelname)s %(filename)s:%(lineno)s %(message)s"
 addopts = [
@@ -78,6 +87,13 @@ addopts = [
     "--cov-report=term-missing",
     "--cov-report=html",
     "--cov-report=xml",
+]
+filterwarnings = [
+]
+markers = [
+    "s3: test uses S3/LocalStack",
+    "gcs: test uses GCS/fake-gcs-server",
+    "azure: test uses Azure/Azurite",
 ]
 
 [tool.coverage.run]

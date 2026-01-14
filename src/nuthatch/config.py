@@ -20,6 +20,11 @@ logger = logging.getLogger(__name__)
 
 dynamic_parameters = {}
 
+# Test hook - set this to bypass disk loading during tests
+# This is manipulated by test_config in conftest.py
+_test_config_provider = None
+
+
 def set_global_skipped_filesystem(filesystem):
     config_file = os.path.expanduser('~/.nuthatch.toml')
 
@@ -177,7 +182,7 @@ class NuthatchConfig:
                     if parts[1] in ['ROOT', 'LOCAL', 'MIRROR'] or parts[1].startswith('MIRROR'):
                         if self._is_backend(parts[2].lower()):
                             if len(parts) == 3:
-                                logger.warn(f"Found nuthatch environment variable {key} with location and backend but not parameter name. Skipping.")
+                                logger.warning(f"Found nuthatch environment variable {key} with location and backend but not parameter name. Skipping.")
                             else:
                                 location_config = config.setdefault(parts[1].lower(), {})
                                 backend_config = location_config.setdefault(parts[2].lower(), {})
@@ -260,8 +265,13 @@ class NuthatchConfig:
         self.mask_secrets = mask_secrets
         self.default_local = False
         self.wrapped_module = wrapped_module
-        if sub_config:
+        if sub_config is not None:
             self.config = sub_config
+            return
+
+        # Test hook - bypass disk loading if test provider is set
+        if _test_config_provider is not None:
+            self.config = self._expand_config(_test_config_provider())
             return
 
         logger.debug("Constructing top level config")
@@ -411,6 +421,15 @@ class NuthatchConfig:
 
     def keys(self):
         return self.config.keys()
+
+    def get(self, key, default=None):
+        try:
+            return self[key]
+        except KeyError:
+            return default
+
+    def copy(self):
+        return self.config.copy()
 
     def __str__(self):
         return str(self.config)

@@ -1,6 +1,7 @@
 from nuthatch.config import NuthatchConfig
 from nuthatch import config_parameter
 
+
 def test_get_config():
     config = NuthatchConfig(wrapped_module='tests')
     assert config

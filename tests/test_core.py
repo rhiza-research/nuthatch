@@ -1,9 +1,13 @@
+import pytest
 from nuthatch import cache
 from nuthatch.nuthatch import check_if_nested_fn
 from nuthatch.processors import timeseries
 import numpy as np
 import pandas as pd
 import xarray as xr
+
+pytestmark = [pytest.mark.s3, pytest.mark.gcs, pytest.mark.azure]
+
 
 @cache(cache_args=['number'], version="test")
 def num(number=5):
@@ -16,16 +20,14 @@ def ls(el):
     """Test with list."""
     ret = [np.random.randint(1)]
     ret.append(el)
-
     return ret
 
 
-def test_core():
+def test_core(cloud_storage):
     """Test the basic function."""
     data = num(10)
     data2 = num(10)
     assert data == data2
-
 
     data3 = ls('test')
     data4 = ls('test')
@@ -37,7 +39,8 @@ def test_core():
     data6 = num(11)
     assert data6 != data
 
-def test_filepath():
+
+def test_filepath(cloud_storage):
     data = num(10, filepath_only=True)
     assert data.endswith('.pkl')
 
@@ -92,3 +95,19 @@ def test_check_if_nested_fn():
     # Test nested cached function with processor wrapper - should return True
     result = processor_outer_func(cache_mode='off')
     assert result.attrs['is_nested'] == True  # noqa: E712
+
+
+def test_local_sync(cloud_storage):
+    data = num(10, recompute=True, cache_mode='overwrite')
+
+    # Should sync the data to local
+    data2 = num(10, cache_local=True)
+
+    assert data == data2
+
+    data3 = num(10, recompute=True, cache_mode='overwrite')
+    # Should resync the data to local
+    data4 = num(10, cache_local=True)
+
+    assert data2 != data3
+    assert data4 == data3
