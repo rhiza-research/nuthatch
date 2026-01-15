@@ -46,6 +46,9 @@ class timeseries(NuthatchProcessor):
         return args, kwargs
 
     def post_process(self, ds):
+        # Don't filter if the dataset is None
+        if ds is None:
+            return None
         start_time = self.start_time
         end_time = self.end_time
 
