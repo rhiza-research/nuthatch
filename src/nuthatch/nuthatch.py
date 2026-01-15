@@ -101,6 +101,11 @@ def get_cache_args(passed_kwargs, default_cache_kwargs, decorator_args, func_nam
     elif 'backend_kwargs' in cache_args and cache_args['backend_kwargs'] is None:
         cache_args['backend_kwargs'] = decorator_args['backend_kwargs']
 
+    if 'storage_backend_kwargs' in cache_args and isinstance(cache_args['storage_backend_kwargs'], dict):
+        cache_args['storage_backend_kwargs'] = cache_args['storage_backend_kwargs'].update(decorator_args['storage_backend_kwargs'])
+    elif 'storage_backend_kwargs' in cache_args and cache_args['storage_backend_kwargs'] is None:
+        cache_args['storage_backend_kwargs'] = decorator_args['storage_backend_kwargs']
+
     # Check if this is a nested cacheable function
     if not check_if_nested_fn():
         # This is a top level cacheable function, reset global cache variables
@@ -364,7 +369,7 @@ def get_storage_backend(ds, backend, backend_kwargs, storage_backend, storage_ba
         storage_backend = get_default_backend(type(ds))
         if not storage_backend_kwargs:
             storage_backend_kwargs = backend_kwargs
-    elif backend:
+    elif not storage_backend and backend:
         storage_backend = backend
         storage_backend_kwargs = backend_kwargs
 
@@ -837,7 +842,7 @@ def cache(cache=True,
                                     Are you sure you want to overwrite it? (y/n)""")
                         write = True if inp == 'y' or inp == 'Y' else False
                     else:
-                        logger.info(f"Overwriting existing cache for {pretty_print(location)} in {location} cache.")
+                        logger.info(f"Overwriting existing cache for {pretty_print(location)} in backend {write_cache.get_backend()} in {location} cache.")
                         write = True
                 else:
                     write = True
