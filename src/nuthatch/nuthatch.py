@@ -429,7 +429,7 @@ def get_cache_mode(cache_mode):
         read_global = True
         read_local = False
     elif cache_mode == 'local':  # write to the local cache
-        force_overwrite = None 
+        force_overwrite = None
         fail_if_no_cache = False
         write_global = False
         write_local = True
@@ -836,12 +836,12 @@ def cache(cache=True,
 
                 if write_cache.exists() and not upsert and ((write_local and location == 'local') or (write_global and location == 'root')):
                     # If the cache exists and we would need to write to it / overwrite it
-                    if force_overwrite == None:
+                    if force_overwrite is None:
                         # Ask the user
                         inp = input(f"""A cache already exists at {pretty_print(location)} for type {write_cache.get_backend()} in {location} cache.
                                     Are you sure you want to overwrite it? (y/n)""")
                         write = True if inp == 'y' or inp == 'Y' else False
-                    elif force_overwrite == False:
+                    elif force_overwrite == False:  # noqa: E712, must check the boolean
                         logger.info(
                             f"Skipping overwrite of existing cache for {pretty_print(location)} in {location} cache.")
                         write = False

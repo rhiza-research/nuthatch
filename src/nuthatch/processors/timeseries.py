@@ -46,7 +46,6 @@ class timeseries(NuthatchProcessor):
         return args, kwargs
 
     def post_process(self, ds):
-        # Don't filter if the dataset is None
         start_time = self.start_time
         end_time = self.end_time
 
@@ -104,7 +103,6 @@ class timeseries(NuthatchProcessor):
                 logger.warning("No data returned for timeseries slicing.")
             else:
                 logger.warning(f"Cannot filter timeseries for data type {type(ds)}")
-                # raise RuntimeError(f"Cannot filter timeseries for data type {type(ds)}")
 
         return ds
 
