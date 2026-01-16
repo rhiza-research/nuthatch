@@ -29,16 +29,18 @@ global_memoize = None
 global_cache_mode = None
 global_retry_null_cache = None
 global_fs_warning = []
+global_backend_kwargs = None
 
 
-def set_global_cache_variables(recompute=None, memoize=None, cache_mode=None, retry_null_cache=None):
+def set_global_cache_variables(recompute=None, memoize=None, cache_mode=None, retry_null_cache=None, backend_kwargs=None):
     """Reset all global variables to defaults and set the new values."""
     global global_recompute, global_memoize, global_cache_mode, \
-        global_retry_null_cache
+        global_retry_null_cache, global_backend_kwargs
 
     # Simple logic for global variables
     global_retry_null_cache = retry_null_cache
     global_cache_mode = cache_mode
+    global_backend_kwargs = backend_kwargs
 
     # More complex logic for recompute
     if recompute == True:  # noqa: E712, must check the boolean
@@ -77,6 +79,7 @@ def check_if_nested_fn():
 
 def get_cache_args(passed_kwargs, default_cache_kwargs, decorator_args, func_name):
     """Extract the cache arguments from the kwargs and return them."""
+    passed_backend_kwargs = passed_kwargs['backend_kwargs'] if 'backend_kwargs' in passed_kwargs else None
     cache_args = {}
     for k in default_cache_kwargs:
         if k in passed_kwargs:
@@ -97,12 +100,12 @@ def get_cache_args(passed_kwargs, default_cache_kwargs, decorator_args, func_nam
     cache_args['cache'] = decorator_args['cache']
 
     if 'backend_kwargs' in cache_args and isinstance(cache_args['backend_kwargs'], dict):
-        cache_args['backend_kwargs'] = cache_args['backend_kwargs'].update(decorator_args['backend_kwargs'])
+        cache_args['backend_kwargs'].update(decorator_args['backend_kwargs'])
     elif 'backend_kwargs' in cache_args and cache_args['backend_kwargs'] is None:
         cache_args['backend_kwargs'] = decorator_args['backend_kwargs']
 
     if 'storage_backend_kwargs' in cache_args and isinstance(cache_args['storage_backend_kwargs'], dict):
-        cache_args['storage_backend_kwargs'] = cache_args['storage_backend_kwargs'].update(decorator_args['storage_backend_kwargs'])
+        cache_args['storage_backend_kwargs'].update(decorator_args['storage_backend_kwargs'])
     elif 'storage_backend_kwargs' in cache_args and cache_args['storage_backend_kwargs'] is None:
         cache_args['storage_backend_kwargs'] = decorator_args['storage_backend_kwargs']
 
@@ -110,14 +113,15 @@ def get_cache_args(passed_kwargs, default_cache_kwargs, decorator_args, func_nam
     if not check_if_nested_fn():
         # This is a top level cacheable function, reset global cache variables
         set_global_cache_variables(recompute=cache_args['recompute'], memoize=cache_args['memoize'],
-                                   cache_mode=cache_args['cache_mode'], retry_null_cache=cache_args['retry_null_cache'])
+                                   cache_mode=cache_args['cache_mode'], retry_null_cache=cache_args['retry_null_cache'],
+                                   backend_kwargs=passed_backend_kwargs)
         if isinstance(cache_args['recompute'], list) or isinstance(cache_args['recompute'], str) or cache_args['recompute'] == '_all':
             cache_args['recompute'] = True
         if isinstance(cache_args['memoize'], list) or isinstance(cache_args['memoize'], str) or cache_args['memoize'] == '_all':
             cache_args['memoize'] = True
     else:
         # Inherit global cache variables
-        global global_recompute, global_memoize, global_cache_mode, global_retry_null_cache
+        global global_recompute, global_memoize, global_cache_mode, global_retry_null_cache, global_backend_kwargs
 
         # Set all global variables
         if global_retry_null_cache is not None:
@@ -130,6 +134,8 @@ def get_cache_args(passed_kwargs, default_cache_kwargs, decorator_args, func_nam
         if global_memoize:
             if func_name in global_memoize or global_memoize == '_all':
                 cache_args['memoize'] = True
+        if global_backend_kwargs:
+            cache_args['backend_kwargs'].update(global_backend_kwargs)
 
     return cache_args
 

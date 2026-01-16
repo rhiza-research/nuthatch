@@ -35,6 +35,8 @@ dependencies = [
 dev = [
     "pooch",
     "google-cloud-secret-manager",
+    "dask[distributed]",
+    "bokeh>=3.1.0",
     "gcsfs",
     "pytest>=7.0.0",
     "pytest-cov>=4.0.0",
