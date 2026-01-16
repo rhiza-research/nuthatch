@@ -4,7 +4,10 @@ import xarray as xr
 import numpy as np
 import pandas as pd
 import logging
+from nuthatch.backends.zarr import get_chunk_size
 
+from dask.distributed import Client
+import dask.array as da
 
 @cache(cache_args=['name', 'species', 'stride'])
 def simple_array(start_time="2021-01-01", end_time="2021-02-01", name='test', species='coraciidae', stride='day'):
@@ -48,6 +51,39 @@ def chunked_array(start_time="2021-01-01", end_time="2021-02-01", name='test', s
     ds.attrs['name'] = name
     ds.attrs['species'] = species
     return ds
+
+@cache(cache_args=[],
+       backend_kwargs={
+           'chunking': {
+               'time': 365,
+               'lat': 300,
+               'lon': 300
+           },
+})
+def large_chunked_array(start_time="2000-01-01", end_time="2004-01-01"):
+    """Generate a simple timeseries dataset for testing."""
+
+    times = pd.date_range(start_time, end_time, freq='1d')
+    lons = np.arange(-180, 180, 0.2)
+    lats = np.arange(-90, 90, 0.2)
+    data = da.random.normal(0, 1, size=(len(times), len(lats), len(lons)), chunks=(365, 300, 300))
+
+    ds = xr.Dataset(
+        data_vars={
+            "obs": (("time", "lat", "lon"), data),
+        },
+        coords={
+            "lat": lats,
+            "lon": lons,
+            "time": times,
+        },
+    )
+
+    return ds
+
+@cache(cache=False)
+def nested_large_chunk():
+    return large_chunked_array()
 
 
 def test_zarr():
@@ -131,3 +167,30 @@ def test_single_chunk_no_warning(caplog):
     data = single_chunk_array(name='single_chunk_test')
     assert 'obs' in data.data_vars
     assert len(data.time) == 10
+
+
+def test_read_chunk_resize():
+    # Cache the large array
+    Client()
+    ds = large_chunked_array()
+    assert ds.chunksizes['time'][0] == 365
+    assert ds.chunksizes['lat'][0] == 300
+    assert ds.chunksizes['lon'][0] == 300
+
+    ds = large_chunked_array(backend_kwargs={'target_read_chunk_size_mb': 300})
+    size, _  = get_chunk_size(ds)
+    assert size > 200 and size < 400
+
+    ds = large_chunked_array(backend_kwargs={'target_read_chunk_size_mb': 1000})
+    size, _  = get_chunk_size(ds)
+    assert size > 500 and size < 1000
+
+    ds = large_chunked_array(backend_kwargs={'target_read_chunk_size_mb': 3000})
+    size, _  = get_chunk_size(ds)
+    assert size > 1500 and size < 4000
+
+
+def test_backend_passthrough():
+    ds = nested_large_chunk(backend_kwargs={'target_read_chunk_size_mb': 3000})
+    size, _  = get_chunk_size(ds)
+    assert size > 1500 and size < 4000
