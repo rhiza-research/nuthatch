@@ -415,7 +415,7 @@ def get_cache_mode(cache_mode):
     """Based on the configurable cache mode, return the appropriate cache read and write behavior."""
     # Set cache read and write behavior based on the write mode
     if cache_mode == 'write':  # only write to the root cache
-        force_overwrite = False
+        force_overwrite = None
         fail_if_no_cache = False
         write_global = True
         write_local = False
@@ -429,7 +429,7 @@ def get_cache_mode(cache_mode):
         read_global = True
         read_local = False
     elif cache_mode == 'local':  # write to the local cache
-        force_overwrite = False
+        force_overwrite = None
         fail_if_no_cache = False
         write_global = False
         write_local = True
@@ -450,35 +450,35 @@ def get_cache_mode(cache_mode):
         read_global = True
         read_local = False
     elif cache_mode == 'local_strict':  # ignore the root cache for both read and write
-        force_overwrite = False
+        force_overwrite = None
         fail_if_no_cache = False
         write_global = False
         write_local = True
         read_global = False
         read_local = True
     elif cache_mode == 'local_api':  # act like an API - fetch globally and store locally. don't ever compute
-        force_overwrite = False
+        force_overwrite = None
         fail_if_no_cache = True
         write_global = False
         write_local = True
         read_global = True
         read_local = True
     elif cache_mode == 'read_only':  # read only from caches, no writing
-        force_overwrite = False
+        force_overwrite = None
         fail_if_no_cache = False
         write_global = False
         write_local = False
         read_global = True
         read_local = True
     elif cache_mode == 'read_only_strict':  # read only from caches, no writing, fail if no cache
-        force_overwrite = False
+        force_overwrite = None
         fail_if_no_cache = True
         write_global = False
         write_local = False
         read_global = True
         read_local = True
     elif cache_mode == 'off':  # completely disable caching
-        force_overwrite = False
+        force_overwrite = None
         fail_if_no_cache = False
         write_global = False
         write_local = False
@@ -836,11 +836,15 @@ def cache(cache=True,
 
                 if write_cache.exists() and not upsert and ((write_local and location == 'local') or (write_global and location == 'root')):
                     # If the cache exists and we would need to write to it / overwrite it
-                    if not force_overwrite:
+                    if force_overwrite is None:
                         # Ask the user
                         inp = input(f"""A cache already exists at {pretty_print(location)} for type {write_cache.get_backend()} in {location} cache.
                                     Are you sure you want to overwrite it? (y/n)""")
                         write = True if inp == 'y' or inp == 'Y' else False
+                    elif force_overwrite == False:  # noqa: E712, must check the boolean
+                        logger.info(
+                            f"Skipping overwrite of existing cache for {pretty_print(location)} in {location} cache.")
+                        write = False
                     else:
                         logger.info(f"Overwriting existing cache for {pretty_print(location)} in backend {write_cache.get_backend()} in {location} cache.")
                         write = True
@@ -860,7 +864,7 @@ def cache(cache=True,
 
                 if filepath_only:
                     # If we only need to return the filepath, return it
-                    return_value = write_cache.get_uri()
+                    return write_cache.get_uri()
 
             for processor in post_processors:
                 return_value = processor(return_value)

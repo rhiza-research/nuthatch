@@ -102,7 +102,7 @@ class timeseries(NuthatchProcessor):
             if ds is None:
                 logger.warning("No data returned for timeseries slicing.")
             else:
-                raise RuntimeError(f"Cannot filter timeseries for data type {type(ds)}")
+                logger.warning(f"Cannot filter timeseries for data type {type(ds)}")
 
         return ds
 
