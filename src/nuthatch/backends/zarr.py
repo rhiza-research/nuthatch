@@ -151,6 +151,7 @@ class ZarrBackend(FileBackend):
         self.auto_rechunk = backend_kwargs.get('auto_rechunk', False)
         self.chunk_size_upper_limit_mb = backend_kwargs.get('chunk_size_upper_limit_mb', 300)
         self.chunk_size_lower_limit_mb = backend_kwargs.get('chunk_size_upper_limit_mb', 30)
+        self.target_read_chunk_size_mb = backend_kwargs.get('target_read_chunk_size_mb', None)
 
     def write(self, data):
         if isinstance(data, xr.Dataset) or isinstance(data, xr.DataArray):
@@ -205,10 +206,47 @@ class ZarrBackend(FileBackend):
                     return xr.open_dataset(self.path, engine='zarr',
                                            chunks={}, decode_timedelta=True)
             else:
+                open_func = xr.open_dataset
                 if engine == xr.DataArray:
-                    return xr.open_dataarray(self.path, engine='zarr', chunks={}, decode_timedelta=True)
+                    open_func = xr.open_dataarray
+
+                if self.target_read_chunk_size_mb:
+                    stored_ds = open_func(self.path, engine='zarr', chunks={}, decode_timedelta=True)
+                    chunk_size, original_chunks = get_chunk_size(stored_ds)
+
+                    # We can't get smaller, log a warning and return
+                    if self.target_read_chunk_size_mb < chunk_size:
+                        logger.warning("Target read chunk size more than 2x smaller than stored chunks. Read chunk size cannot be reduced to smaller than the stored chunk size. "
+                                       "Returning with unmodified chunking.")
+                        return open_func(self.path, engine='zarr', chunks={}, decode_timedelta=True)
+                    elif self.target_read_chunk_size_mb > chunk_size and self.target_read_chunk_size_mb < chunk_size*2:
+                        # This is the correct chunk size, just return
+                        return open_func(self.path, engine='zarr', chunks={}, decode_timedelta=True)
+                    else:
+                        # Compute the target read chunks
+                        multiplier = int(self.target_read_chunk_size_mb/chunk_size)
+
+                        chunks_dict = {}
+                        if multiplier <= len(original_chunks)*2:
+                            # Just scale the first dimension because it's difficult to distributed
+                            chunk_size = chunk_size * multiplier
+                            chunks_dict = {}
+                            for i, chunk in enumerate(original_chunks):
+                                if i == 0:
+                                    chunks_dict[chunk[0]] = chunk[1] * multiplier
+                                else:
+                                    chunks_dict[chunk[0]] = chunk[1]
+                        else:
+                            distributed_multiplier = round(multiplier ** (1/len(original_chunks)))
+                            chunk_size = chunk_size * (distributed_multiplier ** len(original_chunks))
+                            chunks_dict = {}
+                            for i, chunk in enumerate(original_chunks):
+                                chunks_dict[chunk[0]] = chunk[1] * distributed_multiplier
+
+                        logger.info(f"Resized read chunks to {chunks_dict} with calculated size of {chunk_size} MB to match target size of {self.target_read_chunk_size_mb} MB")
+                        return open_func(self.path, engine='zarr', chunks=chunks_dict, decode_timedelta=True)
                 else:
-                    return xr.open_dataset(self.path, engine='zarr', chunks={}, decode_timedelta=True)
+                    return open_func(self.path, engine='zarr', chunks={}, decode_timedelta=True)
         else:
             raise NotImplementedError(f"Zarr backend does not support reading zarrs to {engine} engine")
 
