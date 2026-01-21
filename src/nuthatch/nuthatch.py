@@ -97,12 +97,12 @@ def get_cache_args(passed_kwargs, default_cache_kwargs, decorator_args, func_nam
     cache_args['cache'] = decorator_args['cache']
 
     if 'backend_kwargs' in cache_args and isinstance(cache_args['backend_kwargs'], dict):
-        cache_args['backend_kwargs'] = cache_args['backend_kwargs'].update(decorator_args['backend_kwargs'])
+        cache_args['backend_kwargs'].update(decorator_args['backend_kwargs'])
     elif 'backend_kwargs' in cache_args and cache_args['backend_kwargs'] is None:
         cache_args['backend_kwargs'] = decorator_args['backend_kwargs']
 
     if 'storage_backend_kwargs' in cache_args and isinstance(cache_args['storage_backend_kwargs'], dict):
-        cache_args['storage_backend_kwargs'] = cache_args['storage_backend_kwargs'].update(decorator_args['storage_backend_kwargs'])
+        cache_args['storage_backend_kwargs'].update(decorator_args['storage_backend_kwargs'])
     elif 'storage_backend_kwargs' in cache_args and cache_args['storage_backend_kwargs'] is None:
         cache_args['storage_backend_kwargs'] = decorator_args['storage_backend_kwargs']
 
