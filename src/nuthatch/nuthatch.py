@@ -9,7 +9,7 @@ from inspect import signature, Parameter
 import logging
 import sys
 
-from nuthatch.cache import Cache, NuthatchReadError
+from nuthatch.cache import Cache, NuthatchReadError, NuthatchWriteError
 from nuthatch.backend import get_default_backend
 from nuthatch.config import NuthatchConfig
 from nuthatch.config import set_global_skipped_filesystem
@@ -346,6 +346,9 @@ def instantiate_read_caches(config, cache_key, namespace, version, cache_arg_val
                     pass
                 global_fs_warning.append(location_values['filesystem'])
                 cache_exception = f'Failed to access configured nuthatch cache "{location}" with error "{type(e).__name__}: {e}". If you couldn`t access the expected data, this could be the reason.'
+            except NuthatchWriteError:
+                # We don't care if we have a write error while instantiating a read cache
+                pass
             except Exception as e:
                 # If we have a general exception, we should just log the error and continue.
                 global_fs_warning.append(location_values['filesystem'])
