@@ -9,7 +9,7 @@ from inspect import signature, Parameter
 import logging
 import sys
 
-from nuthatch.cache import Cache
+from nuthatch.cache import Cache, NuthatchReadError
 from nuthatch.backend import get_default_backend
 from nuthatch.config import NuthatchConfig
 from nuthatch.config import set_global_skipped_filesystem
@@ -332,13 +332,25 @@ def instantiate_read_caches(config, cache_key, namespace, version, cache_arg_val
                               cache_arg_values, requested_backend, backend_kwargs)
                 caches[f"{location}"] = cache
                 found_cache = True
-            except Exception as e:  # noqa
-                logger.warning(
-                    f"Failed to access the cache at {location_values['filesystem']}. Adding it to the excluded filesystems list at ~/.nuthatch.toml so future runs are faster. Please remove it if you gain access in the future.")
-                set_global_skipped_filesystem(
-                    location_values['filesystem'])
+            except NuthatchReadError as e:  # noqa
+                inp = input(f"""Failed to read from the cache at {location_values['filesystem']}. 
+                                Would you like to add it to the excluded filesystems 
+                                list at ~/.nuthatch.toml so future runs are faster? (y/n).""")
+                if inp == 'y' or inp == 'Y':
+                    # Set the filesystem to be skipped in the global config
+                    set_global_skipped_filesystem(location_values['filesystem'])
+                    logger.warning(
+                        f"""Added {location_values['filesystem']} to excluded filesystems list at ~/.nuthatch.toml so future runs are faster. 
+                           You will have to manually remove it if you gain access to this cache in the future.""")
+                else:
+                    pass
                 global_fs_warning.append(location_values['filesystem'])
                 cache_exception = f'Failed to access configured nuthatch cache "{location}" with error "{type(e).__name__}: {e}". If you couldn`t access the expected data, this could be the reason.'
+            except Exception as e:
+                # If we have a general exception, we should just log the error and continue.
+                global_fs_warning.append(location_values['filesystem'])
+                cache_exception = f'Failed to access configured nuthatch cache "{location}" with error "{type(e).__name__}: {e}". If you couldn`t access the expected data, this could be the reason.'
+                logger.warning(cache_exception)
 
     if not found_cache:
         raise RuntimeError("No Nuthatch configuration has been found.\n"
@@ -846,7 +858,8 @@ def cache(cache=True,
                             f"Skipping overwrite of existing cache for {pretty_print(location)} in {location} cache.")
                         write = False
                     else:
-                        logger.info(f"Overwriting existing cache for {pretty_print(location)} in backend {write_cache.get_backend()} in {location} cache.")
+                        logger.info(f"""Overwriting existing cache for {pretty_print(location)} in {location} cache.
+                                      backend {write_cache.get_backend()}""")
                         write = True
                 else:
                     write = True
