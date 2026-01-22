@@ -7,7 +7,6 @@ reads fail to add inaccessible filesystems to this list.
 import os
 import tempfile
 import tomllib
-import tomli_w
 
 from nuthatch.config import set_global_skipped_filesystem
 from nuthatch.nuthatch import instantiate_read_caches

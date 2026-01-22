@@ -346,6 +346,11 @@ def instantiate_read_caches(config, cache_key, namespace, version, cache_arg_val
                     pass
                 global_fs_warning.append(location_values['filesystem'])
                 cache_exception = f'Failed to access configured nuthatch cache "{location}" with error "{type(e).__name__}: {e}". If you couldn`t access the expected data, this could be the reason.'
+            except Exception as e:
+                # If we have a general exception, we should just log the error and continue.
+                global_fs_warning.append(location_values['filesystem'])
+                cache_exception = f'Failed to access configured nuthatch cache "{location}" with error "{type(e).__name__}: {e}". If you couldn`t access the expected data, this could be the reason.'
+                logger.warning(cache_exception)
 
     if not found_cache:
         raise RuntimeError("No Nuthatch configuration has been found.\n"
