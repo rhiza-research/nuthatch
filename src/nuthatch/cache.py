@@ -2,6 +2,7 @@ import os
 import copy
 import datetime
 import getpass
+import random
 from abc import ABC, abstractmethod
 
 import git
@@ -96,6 +97,8 @@ class NuthatchMetastore(Metastore):
         self.extension = 'parquet'
         self.config = config
         self.exists = os.path.join(table_path, 'exists.nut')
+        write_int = random.randint(0, 1000000000)
+        self.write_check = os.path.join(table_path, f'write_check/{write_int}.nut')
 
         if 'filesystem_options' not in config:
             self.config['filesystem_options'] = {}
@@ -124,7 +127,7 @@ class NuthatchMetastore(Metastore):
         if exists:
             # If it exists, we have read permissions. Check if we can write.
             try:
-                self.fs.touch(self.exists)
+                self.fs.touch(self.write_check)
             except Exception as e:
                 raise NuthatchWriteError(f"Cache write error: {e}")
         else:
