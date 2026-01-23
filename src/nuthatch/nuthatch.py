@@ -348,7 +348,7 @@ def instantiate_read_caches(config, cache_key, namespace, version, cache_arg_val
                 global_fs_warning.append(location_values['filesystem'])
                 cache_exception = f'Failed to access configured nuthatch cache "{location}" with error "{type(e).__name__}: {e}". If you couldn`t access the expected data, this could be the reason.'
             except NuthatchWriteError as e:
-                logger.info(f"Got a nuthatch write error {e}")
+                logger.info(f"Got a nuthatch write error {e} on {location_values['filesystem']}")
                 # We don't care if we have a write error while instantiating a read cache
             except Exception as e:
                 # If we have a general exception, we should just log the error and continue.
