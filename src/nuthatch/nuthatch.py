@@ -333,22 +333,23 @@ def instantiate_read_caches(config, cache_key, namespace, version, cache_arg_val
                 caches[f"{location}"] = cache
                 found_cache = True
             except NuthatchReadError as e:  # noqa
-                inp = input(f"""Failed to read from the cache at {location_values['filesystem']}. 
-                                Would you like to add it to the excluded filesystems 
+                logger.info(f"Got a nuthatch read error {e}")
+                inp = input(f"""Failed to read from the cache at {location_values['filesystem']}.
+                                Would you like to add it to the excluded filesystems
                                 list at ~/.nuthatch.toml so future runs are faster? (y/n).""")
                 if inp == 'y' or inp == 'Y':
                     # Set the filesystem to be skipped in the global config
                     set_global_skipped_filesystem(location_values['filesystem'])
                     logger.warning(
-                        f"""Added {location_values['filesystem']} to excluded filesystems list at ~/.nuthatch.toml so future runs are faster. 
+                        f"""Added {location_values['filesystem']} to excluded filesystems list at ~/.nuthatch.toml so future runs are faster.
                            You will have to manually remove it if you gain access to this cache in the future.""")
                 else:
                     pass
                 global_fs_warning.append(location_values['filesystem'])
                 cache_exception = f'Failed to access configured nuthatch cache "{location}" with error "{type(e).__name__}: {e}". If you couldn`t access the expected data, this could be the reason.'
-            except NuthatchWriteError:
+            except NuthatchWriteError as e:
+                logger.info(f"Got a nuthatch write error {e}")
                 # We don't care if we have a write error while instantiating a read cache
-                pass
             except Exception as e:
                 # If we have a general exception, we should just log the error and continue.
                 global_fs_warning.append(location_values['filesystem'])
