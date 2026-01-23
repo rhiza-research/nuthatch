@@ -333,7 +333,6 @@ def instantiate_read_caches(config, cache_key, namespace, version, cache_arg_val
                 caches[f"{location}"] = cache
                 found_cache = True
             except NuthatchReadError as e:  # noqa
-                logger.info(f"Got a nuthatch read error {e}")
                 inp = input(f"""Failed to read from the cache at {location_values['filesystem']}.
                                 Would you like to add it to the excluded filesystems
                                 list at ~/.nuthatch.toml so future runs are faster? (y/n).""")
