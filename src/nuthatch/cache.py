@@ -2,6 +2,7 @@ import os
 import copy
 import datetime
 import getpass
+import random
 from abc import ABC, abstractmethod
 
 import git
@@ -89,13 +90,15 @@ class Metastore(ABC):
 class NuthatchMetastore(Metastore):
     """Nuthatch custom metastore."""
 
-    def __init__(self, config):
+    def __init__(self, config, readonly=False):
         base_path = config['filesystem']
         table_path = os.path.expanduser(os.path.join(base_path, 'nuthatch_metadata.nut'))
         self.table_path = table_path
         self.extension = 'parquet'
         self.config = config
         self.exists = os.path.join(table_path, 'exists.nut')
+        write_int = random.randint(0, 1000000000)
+        self.write_check = os.path.join(table_path, f'write_check/{write_int}.nut')
 
         if 'filesystem_options' not in config:
             self.config['filesystem_options'] = {}
@@ -123,14 +126,16 @@ class NuthatchMetastore(Metastore):
 
         if exists:
             # If it exists, we have read permissions. Check if we can write.
-            try:
-                self.fs.touch(self.exists)
-            except Exception as e:
-                raise NuthatchWriteError(f"Cache write error: {e}")
+            if not readonly:
+                try:
+                    self.fs.touch(self.write_check)
+                except Exception as e:
+                    raise NuthatchWriteError(f"Cache write error: {e}")
         else:
             # If exist has returned False, we probably don't have read permissions.
             # But it's possible that the file doesn't exist because it's a new filesystem.
-            # If we can create the file, we'll just continue.
+            # If we can create the file, we'll just continue but log a read error
+            # in case no caches exist at all and we can exit early
             try:
                 self.fs.touch(self.exists)
             except Exception as e:
@@ -255,7 +260,7 @@ class Cache():
     - Writing and reading data to the backend
     """
 
-    def __init__(self, config, cache_key, namespace, version, args, requested_backend, backend_kwargs):
+    def __init__(self, config, cache_key, namespace, version, args, requested_backend, backend_kwargs, readonly=False):
         self.cache_key = cache_key
         self.config = config
         self.namespace = namespace
@@ -265,7 +270,7 @@ class Cache():
 
         # Either instantiate a delta table or a postgres table
         logger.debug(f"Using Nuthatch Metastore at {config['filesystem']}")
-        self.metastore = NuthatchMetastore(config)
+        self.metastore = NuthatchMetastore(config, readonly)
 
         self.backend = None
         self.backend_name = None
