@@ -9,7 +9,7 @@ from inspect import signature, Parameter
 import logging
 import sys
 
-from nuthatch.cache import Cache, NuthatchReadError, NuthatchWriteError
+from nuthatch.cache import Cache, NuthatchReadError
 from nuthatch.backend import get_default_backend
 from nuthatch.config import NuthatchConfig
 from nuthatch.config import set_global_skipped_filesystem
@@ -329,7 +329,7 @@ def instantiate_read_caches(config, cache_key, namespace, version, cache_arg_val
             try:
                 # If this is not a skipped filesystem, try to instantiate the cache
                 cache = Cache(location_values, cache_key, namespace, version,
-                              cache_arg_values, requested_backend, backend_kwargs)
+                              cache_arg_values, requested_backend, backend_kwargs, readonly=True)
                 caches[f"{location}"] = cache
                 found_cache = True
             except NuthatchReadError as e:  # noqa
@@ -347,9 +347,6 @@ def instantiate_read_caches(config, cache_key, namespace, version, cache_arg_val
                     pass
                 global_fs_warning.append(location_values['filesystem'])
                 cache_exception = f'Failed to access configured nuthatch cache "{location}" with error "{type(e).__name__}: {e}". If you couldn`t access the expected data, this could be the reason.'
-            except NuthatchWriteError as e:
-                logger.info(f"Got a nuthatch write error {e} on {location_values['filesystem']}")
-                # We don't care if we have a write error while instantiating a read cache
             except Exception as e:
                 # If we have a general exception, we should just log the error and continue.
                 global_fs_warning.append(location_values['filesystem'])
@@ -357,9 +354,10 @@ def instantiate_read_caches(config, cache_key, namespace, version, cache_arg_val
                 logger.warning(cache_exception)
 
     if not found_cache:
-        raise RuntimeError("No Nuthatch configuration has been found.\n"
+        raise RuntimeError("No accessible nuthatch cache has been found.\n"
                            "-> If you are developing a Nuthatch project, please configure nuthatch in your pyproject.toml\n"
-                           "-> If you are calling a project that uses nuthatch, it should just work! Please contact the project's maintainer.")
+                           "-> If you are calling a project that uses nuthatch, it should just work! Please contact the project's maintainer."
+                           f"-> There was a logged exception {cache_exception} that could be related to this error.")
 
     # Move root to beginning of the ordered dictionary of caches to check
     if 'root' in caches:
