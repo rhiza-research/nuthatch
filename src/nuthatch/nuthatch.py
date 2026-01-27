@@ -214,13 +214,16 @@ def extract_all_arg_values(args, params, kwargs):
     all_arg_values = {}
 
     def add_arg(a):
+        # Prevent the memoizer from adding objects to the cache key that would result
+        # in a cache key that is too long
         return (isinstance(a, int) or isinstance(a, float) or
                 isinstance(a, str) or isinstance(a, bool) or
-                len(str(a)) < 30)
+                len(str(a)) < 500)
 
     for a in kwargs:
-        if add_arg(kwargs[a]):
-            all_arg_values[a] = kwargs[a]
+        if not add_arg(kwargs[a]):
+            raise RuntimeError(f"Argument {a} is too long to memoize. Please shorten the argument value.")
+        all_arg_values[a] = kwargs[a]
 
     # If it's not in kwargs it must either be (1) in args or (2) passed as default
     for i, p in enumerate(params):
@@ -611,12 +614,17 @@ def cache(cache=True,
             #######################################################################################
             # The function parameters and their values
             params = signature(func).parameters
-            cache_arg_values = extract_cache_arg_values(cache_args, args, params, passed_kwargs)
-            all_arg_values = extract_all_arg_values(args, params, passed_kwargs)
-
             # Calculate our unique cache key from the params and values
+            cache_arg_values = extract_cache_arg_values(cache_args, args, params, passed_kwargs)
             cache_key, cache_print = get_cache_key(func, cache_arg_values)
-            memoizer_cache_key, memoizer_cache_print = get_cache_key(func, all_arg_values)
+            try:
+                all_arg_values = extract_all_arg_values(args, params, passed_kwargs)
+                memoizer_cache_key, memoizer_cache_print = get_cache_key(func, all_arg_values)
+            except RuntimeError:
+                memoize = False
+                memoizer_cache_key = None
+                memoizer_cache_print = None
+
             pretty_print = partial(pretty_cache_print, cache_print, memoizer_cache_print)
 
             ########################################################################################
