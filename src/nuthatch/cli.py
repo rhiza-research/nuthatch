@@ -244,7 +244,6 @@ def delete_cache(cache_key, namespace, backend, location, force, metadata_only):
     caches = list_helper(cache_key, namespace, backend, location)
     global root_module
     config = NuthatchConfig(wrapped_module=root_module)
-    cache = Cache(config[location], None, namespace, None, None, backend, {})
 
     if len(caches) == 0:
         print("No caches found to delete.")
@@ -254,10 +253,10 @@ def delete_cache(cache_key, namespace, backend, location, force, metadata_only):
 
     for cache in caches.to_dict(orient='records'):
         if cache['backend'] == 'null':
-            cache = Cache(config, cache['cache_key'], namespace, None, None, None, {})
+            cache = Cache(config[location], cache['cache_key'], namespace, None, None, None, {})
         else:
-            cache = Cache(config, cache['cache_key'], namespace, None, None, cache['backend'], {})
-        click.echo(f"Deleting {cache.cache_key} from {cache.location} with backend {cache.backend_name}.")
+            cache = Cache(config[location], cache['cache_key'], namespace, None, None, cache['backend'], {})
+        click.echo(f"Deleting {cache.cache_key} from {location} with backend {cache.backend_name}.")
         if metadata_only:
             cache._delete_metadata()
         else:
