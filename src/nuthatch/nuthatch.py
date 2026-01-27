@@ -614,11 +614,11 @@ def cache(cache=True,
             #######################################################################################
             # The function parameters and their values
             params = signature(func).parameters
-            cache_arg_values = extract_cache_arg_values(cache_args, args, params, passed_kwargs)
-            all_arg_values = extract_all_arg_values(args, params, passed_kwargs)
             # Calculate our unique cache key from the params and values
+            cache_arg_values = extract_cache_arg_values(cache_args, args, params, passed_kwargs)
             cache_key, cache_print = get_cache_key(func, cache_arg_values)
             try:
+                all_arg_values = extract_all_arg_values(args, params, passed_kwargs)
                 memoizer_cache_key, memoizer_cache_print = get_cache_key(func, all_arg_values)
             except RuntimeError:
                 memoize = False
