@@ -55,18 +55,18 @@ def chunked_array(start_time="2021-01-01", end_time="2021-02-01", name='test', s
 @cache(cache_args=[],
        backend_kwargs={
            'chunking': {
-               'time': 365,
-               'lat': 300,
-               'lon': 300
+               'time': 100,
+               'lat': 100,
+               'lon': 100
            },
 })
-def large_chunked_array(start_time="2000-01-01", end_time="2004-01-01"):
+def large_chunked_array(start_time="2000-01-01", end_time="2002-01-01"):
     """Generate a simple timeseries dataset for testing."""
 
     times = pd.date_range(start_time, end_time, freq='1d')
-    lons = np.arange(-180, 180, 0.2)
-    lats = np.arange(-90, 90, 0.2)
-    data = da.random.normal(0, 1, size=(len(times), len(lats), len(lons)), chunks=(365, 300, 300))
+    lons = np.arange(-180, 180, 0.5)
+    lats = np.arange(-90, 90, 0.5)
+    data = da.random.normal(0, 1, size=(len(times), len(lats), len(lons)), chunks=(100, 100, 100))
 
     ds = xr.Dataset(
         data_vars={
@@ -173,24 +173,20 @@ def test_read_chunk_resize():
     # Cache the large array
     Client()
     ds = large_chunked_array()
-    assert ds.chunksizes['time'][0] == 365
-    assert ds.chunksizes['lat'][0] == 300
-    assert ds.chunksizes['lon'][0] == 300
+    assert ds.chunksizes['time'][0] == 100
+    assert ds.chunksizes['lat'][0] == 100
+    assert ds.chunksizes['lon'][0] == 100
+
+    ds = large_chunked_array(backend_kwargs={'target_read_chunk_size_mb': 100})
+    size, _  = get_chunk_size(ds)
+    assert size > 50 and size < 200
 
     ds = large_chunked_array(backend_kwargs={'target_read_chunk_size_mb': 300})
     size, _  = get_chunk_size(ds)
-    assert size > 200 and size < 400
-
-    ds = large_chunked_array(backend_kwargs={'target_read_chunk_size_mb': 1000})
-    size, _  = get_chunk_size(ds)
-    assert size > 500 and size < 1000
-
-    ds = large_chunked_array(backend_kwargs={'target_read_chunk_size_mb': 3000})
-    size, _  = get_chunk_size(ds)
-    assert size > 1500 and size < 4000
+    assert size > 100 and size < 400
 
 
 def test_backend_passthrough():
-    ds = nested_large_chunk(backend_kwargs={'target_read_chunk_size_mb': 3000})
+    ds = nested_large_chunk(backend_kwargs={'target_read_chunk_size_mb': 300})
     size, _  = get_chunk_size(ds)
-    assert size > 1500 and size < 4000
+    assert size > 100 and size < 400

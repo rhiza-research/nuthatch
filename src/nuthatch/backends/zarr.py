@@ -243,7 +243,15 @@ class ZarrBackend(FileBackend):
                             for i, chunk in enumerate(original_chunks):
                                 chunks_dict[chunk[0]] = chunk[1] * distributed_multiplier
 
-                        logger.info(f"Resized read chunks to {chunks_dict} with calculated size of {chunk_size} MB to match target size of {self.target_read_chunk_size_mb} MB")
+                        rechunked_ds = stored_ds.chunk(chunks_dict)
+                        new_size, new_chunks = get_chunk_size(rechunked_ds)
+                        if new_size < chunk_size:
+                            logger.warning(f"Failed to fully resize read chunks to target size of {self.target_read_chunk_size_mb} MB. "
+                                           f"Could only resize read chunks to {new_size:.0f} MB with chunks of {new_chunks}. "
+                                           "Stored array is likely to small to fully expand the chunking dimensions.")
+                        else:
+                            logger.info(f"Resized read chunks to {chunks_dict} with calculated size of {chunk_size:.0f} MB to match target size of {self.target_read_chunk_size_mb} MB")
+
                         return open_func(self.path, engine='zarr', chunks=chunks_dict, decode_timedelta=True)
                 else:
                     return open_func(self.path, engine='zarr', chunks={}, decode_timedelta=True)
