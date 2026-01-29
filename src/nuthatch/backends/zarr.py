@@ -216,18 +216,25 @@ class ZarrBackend(FileBackend):
 
                     # We can't get smaller, log a warning and return
                     if self.target_read_chunk_size_mb < chunk_size:
-                        logger.warning("Target read chunk size more than 2x smaller than stored chunks. Read chunk size cannot be reduced to smaller than the stored chunk size. "
+                        logger.warning("Target read chunk size smaller than stored chunks. Read chunk size cannot be reduced to smaller than the stored chunk size. "
                                        "Returning with unmodified chunking.")
-                        return open_func(self.path, engine='zarr', chunks={}, decode_timedelta=True)
+                        return stored_ds
                     elif self.target_read_chunk_size_mb > chunk_size and self.target_read_chunk_size_mb < chunk_size*2:
-                        # This is the correct chunk size, just return
+                        # This is the correct chunk size, just return. We can't make something less than 2x smaller
                         return open_func(self.path, engine='zarr', chunks={}, decode_timedelta=True)
                     else:
+                        # The algorith for increasing works as follows:
+                        #  - compute a multiplier between the current size and the target size
+                        #  - if that is less than 2^len(dims) then just scale one of the dimensions
+                        #    because we can't increase the size of all dimensions
+                        #  - if it's not less than 2^len(dims) then compute an integer we can multiply all dimensions by
+                        #    that will be closest to the target read size
+
                         # Compute the target read chunks
                         multiplier = int(self.target_read_chunk_size_mb/chunk_size)
 
                         chunks_dict = {}
-                        if multiplier <= len(original_chunks)*2:
+                        if multiplier <= 2**len(original_chunks):
                             # Just scale the first dimension because it's difficult to distributed
                             chunk_size = chunk_size * multiplier
                             chunks_dict = {}
@@ -237,6 +244,7 @@ class ZarrBackend(FileBackend):
                                 else:
                                     chunks_dict[chunk[0]] = chunk[1]
                         else:
+                            # Find the multiplier that is closest when we multiple all dimensions
                             distributed_multiplier = round(multiplier ** (1/len(original_chunks)))
                             chunk_size = chunk_size * (distributed_multiplier ** len(original_chunks))
                             chunks_dict = {}
@@ -245,6 +253,8 @@ class ZarrBackend(FileBackend):
 
                         rechunked_ds = stored_ds.chunk(chunks_dict)
                         new_size, new_chunks = get_chunk_size(rechunked_ds)
+
+                        # Sometimes xarray doesn't rechunk properly. This is often when a dimension has been scaled to be near it's max size
                         if new_size < chunk_size:
                             logger.warning(f"Failed to fully resize read chunks to target size of {self.target_read_chunk_size_mb} MB. "
                                            f"Could only resize read chunks to {new_size:.0f} MB with chunks of {new_chunks}. "
