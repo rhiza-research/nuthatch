@@ -11,6 +11,7 @@ from nuthatch.backend import DatabaseBackend, FileBackend, register_backend
 
 import logging
 logger = logging.getLogger(__name__)
+logger.setLevel(logging.INFO)
 
 def base360_to_base180(lons):
     """Converts a list of longitudes from base 360 to base 180.
@@ -105,16 +106,23 @@ class TerracottaBackend(DatabaseBackend, FileBackend):
     Additional configuration parameters:
         override_path (str): The base path to use when registering a tif with terracotta. Defaults to `filesystem`.
     """
-
     backend_name = 'terracotta'
 
     def __init__(self, cacheable_config, cache_key, namespace, args, backend_kwargs={}):
         # This calls both inits right?
-        DatabaseBackend.__init__(cacheable_config, cache_key, namespace, args, backend_kwargs)
-        FileBackend.__init__(cacheable_config, cache_key, namespace, args, backend_kwargs, extension='terracotta')
+        FileBackend.__init__(self, cacheable_config, cache_key, namespace, args, backend_kwargs, extension='terracotta')
+        DatabaseBackend.__init__(self, cacheable_config, cache_key, namespace, args, backend_kwargs)
 
-        tc.update_settings(SQL_USER=self.config['write_username'], SQL_PASSWORD=self.config['write_password'])
-        self.driver = tc.get_driver(self.write_uri)
+        if 'write_username' in self.config and 'write_password' in self.config:
+            tc.update_settings(SQL_USER=self.config['write_username'], SQL_PASSWORD=self.config['write_password'])
+        else:
+            tc.update_settings(SQL_USER=self.config['username'], SQL_PASSWORD=self.config['password'])
+
+        tc_url = (self.write_connection.url.drivername + "://" +
+                  self.write_connection.url.host + ":" +
+                  str(self.write_connection.url.port) + "/" +
+                  self.write_connection.url.database)
+        self.driver = tc.get_driver(tc_url)
 
         try:
             self.driver.get_keys()
@@ -123,8 +131,8 @@ class TerracottaBackend(DatabaseBackend, FileBackend):
             logger.info("Creating new terracotta metastore")
             self.driver.create(['key'])
 
-        if 'override_path' in backend_kwargs:
-            base_path = backend_kwargs['override_path']
+        if 'override_path' in self.config:
+            base_path = self.config['override_path']
 
             if namespace:
                 self.raw_override_path = os.path.join(base_path, namespace, cache_key)
@@ -132,11 +140,13 @@ class TerracottaBackend(DatabaseBackend, FileBackend):
                 self.raw_override_path = os.path.join(base_path, cache_key)
 
             self.override_path = self.raw_override_path + '.terracotta'
+        else:
+            self.override_path = self.path
 
         self.lat_dim = backend_kwargs.get('latitude_dimension', 'lat')
         self.lon_dim = backend_kwargs.get('longitude_dimension', 'lon')
         self.time_dim = backend_kwargs.get('time_dimension', 'time')
-        resample = backend_kwargs.get('resampling', 'nearest')
+        resample = backend_kwargs.get('resampling_method', 'nearest')
         if resample == 'nearest':
             self.resampling = Resampling.nearest
         elif resample == 'average':
@@ -165,14 +175,19 @@ class TerracottaBackend(DatabaseBackend, FileBackend):
         else:
             raise RuntimeError("Terracotta backend only supports 2D (lat/lon) and 3D (lat/lon/time) datasets.")
 
-        ds = ds.rename(self.lat_dim, 'y')
-        ds = ds.rename(self.lon_dim, 'x')
+        ds = ds.rename({self.lat_dim: 'y'})
+        ds = ds.rename({self.lon_dim: 'x'})
 
         # Adjust coordinates
         if (ds['x'] > 180.0).any():
             # Data for terrcotta must be stored in 180 format
             lon_base_change(ds, to_base="base180", lon_dim='x')
             ds = ds.sortby(['x'])
+
+        if self.time_dim in ds.dims:
+            ds = ds.transpose(self.time_dim, 'y', 'x')
+        else:
+            ds = ds.transpose('y', 'x')
 
         # Adapt the CRS
         ds.rio.write_crs("epsg:4326", inplace=True)
@@ -195,7 +210,7 @@ class TerracottaBackend(DatabaseBackend, FileBackend):
                     self.write_individual_raster(self.driver, sub_ds, sub_path, sub_cache_key, sub_override_path)
             else:
                 path = os.path.join(self.path, '_.tif')
-                override_path = os.path.join(self.override_path, '_.time')
+                override_path = os.path.join(self.override_path, '_.tif')
                 self.write_individual_raster(self.driver, ds, path, self.cache_key, override_path)
 
         return ds
@@ -211,13 +226,32 @@ class TerracottaBackend(DatabaseBackend, FileBackend):
             driver.insert({'key': cache_key.replace('/', '_')}, mem_dst,
                          override_path=override_path, skip_metadata=False)
 
-            logger.debug(f"Inserted {cache_key.replace('/', '_')} into the terracotta database.")
+            logger.info(f"Inserted {cache_key.replace('/', '_')} into the terracotta database.")
 
     def upsert(self, data, upsert_keys=None):
         raise NotImplementedError("Terracotta does not support upsert.")
 
     def read(self, engine):
-        raise NotImplementedError("Cannot read from the terracotta backend.")
+        datasets_table = sqlalchemy.Table(
+            "datasets", self.driver.meta_store.sqla_metadata, autoload_with=self.driver.meta_store.sqla_engine
+        )
+        stmt = (
+            datasets_table.select()
+            .where(datasets_table.c['key'].like(self.cache_key.replace('/', '_') + '%'))
+        )
+
+
+        with self.driver.meta_store.connect() as conn:
+            result = conn.execute(stmt).all()
+
+
+        datasets = [row[0] for row in result]
+
+        ret = []
+        for dataset in datasets:
+            ret.append({dataset: self.driver.get_metadata({'key' : dataset})})
+
+        return ret
 
     def delete(self):
         # Delete the written file/folder
@@ -235,11 +269,8 @@ class TerracottaBackend(DatabaseBackend, FileBackend):
         with self.driver.meta_store.connect() as conn:
             result = conn.execute(stmt).all()
 
-        def keytuple(row: sqlalchemy.engine.row.Row) -> Tuple[str, ...]:
-            return tuple(getattr(row, key) for key in self.key_names)
-
-        datasets = {keytuple(row): row.path for row in result}
-
-        logger.info(f"Deleting datasets {datasets} from terracotta.")
-        self.driver.delete(datasets)
+        datasets = [row[0] for row in result]
+        for dataset in datasets:
+            logger.info(f"Deleting datasets {datasets} from terracotta.")
+            self.driver.delete({'key': dataset})
 

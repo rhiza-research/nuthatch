@@ -19,7 +19,8 @@ dependencies = [
     "dask-deltatable",
     "xarray",
     "pyarrow",
-    "terracotta",
+    "terracotta==0.8.5",
+    "rioxarray",
     "gitpython",
     "psycopg2-binary",
     "zarr",
@@ -103,11 +104,14 @@ filesystem = "gs://sheerwater-datalake/caches"
 host = "postgres.sheerwater.rhizaresearch.org"
 port = 5432
 database = "postgres"
-username = "write"
+username = "sheerwater_write"
 driver = "postgresql"
-raster_store = "gs://terracotta-files"
-metadata_location = "filesystem"
 dynamic_config_path = "nuthatch.test_secrets"
+
+[tool.nuthatch.terracotta]
+filesystem = "gs://sheerwater-datalake/rasters"
+database = "terracotta"
+override_path = "/mnt/sheerwater-datalake"
 
 [tool.nuthatch.filesystem_options]
 cache_timeout=0
