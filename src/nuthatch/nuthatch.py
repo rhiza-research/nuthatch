@@ -304,35 +304,44 @@ def instantiate_read_caches(config, cache_key, namespace, version, cache_arg_val
 
     cache_exception = None
     global global_fs_warning
-    for location, location_values in config.items():
-        # If the cache is local, we don't need to instantiate it
-        if location == 'local':
-            continue
 
-        cache = None
-        # First, try to set up a mirror (read-only) cache
-        if 'filesystem' in location_values:
-            # Check if this filesystem is listed to be skipped in the cache configuration
-            if 'skipped_filesystems' in config['root'] and location_values['filesystem'] in config['root']['skipped_filesystems']:
-                if location_values['filesystem'] not in global_fs_warning:
-                    logger.warning(
-                        f"Skipping filesystem {location_values['filesystem']} because it has been added to the excluded filesystems list in ~/.nuthatch.toml. Please remove it if you now have access.")
-                    global_fs_warning.append(location_values['filesystem'])
-                continue
+    def try_instantiate_cache(location_name, location_values):
+        """Try to instantiate a cache for a location, handling errors gracefully."""
+        nonlocal found_cache, cache_exception
 
-            try:
-                # If this is not a skipped filesystem, try to instantiate the cache
-                cache = Cache(location_values, cache_key, namespace, version,
-                              cache_arg_values, requested_backend, backend_kwargs)
-                caches[f"{location}"] = cache
-                found_cache = True
-            except Exception as e:  # noqa
+        if 'filesystem' not in location_values:
+            return
+
+        # Check if this filesystem is listed to be skipped in the cache configuration
+        if 'skipped_filesystems' in config['root'] and location_values['filesystem'] in config['root']['skipped_filesystems']:
+            if location_values['filesystem'] not in global_fs_warning:
                 logger.warning(
-                    f"Failed to access the cache at {location_values['filesystem']}. Adding it to the excluded filesystems list at ~/.nuthatch.toml so future runs are faster. Please remove it if you gain access in the future.")
-                config.set_global_skipped_filesystem(
-                    location_values['filesystem'])
+                    f"Skipping filesystem {location_values['filesystem']} because it has been added to the excluded filesystems list in ~/.nuthatch.toml. Please remove it if you now have access.")
                 global_fs_warning.append(location_values['filesystem'])
-                cache_exception = f'Failed to access configured nuthatch cache "{location}" with error "{type(e).__name__}: {e}". If you couldn`t access the expected data, this could be the reason.'
+            return
+
+        try:
+            # If this is not a skipped filesystem, try to instantiate the cache
+            cache = Cache(location_values, cache_key, namespace, version,
+                          cache_arg_values, requested_backend, backend_kwargs)
+            caches[location_name] = cache
+            found_cache = True
+        except Exception as e:  # noqa
+            logger.warning(
+                f"Failed to access the cache at {location_values['filesystem']}. Adding it to the excluded filesystems list at ~/.nuthatch.toml so future runs are faster. Please remove it if you gain access in the future.")
+            config.set_global_skipped_filesystem(
+                location_values['filesystem'])
+            global_fs_warning.append(location_values['filesystem'])
+            cache_exception = f'Failed to access configured nuthatch cache "{location_name}" with error "{type(e).__name__}: {e}". If you couldn`t access the expected data, this could be the reason.'
+
+    # Try to instantiate the root cache
+    if 'root' in config:
+        try_instantiate_cache('root', config['root'])
+
+    # Try to instantiate any mirror caches
+    if 'mirrors' in config:
+        for mirror_name, mirror_values in config['mirrors'].items():
+            try_instantiate_cache(f'mirror-{mirror_name}', mirror_values)
 
     if not found_cache:
         raise RuntimeError("No Nuthatch configuration has been found.\n"
