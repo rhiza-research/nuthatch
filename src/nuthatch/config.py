@@ -13,6 +13,8 @@ import tomli_w
 import inspect
 import copy
 
+from pydantic import BaseModel, ConfigDict, ValidationError
+
 import logging
 import nuthatch
 logger = logging.getLogger(__name__)
@@ -24,25 +26,60 @@ dynamic_parameters = {}
 # This is manipulated by test_config in conftest.py
 _test_config_provider = None
 
+# Environment variables for config file locations
+NUTHATCH_GLOBAL_CONFIG_ENV = "NUTHATCH_GLOBAL_CONFIG"
+NUTHATCH_PROJECT_CONFIG_ENV = "NUTHATCH_PROJECT_CONFIG"
 
-def set_global_skipped_filesystem(filesystem):
-    config_file = os.path.expanduser('~/.nuthatch.toml')
 
-    config_data = {}
-    if os.path.exists(config_file):
-        with open(config_file, 'rb') as f:
-            config_data = tomllib.load(f)
+class GlobalConfigSchema(BaseModel):
+    """Schema for global nuthatch config (~/.nuthatch.toml).
 
-    tool_data = config_data.setdefault('tool', {})
-    nuthatch_data = tool_data.setdefault('nuthatch', {})
-    skip_list = nuthatch_data.setdefault('skipped_filesystems', [])
-    if filesystem in skip_list:
-        return
-    else:
-        skip_list.append(filesystem)
+    Global config is restricted to only filesystem_options and skipped_filesystems.
+    All other configuration must go in project-specific nuthatch.toml files.
+    """
+    model_config = ConfigDict(extra='forbid')
 
-    with open(config_file, "wb") as f:
-        tomli_w.dump(config_data, f)
+    filesystem_options: dict = {}
+    skipped_filesystems: list = []
+
+
+class LocationConfigSchema(BaseModel):
+    """Schema for a cache location (root, local, or mirror-*).
+
+    Each location defines where cached data is stored and how to access it.
+    Locations can have backend-specific subsections (e.g., [root.zarr]).
+    """
+    model_config = ConfigDict(extra='allow')  # Allow backend-specific subsections
+
+    filesystem: str | None = None
+    filesystem_options: dict = {}
+    metadata_location: str | None = None
+
+
+class ProjectConfigSchema(GlobalConfigSchema):
+    """Schema for project nuthatch config (nuthatch.toml).
+
+    Project config allows all configuration options. Unknown keys are allowed
+    (extra='allow') to support:
+
+    - Mirror sections: [mirror-*] sections define read-only cache locations.
+      Any top-level key starting with 'mirror' is treated as a location config.
+      Example: [mirror-public] with filesystem = "gs://public-bucket"
+
+    - Backend-specific config: Nested sections like [root.zarr] or [local.parquet]
+      allow per-backend configuration within a location.
+    """
+    model_config = ConfigDict(extra='allow')  # Allow mirror-* sections
+
+    # Top-level config (applies to root location by default)
+    filesystem: str | None = None
+    metadata_location: str | None = None
+    dynamic_config_path: str | None = None
+
+    # Location sections
+    local: LocationConfigSchema | None = None
+    root: LocationConfigSchema | None = None
+
 
 
 def set_parameter(parameter_value, parameter_name=None, location='root', backend=None):
@@ -130,44 +167,168 @@ def config_parameter(parameter_name, location='root', backend=None, secret=False
 
 class NuthatchConfig:
 
+    # Defaults that can be overridden
+    CONFIG_FILE_NAME = 'nuthatch.toml'
+    DEFAULT_GLOBAL_CONFIG_PATH = '~/.nuthatch.toml'
+
     def _is_fs_root(self, p):
         """Check if a path is the root of a filesystem."""
         return os.path.splitdrive(str(p))[1] == os.sep
 
-    def _find_nuthatch_config(self, start_dir):
-        if isinstance(start_dir, str) and start_dir.endswith('nuthatch.toml') and os.path.exists(start_dir):
+    def _get_global_config_path(self):
+        """Get the path to the global config file.
+
+        Checks NUTHATCH_GLOBAL_CONFIG env var first, falls back to default.
+        """
+        env_path = os.environ.get(NUTHATCH_GLOBAL_CONFIG_ENV)
+        if env_path:
+            return os.path.expanduser(env_path)
+        return os.path.expanduser(self.DEFAULT_GLOBAL_CONFIG_PATH)
+
+    def _find_project_config(self, start_dir=None):
+        """Find config file starting from start_dir and searching upward.
+
+        Args:
+            start_dir: Directory to start searching from. Defaults to cwd.
+                       Can also be a direct path to the config file.
+
+        Returns:
+            Path to config file or None if not found.
+        """
+        if start_dir is None:
+            start_dir = Path.cwd()
+
+        if isinstance(start_dir, str) and start_dir.endswith(self.CONFIG_FILE_NAME) and os.path.exists(start_dir):
             return start_dir
         if isinstance(start_dir, str):
             start_dir = Path(start_dir)
 
         current_directory = start_dir
 
-        config_file = None
         while not self._is_fs_root(current_directory):
-            if current_directory.joinpath('pyproject.toml').exists() :
-                config_file = current_directory.joinpath('pyproject.toml')
-                break
-
-            if current_directory.joinpath('nuthatch.toml').exists() :
-                config_file = current_directory.joinpath('nuthatch.toml')
-                break
+            if current_directory.joinpath(self.CONFIG_FILE_NAME).exists():
+                return current_directory.joinpath(self.CONFIG_FILE_NAME)
 
             current_directory = current_directory.parent
 
-        return config_file
+        return None
+
+    def _get_project_config_path(self):
+        """Get the path to the project config file.
+
+        Checks NUTHATCH_PROJECT_CONFIG env var first, falls back to searching
+        upward from cwd for the config file.
+
+        Returns:
+            Path to config file or None if not found
+        """
+        env_path = os.environ.get(NUTHATCH_PROJECT_CONFIG_ENV)
+        if env_path:
+            expanded = os.path.expanduser(env_path)
+            if os.path.exists(expanded):
+                return expanded
+            logger.warning(f"{NUTHATCH_PROJECT_CONFIG_ENV} set to '{env_path}' but file does not exist")
+            return None
+        return self._find_project_config(Path.cwd())
+
+    def set_global_skipped_filesystem(self, filesystem):
+        """Add a filesystem to the global skip list."""
+        config_file = self._get_global_config_path()
+
+        config_data = {}
+        if os.path.exists(config_file):
+            with open(config_file, 'rb') as f:
+                config_data = tomllib.load(f)
+
+        skip_list = config_data.setdefault('skipped_filesystems', [])
+        if filesystem in skip_list:
+            return
+        else:
+            skip_list.append(filesystem)
+
+        with open(config_file, "wb") as f:
+            tomli_w.dump(config_data, f)
 
     def _get_config_file(self, path):
-        config_file = self._find_nuthatch_config(path)
+        """Load config from a config file.
+
+        Args:
+            path: Either a direct path to config file or a directory to search from
+
+        Returns:
+            Configuration dictionary or empty dict if not found
+
+        Supports two formats:
+            - Top-level keys: filesystem = "...", [local], etc.
+            - Under [nuthatch] section (for backwards compatibility)
+        """
+        config_file = self._find_project_config(path)
         logger.debug(f"Config file path is: {config_file}")
         if config_file:
             with open(config_file, "rb") as f:
                 config = tomllib.load(f)
+                # Support [nuthatch] section for backwards compatibility
                 if 'nuthatch' in config:
                     return config['nuthatch']
-                elif 'tool' in config and 'nuthatch' in config['tool']:
-                    return config['tool']['nuthatch']
+                # Otherwise return top-level config
+                return config
 
         return {}
+
+    def _validate_global_config(self, config):
+        """Validate that global config only contains allowed keys.
+
+        Raises:
+            ValueError: If config contains keys other than allowed keys
+        """
+        try:
+            GlobalConfigSchema(**config)
+        except ValidationError as e:
+            config_path = self._get_global_config_path()
+            allowed_keys = set(GlobalConfigSchema.model_fields.keys())
+            raise ValueError(
+                f"Global nuthatch config at '{config_path}' is invalid: {e}. "
+                f"Global config can ONLY contain: {allowed_keys}. "
+                f"Move other configuration to your project's nuthatch.toml file."
+            ) from e
+        return config
+
+    def _load_global_config(self):
+        """Load and validate the global configuration file.
+
+        The global config can ONLY contain filesystem_options and skipped_filesystems.
+        """
+        config_path = self._get_global_config_path()
+
+        if not os.path.exists(config_path):
+            return {}
+
+        with open(config_path, "rb") as f:
+            config = tomllib.load(f)
+
+        # Handle [nuthatch] section format
+        if 'nuthatch' in config:
+            config = config['nuthatch']
+
+        return self._validate_global_config(config)
+
+    def _load_project_config(self):
+        """Load the project configuration file.
+
+        Checks NUTHATCH_PROJECT_CONFIG env var first, then searches for config file.
+        """
+        config_path = self._get_project_config_path()
+
+        if not config_path or not os.path.exists(config_path):
+            return {}
+
+        with open(config_path, "rb") as f:
+            config = tomllib.load(f)
+
+        # Handle [nuthatch] section format
+        if 'nuthatch' in config:
+            return config['nuthatch']
+        return config
 
     def _get_environ_config(self):
         config = {}
@@ -277,9 +438,13 @@ class NuthatchConfig:
         logger.debug("Constructing top level config")
         final_config = {}
 
-        # These configurations come from out current environment - they are always safe
-        global_config = self._get_config_file(os.path.expanduser('~/.nuthatch.toml'))
-        current_config = self._get_config_file(Path.cwd())
+        # These configurations come from our current environment - they are always safe
+        # Global config: ~/.nuthatch.toml or NUTHATCH_GLOBAL_CONFIG env var
+        # Can ONLY contain filesystem_options and skipped_filesystems
+        global_config = self._load_global_config()
+        # Project config: nuthatch.toml in project or NUTHATCH_PROJECT_CONFIG env var
+        # Can contain all configuration options
+        current_config = self._load_project_config()
         environ_config = self._get_environ_config()
 
         # These configurations are scoped to the environment of the wrapped function

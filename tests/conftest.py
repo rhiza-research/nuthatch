@@ -398,22 +398,25 @@ def azure_test_container(azure_credentials):
 
 
 
-def _write_config_to_disk(config):
-    """Write nuthatch config to ~/.nuthatch.toml for CLI tests.
+def _write_config_to_disk(config, config_path):
+    """Write nuthatch config to disk for CLI tests.
 
     The CLI reads config from disk, so we need to write the test config
-    to ~/.nuthatch.toml for CLI commands to use the correct settings.
+    to the specified path.
+
+    Args:
+        config: The config dict with 'root' and optionally 'local' keys
+        config_path: Path where the config file should be written
     """
     import tomli_w
     from pathlib import Path
 
-    config_path = Path.home() / ".nuthatch.toml"
+    config_path = Path(config_path)
 
-    # Convert config to the format expected in .nuthatch.toml
-    # The file uses [tool.nuthatch] section
-    toml_config = {"tool": {"nuthatch": config.get("root", {})}}
+    # Write top-level format (not [tool.nuthatch])
+    toml_config = config.get("root", {}).copy()
     if "local" in config:
-        toml_config["tool"]["nuthatch"]["local"] = config["local"]
+        toml_config["local"] = config["local"]
 
     with open(config_path, "wb") as f:
         tomli_w.dump(toml_config, f)
@@ -440,6 +443,13 @@ def cloud_storage(request, tmp_path, monkeypatch):
     fake_home = tmp_path / "home"
     fake_home.mkdir()
     monkeypatch.setenv("HOME", str(fake_home))
+
+    # Set config file locations for test isolation
+    # This ensures tests use isolated config files and don't pull in production credentials
+    project_config_path = tmp_path / "nuthatch.toml"
+    global_config_path = fake_home / ".nuthatch.toml"
+    monkeypatch.setenv(nuthatch.config.NUTHATCH_PROJECT_CONFIG_ENV, str(project_config_path))
+    monkeypatch.setenv(nuthatch.config.NUTHATCH_GLOBAL_CONFIG_ENV, str(global_config_path))
 
     provider = request.param
 
@@ -538,7 +548,7 @@ def cloud_storage(request, tmp_path, monkeypatch):
     with test_config(config) as ctx:
         # Write config to disk so CLI commands can read it
         # Do this INSIDE the context after test_config is set
-        _write_config_to_disk(config)
+        _write_config_to_disk(config, project_config_path)
         yield result
 
     # Verify the test actually used cloud storage

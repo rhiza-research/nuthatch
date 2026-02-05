@@ -12,7 +12,6 @@ import sys
 from nuthatch.cache import Cache
 from nuthatch.backend import get_default_backend
 from nuthatch.config import NuthatchConfig
-from nuthatch.config import set_global_skipped_filesystem
 from nuthatch.memoizer import save_to_memory, recall_from_memory
 
 logger = logging.getLogger(__name__)
@@ -330,14 +329,14 @@ def instantiate_read_caches(config, cache_key, namespace, version, cache_arg_val
             except Exception as e:  # noqa
                 logger.warning(
                     f"Failed to access the cache at {location_values['filesystem']}. Adding it to the excluded filesystems list at ~/.nuthatch.toml so future runs are faster. Please remove it if you gain access in the future.")
-                set_global_skipped_filesystem(
+                config.set_global_skipped_filesystem(
                     location_values['filesystem'])
                 global_fs_warning.append(location_values['filesystem'])
                 cache_exception = f'Failed to access configured nuthatch cache "{location}" with error "{type(e).__name__}: {e}". If you couldn`t access the expected data, this could be the reason.'
 
     if not found_cache:
         raise RuntimeError("No Nuthatch configuration has been found.\n"
-                           "-> If you are developing a Nuthatch project, please configure nuthatch in your pyproject.toml\n"
+                           "-> If you are developing a Nuthatch project, please configure nuthatch in a nuthatch.toml file in your project root\n"
                            "-> If you are calling a project that uses nuthatch, it should just work! Please contact the project's maintainer.")
 
     # Move root to beginning of the ordered dictionary of caches to check
