@@ -413,10 +413,14 @@ def _write_config_to_disk(config, config_path):
 
     config_path = Path(config_path)
 
-    # Write top-level format (not [tool.nuthatch])
-    toml_config = config.get("root", {}).copy()
+    # Write using new explicit [root] format
+    toml_config = {}
+    if "root" in config:
+        toml_config["root"] = config["root"]
     if "local" in config:
         toml_config["local"] = config["local"]
+    if "mirrors" in config:
+        toml_config["mirrors"] = config["mirrors"]
 
     with open(config_path, "wb") as f:
         tomli_w.dump(toml_config, f)

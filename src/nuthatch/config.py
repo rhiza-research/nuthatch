@@ -12,12 +12,34 @@ import tomllib
 import tomli_w
 import inspect
 import copy
+import warnings
 
 from pydantic import BaseModel, ConfigDict, ValidationError
 
 import logging
 import nuthatch
 logger = logging.getLogger(__name__)
+
+# Deprecation infrastructure for config format migration
+_DEPRECATION_VERSION = "2.0"
+STRICT_MODE_ENV = "NUTHATCH_STRICT_CONFIG"
+
+
+def _is_strict_mode():
+    """Check if strict config mode is enabled via environment variable."""
+    return os.environ.get(STRICT_MODE_ENV, '').lower() in ('true', '1', 't')
+
+
+def _emit_deprecation_warning(message):
+    """Emit a deprecation warning, or raise error in strict mode.
+
+    In strict mode (NUTHATCH_STRICT_CONFIG=true), raises ValueError instead
+    of warning. This allows users to test compliance with the new format.
+    """
+    full_message = f"[nuthatch] {message} This will be an error in version {_DEPRECATION_VERSION}."
+    if _is_strict_mode():
+        raise ValueError(full_message)
+    warnings.warn(full_message, DeprecationWarning, stacklevel=4)
 
 
 dynamic_parameters = {}
@@ -59,19 +81,26 @@ class LocationConfigSchema(BaseModel):
 class ProjectConfigSchema(GlobalConfigSchema):
     """Schema for project nuthatch config (nuthatch.toml).
 
-    Project config allows all configuration options. Unknown keys are allowed
-    (extra='allow') to support:
+    Project config allows all configuration options. The recommended format is:
 
-    - Mirror sections: [mirror-*] sections define read-only cache locations.
-      Any top-level key starting with 'mirror' is treated as a location config.
-      Example: [mirror-public] with filesystem = "gs://public-bucket"
+    ```toml
+    [root]
+    filesystem = "gs://my-bucket/caches"
 
-    - Backend-specific config: Nested sections like [root.zarr] or [local.parquet]
-      allow per-backend configuration within a location.
+    [local]
+    filesystem = "~/.nuthatch/caches"
+
+    [mirrors.public]
+    filesystem = "gs://public-bucket/caches"
+    ```
+
+    Deprecated formats (still supported with warnings):
+    - Top-level keys like `filesystem = "..."` (use explicit [root] section)
+    - [mirror-*] sections (use [mirrors.*] instead)
     """
-    model_config = ConfigDict(extra='allow')  # Allow mirror-* sections
+    model_config = ConfigDict(extra='allow')  # Allow deprecated mirror-* sections
 
-    # Top-level config (applies to root location by default)
+    # Top-level config (DEPRECATED - use explicit [root] section)
     filesystem: str | None = None
     metadata_location: str | None = None
     dynamic_config_path: str | None = None
@@ -79,6 +108,9 @@ class ProjectConfigSchema(GlobalConfigSchema):
     # Location sections
     local: LocationConfigSchema | None = None
     root: LocationConfigSchema | None = None
+
+    # Mirrors dict (new format: [mirrors.name])
+    mirrors: dict | None = None
 
 
 
@@ -331,16 +363,67 @@ class NuthatchConfig:
         return config
 
     def _get_environ_config(self):
+        """Parse nuthatch configuration from environment variables.
+
+        Supports formats:
+        - NUTHATCH_<PARAM> - top-level parameter
+        - NUTHATCH_ROOT_<PARAM> - root location parameter
+        - NUTHATCH_LOCAL_<PARAM> - local location parameter
+        - NUTHATCH_MIRRORS_<NAME>_<PARAM> - mirror parameter (new format)
+        - NUTHATCH_MIRROR_<PARAM> - deprecated, use MIRRORS_DEFAULT_<PARAM>
+        - NUTHATCH_MIRROR<NAME>_<PARAM> - deprecated, use MIRRORS_<NAME>_<PARAM>
+
+        Note: Special env vars for config file paths (NUTHATCH_GLOBAL_CONFIG,
+        NUTHATCH_PROJECT_CONFIG, NUTHATCH_STRICT_CONFIG) are NOT parsed as config values.
+        """
         config = {}
+        warned_mirror_env = False
+
+        # Skip these special env vars - they're for config file paths, not config values
+        skip_env_vars = {NUTHATCH_GLOBAL_CONFIG_ENV, NUTHATCH_PROJECT_CONFIG_ENV, STRICT_MODE_ENV}
+
         for key, value in os.environ.items():
-            if key.startswith('NUTHATCH'):
+            if key.startswith('NUTHATCH') and key not in skip_env_vars:
                 parts = key.split('_')
                 if len(parts) == 1:
                     pass
                 if len(parts) == 2:
-                    config[parts[1]] = value
+                    config[parts[1].lower()] = value
                 if len(parts) > 2:
-                    if parts[1] in ['ROOT', 'LOCAL', 'MIRROR'] or parts[1].startswith('MIRROR'):
+                    # New format: NUTHATCH_MIRRORS_<name>_<param>
+                    if parts[1] == 'MIRRORS' and len(parts) >= 4:
+                        mirror_name = parts[2].lower()
+                        mirrors = config.setdefault('mirrors', {})
+                        mirror_config = mirrors.setdefault(mirror_name, {})
+                        if self._is_backend(parts[3].lower()):
+                            if len(parts) == 4:
+                                logger.warning(f"Found nuthatch environment variable {key} with mirror, backend but no parameter. Skipping.")
+                            else:
+                                backend_config = mirror_config.setdefault(parts[3].lower(), {})
+                                backend_config['_'.join(parts[4:]).lower()] = value
+                        else:
+                            mirror_config['_'.join(parts[3:]).lower()] = value
+                    # Standard locations: ROOT, LOCAL
+                    elif parts[1] in ['ROOT', 'LOCAL']:
+                        if self._is_backend(parts[2].lower()):
+                            if len(parts) == 3:
+                                logger.warning(f"Found nuthatch environment variable {key} with location and backend but not parameter name. Skipping.")
+                            else:
+                                location_config = config.setdefault(parts[1].lower(), {})
+                                backend_config = location_config.setdefault(parts[2].lower(), {})
+                                backend_config['_'.join(parts[3:]).lower()] = value
+                        else:
+                            location_config = config.setdefault(parts[1].lower(), {})
+                            location_config['_'.join(parts[2:]).lower()] = value
+                    # Deprecated: NUTHATCH_MIRROR* format
+                    elif parts[1] == 'MIRROR' or parts[1].startswith('MIRROR'):
+                        if not warned_mirror_env:
+                            _emit_deprecation_warning(
+                                f"Environment variable {key} uses deprecated MIRROR format. "
+                                "Please use NUTHATCH_MIRRORS_<name>_<param> instead."
+                            )
+                            warned_mirror_env = True
+                        # Still process it for backward compatibility
                         if self._is_backend(parts[2].lower()):
                             if len(parts) == 3:
                                 logger.warning(f"Found nuthatch environment variable {key} with location and backend but not parameter name. Skipping.")
@@ -375,25 +458,50 @@ class NuthatchConfig:
         return {}
 
     def _is_location(self, key):
-        if key in ['root', 'local', 'mirro'] or key.startswith('mirror'):
+        """Check if a config key represents a cache location.
+
+        Recognizes:
+        - 'root', 'local' - standard locations
+        - 'mirrors' - new dict-based mirror structure
+        - 'mirror-*' - deprecated prefix-based mirrors (still supported)
+        """
+        if key in ['root', 'local', 'mirrors']:
             return True
-        else:
-            return False
+        if key.startswith('mirror'):  # Deprecated prefix format, still supported
+            return True
+        return False
 
     def _is_backend(self, key):
         return key in nuthatch.backend.registered_backends.keys()
 
     def _expand_config(self, config):
-        # Expand config so that all config parameters fall in [location][backend] format
+        """Expand config so that all config parameters fall in [location][backend] format.
 
-        # Start by moving things that are not location-scoped into root
+        Also handles migration from deprecated formats:
+        - Top-level keys -> [root] section (deprecated, emits warning)
+        - [mirror-*] sections -> [mirrors.*] (deprecated, emits warning)
+        """
+        # Track warnings to emit only once per config load
+        warned_implicit_root = False
+        warned_mirror_prefix = False
+
+        # These keys are valid at top level (global settings), not per-location
+        global_top_level_keys = {'filesystem_options', 'skipped_filesystems', 'dynamic_config_path'}
+
+        # Step 1: Handle implicit root config (DEPRECATED)
+        # Top-level keys that aren't locations or global settings get moved to root
         root_config = {}
         keys_to_delete = []
         for key, value in config.items():
-            if not self._is_location(key):
+            if not self._is_location(key) and key not in global_top_level_keys:
+                if not warned_implicit_root:
+                    _emit_deprecation_warning(
+                        f"Top-level config key '{key}' found. "
+                        "Please move configuration to an explicit [root] section."
+                    )
+                    warned_implicit_root = True
                 root_config[key] = value
                 keys_to_delete.append(key)
-
 
         root_ref = config.setdefault('root', {})
         for key, value in root_config.items():
@@ -403,17 +511,54 @@ class NuthatchConfig:
             if key in config:
                 del config[key]
 
-        # Now copy parameters to all registered backends softly so that if a backend has parameters
-        # they aren't overwritten but filled out
-        for location, location_values in config.items():
-            generic_config = {}
+        # Step 2: Convert [mirror-*] prefix format to [mirrors.*] dict (DEPRECATED)
+        mirrors_dict = config.get('mirrors', {})
+        mirror_keys_to_delete = []
 
-            # Get everything that's not for a specific backend and put it in the generic section
+        for key in list(config.keys()):
+            if key.startswith('mirror-'):
+                mirror_name = key[7:]  # Strip 'mirror-' prefix
+                if not warned_mirror_prefix:
+                    _emit_deprecation_warning(
+                        f"Mirror section [{key}] uses deprecated format. "
+                        f"Please use [mirrors.{mirror_name}] instead."
+                    )
+                    warned_mirror_prefix = True
+                mirrors_dict[mirror_name] = config[key]
+                mirror_keys_to_delete.append(key)
+            elif key == 'mirror':
+                # Handle bare [mirror] section
+                if not warned_mirror_prefix:
+                    _emit_deprecation_warning(
+                        "Mirror section [mirror] uses deprecated format. "
+                        "Please use [mirrors.default] or a named mirror instead."
+                    )
+                    warned_mirror_prefix = True
+                mirrors_dict['default'] = config[key]
+                mirror_keys_to_delete.append(key)
+
+        if mirrors_dict:
+            config['mirrors'] = mirrors_dict
+        for key in mirror_keys_to_delete:
+            del config[key]
+
+        # Step 3: Flatten mirrors back to top-level for backward compatibility
+        # This allows existing code that iterates over config.items() to still work
+        if 'mirrors' in config:
+            for mirror_name, mirror_config in config['mirrors'].items():
+                config[f'mirror-{mirror_name}'] = mirror_config
+
+        # Step 4: Expand backend config for all locations
+        # Copy generic location parameters to all registered backends
+        for location, location_values in config.items():
+            if not isinstance(location_values, dict):
+                continue
+
+            generic_config = {}
             for backend_or_key, value in location_values.items():
                 if not self._is_backend(backend_or_key):
                     generic_config[backend_or_key] = value
 
-            # For all registered backends, update the values with the generics
             for backend in nuthatch.backend.registered_backends.keys():
                 backend_config = location_values.setdefault(backend, {})
                 for key, value in generic_config.items():
@@ -494,12 +639,15 @@ class NuthatchConfig:
                 external_name = 'external'
                 if hasattr(wrapped_module, '__name__'):
                     external_name = wrapped_module.__name__.partition('.')[0]
-                final_config['mirror-' + external_name + '-root'] = external_config['root']
-                for key, value in external_config.items():
-                    if key == 'mirror':
-                        final_config['mirror-' + external_name] = external_config[key]
-                    elif key.startswith('mirror'):
-                        final_config['mirror-' + external_name + '-' + key.replace('mirror', '')] = external_config[key]
+
+                # Use new mirrors dict structure (will be flattened by _expand_config)
+                mirrors = final_config.setdefault('mirrors', {})
+                mirrors[f'{external_name}-root'] = external_config['root']
+
+                # Handle mirrors from external config (already in dict form after _expand_config)
+                if 'mirrors' in external_config:
+                    for mirror_name, mirror_config in external_config['mirrors'].items():
+                        mirrors[f'{external_name}-{mirror_name}'] = mirror_config
         else:
             # wrapped module is for some reason not set. Don't allow dynamic parameters (they shouldn't work anyway due to wrapped module not being set)
             final_config |= global_config
