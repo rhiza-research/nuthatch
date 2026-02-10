@@ -9,7 +9,7 @@ def postgres_write_password():
     client = secretmanager.SecretManagerServiceClient()
 
     response = client.access_secret_version(
-        request={"name": "projects/750045969992/secrets/sheerwater-postgres-write-password/versions/latest"})
+        request={"name": "projects/750045969992/secrets/postgres-write-password/versions/latest"})
     key = response.payload.data.decode("UTF-8")
 
     return key
