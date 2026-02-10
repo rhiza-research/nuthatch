@@ -27,7 +27,8 @@ dependencies = [
     "polars",
     "dateparser",
     "tomli-w",
-    "multiprocess"
+    "multiprocess",
+    "humanfriendly",
 ]
 
 # TODO: Make backend submodules so that their
