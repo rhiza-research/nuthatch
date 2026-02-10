@@ -239,10 +239,8 @@ class TerracottaBackend(DatabaseBackend, FileBackend):
             .where(datasets_table.c['key'].like(self.cache_key.replace('/', '_') + '%'))
         )
 
-
         with self.driver.meta_store.connect() as conn:
             result = conn.execute(stmt).all()
-
 
         datasets = [row[0] for row in result]
 
