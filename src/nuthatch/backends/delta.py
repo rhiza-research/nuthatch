@@ -26,7 +26,7 @@ class DeltaBackend(FileBackend):
         protocol = fsspec.utils.get_protocol(self.path)
 
         # Get original filesystem_options (already set by parent class)
-        original_options = self.config.get('filesystem_options', {}).copy()
+        original_options = self.filesystem_options
         remapped_options = {}
 
         if protocol in ('s3', 's3a'):

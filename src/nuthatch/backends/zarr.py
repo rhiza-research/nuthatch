@@ -200,18 +200,18 @@ class ZarrBackend(FileBackend):
 
                     # Reopen the dataset - will use the appropriate global or local cache
                     return xr.open_dataset(self.path, engine='zarr',
-                                           chunks={}, decode_timedelta=True, storage_options=self.config['filesystem_options'].copy(),
+                                           chunks={}, decode_timedelta=True, storage_options=self.filesystem_options,
                                            consolidated=True)
                 else:
                     # Requested chunks already match rechunk.
                     return xr.open_dataset(self.path, engine='zarr',
-                                           chunks={}, decode_timedelta=True, storage_options=self.config['filesystem_options'].copy(),
+                                           chunks={}, decode_timedelta=True, storage_options=self.filesystem_options,
                                            consolidated=True)
             else:
                 if engine == xr.DataArray:
-                    return xr.open_dataarray(self.path, engine='zarr', chunks={}, decode_timedelta=True, storage_options=self.config['filesystem_options'].copy(), consolidated=True)
+                    return xr.open_dataarray(self.path, engine='zarr', chunks={}, decode_timedelta=True, storage_options=self.filesystem_options, consolidated=True)
                 else:
-                    return xr.open_dataset(self.path, engine='zarr', chunks={}, decode_timedelta=True, storage_options=self.config['filesystem_options'].copy(), consolidated=True)
+                    return xr.open_dataset(self.path, engine='zarr', chunks={}, decode_timedelta=True, storage_options=self.filesystem_options, consolidated=True)
         else:
             raise NotImplementedError(f"Zarr backend does not support reading zarrs to {engine} engine")
 
@@ -240,7 +240,7 @@ class ZarrBackend(FileBackend):
             if self.fs.exists(path):
                 self.fs.rm(path, recursive=True)
 
-            ds.to_zarr(store=path, mode='w', storage_options=self.config['filesystem_options'].copy(), consolidated=True)
+            ds.to_zarr(store=path, mode='w', storage_options=self.filesystem_options, consolidated=True)
         except ValueError as e:
             if chunking == 'auto':
                 logger.error("Writing to backend zarr failed and chunking is set to 'auto'. This could be the problem. Try setting chunks explictly in the nuthatch function.")

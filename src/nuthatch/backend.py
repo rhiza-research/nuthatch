@@ -244,16 +244,20 @@ class FileBackend(NuthatchBackend):
             self.config['filesystem_options'] = {}
 
         # Get filesystem_options as a plain dict for external library consumption
-        fs_options = self.config['filesystem_options']
-        if hasattr(fs_options, 'copy'):
-            fs_options = fs_options.copy()
+        # dict() only converts the top level; nested NuthatchConfig values must
+        # also be converted so that isinstance(..., dict) checks work downstream.
+        def _to_plain_dict(obj):
+            if hasattr(obj, 'items'):
+                return {k: _to_plain_dict(v) for k, v in obj.items()}
+            return obj
+        self.filesystem_options = _to_plain_dict(self.config['filesystem_options'])
 
         # This instantiates an fsspec filesystem
         if fsspec.utils.get_protocol(self.path) == 'file':
             # If the protocol is a local filesystem, we need to create the directory if it doesn't exist
-            self.fs = fsspec.core.url_to_fs(self.path, auto_mkdir=True, **fs_options)[0]
+            self.fs = fsspec.core.url_to_fs(self.path, auto_mkdir=True, **self.filesystem_options)[0]
         else:
-            self.fs = fsspec.core.url_to_fs(self.path, **fs_options)[0]
+            self.fs = fsspec.core.url_to_fs(self.path, **self.filesystem_options)[0]
 
     def exists(self):
         return (self.fs.exists(self.path))

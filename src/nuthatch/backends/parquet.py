@@ -30,7 +30,7 @@ class ParquetBackend(FileBackend):
             self._write_parquet_helper(data, self.path, part)
             return data
         elif isinstance(data, pd.DataFrame):
-            data.to_parquet(self.path, partition_cols=part, engine='pyarrow', storage_options=self.config['filesystem_options'].copy())
+            data.to_parquet(self.path, partition_cols=part, engine='pyarrow', storage_options=self.filesystem_options)
             return data
         else:
             raise RuntimeError("Parquet backend only supports dask and pandas engines.")
@@ -59,7 +59,7 @@ class ParquetBackend(FileBackend):
             if not isinstance(df, dd.DataFrame):
                 raise RuntimeError("Upsert is only supported by dask dataframes for parquet")
 
-            existing_df = dd.read_parquet(self.path, engine='pyarrow', ignore_metadata_file=True, storage_options=self.cacheable_config['filesystem_options'])
+            existing_df = dd.read_parquet(self.path, engine='pyarrow', ignore_metadata_file=True, storage_options=self.filesystem_options)
 
             # Record starting partitions
             start_parts = df.npartitions
@@ -114,9 +114,9 @@ class ParquetBackend(FileBackend):
 
     def read(self, engine):
         if engine == 'dask' or engine == dd.DataFrame or engine is None:
-            return dd.read_parquet(self.path, engine='pyarrow', ignore_metadata_file=True, storage_options=self.config['filesystem_options'].copy())
+            return dd.read_parquet(self.path, engine='pyarrow', ignore_metadata_file=True, storage_options=self.filesystem_options)
         elif engine == 'pandas' or engine == pd.DataFrame:
-            return pd.read_parquet(self.path, storage_options=self.config['filesystem_options'].copy())
+            return pd.read_parquet(self.path, storage_options=self.filesystem_options)
         else:
             raise RuntimeError("Delta backend only supports dask and pandas engines.")
 
@@ -129,7 +129,7 @@ class ParquetBackend(FileBackend):
             engine="pyarrow",
             write_metadata_file=True,
             write_index=False,
-            storage_options=self.config['filesystem_options'].copy()
+            storage_options=self.filesystem_options
         )
 
 
