@@ -68,9 +68,6 @@ build-backend = "hatchling.build"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/nuthatch"]
-exclude = [
-    "src/nuthatch/test_secrets.py" # Exclude a specific file
-]
 
 [tool.hatch.metadata]
 allow-direct-references = true
