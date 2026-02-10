@@ -35,7 +35,7 @@ def test_mirror(cloud_storage):
     # Phase 2: Configure mirror and root as separate locations
     config_phase2 = copy.deepcopy(base_config)
     config_phase2["root"]["filesystem"] = f"{base_filesystem}/root-{test_id}"
-    config_phase2["mirror"] = copy.deepcopy(config_phase1["root"])
+    config_phase2["mirrors"] = {"fallback": copy.deepcopy(config_phase1["root"])}
 
     with cloud_storage.config_context(config_phase2):
         # Should get the mirror value (5) not the computed value (10)

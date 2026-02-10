@@ -3,12 +3,27 @@ from nuthatch.config import NuthatchConfig, NUTHATCH_GLOBAL_CONFIG_ENV, NUTHATCH
 from nuthatch import config_parameter
 
 
-def test_get_config():
+def test_get_config(tmp_path, monkeypatch):
+    # Isolate from any project root nuthatch.toml
+    project_config = tmp_path / "project.toml"
+    project_config.write_text('[root]\nfilesystem = "/tmp/test"\n')
+    global_config = tmp_path / "global.toml"
+    global_config.write_text("")
+    monkeypatch.setenv(NUTHATCH_PROJECT_CONFIG_ENV, str(project_config))
+    monkeypatch.setenv(NUTHATCH_GLOBAL_CONFIG_ENV, str(global_config))
+
     config = NuthatchConfig(wrapped_module='tests')
     assert config
 
 
-def test_config_reg():
+def test_config_reg(tmp_path, monkeypatch):
+    # Isolate from any project root nuthatch.toml
+    project_config = tmp_path / "project.toml"
+    project_config.write_text('[root]\nfilesystem = "/tmp/test"\n')
+    global_config = tmp_path / "global.toml"
+    global_config.write_text("")
+    monkeypatch.setenv(NUTHATCH_PROJECT_CONFIG_ENV, str(project_config))
+    monkeypatch.setenv(NUTHATCH_GLOBAL_CONFIG_ENV, str(global_config))
 
     @config_parameter('username2', location='root')
     def username():
@@ -18,7 +33,14 @@ def test_config_reg():
     assert config['root']['username2'] == 'test_username'
 
 
-def test_config_backend_reg():
+def test_config_backend_reg(tmp_path, monkeypatch):
+    # Isolate from any project root nuthatch.toml
+    project_config = tmp_path / "project.toml"
+    project_config.write_text('[root]\nfilesystem = "/tmp/test"\n')
+    global_config = tmp_path / "global.toml"
+    global_config.write_text("")
+    monkeypatch.setenv(NUTHATCH_PROJECT_CONFIG_ENV, str(project_config))
+    monkeypatch.setenv(NUTHATCH_GLOBAL_CONFIG_ENV, str(global_config))
 
     @config_parameter('username2', location='root', backend='sql')
     def username():
@@ -161,6 +183,26 @@ def test_env_var_mirrors_format(tmp_path, monkeypatch):
 
     config = NuthatchConfig(wrapped_module='isolated_test')
     assert config['mirrors']['public']['filesystem'] == "/tmp/env-public"
+
+
+def test_env_var_nested_filesystem_options(tmp_path, monkeypatch):
+    """Test NUTHATCH_ROOT_FILESYSTEM_OPTIONS_<key> env var format for nested dicts."""
+    config_file = tmp_path / "project.toml"
+    config_file.write_text('[root]\nfilesystem = "s3://bucket/cache"\n')
+    monkeypatch.setenv(NUTHATCH_PROJECT_CONFIG_ENV, str(config_file))
+    global_config = tmp_path / "global.toml"
+    global_config.write_text("")
+    monkeypatch.setenv(NUTHATCH_GLOBAL_CONFIG_ENV, str(global_config))
+
+    # Set nested filesystem_options via env vars
+    monkeypatch.setenv("NUTHATCH_ROOT_FILESYSTEM_OPTIONS_KEY", "my-access-key")
+    monkeypatch.setenv("NUTHATCH_ROOT_FILESYSTEM_OPTIONS_SECRET", "my-secret-key")
+    monkeypatch.setenv("NUTHATCH_ROOT_FILESYSTEM_OPTIONS_ENDPOINT_URL", "http://localhost:4566")
+
+    config = NuthatchConfig(wrapped_module='isolated_test')
+    assert config['root']['filesystem_options']['key'] == "my-access-key"
+    assert config['root']['filesystem_options']['secret'] == "my-secret-key"
+    assert config['root']['filesystem_options']['endpoint_url'] == "http://localhost:4566"
 
 
 if __name__ == '__main__':

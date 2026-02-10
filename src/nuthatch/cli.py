@@ -93,7 +93,7 @@ def cli():
 
     config = NuthatchConfig(wrapped_module=None)
     global root_module
-    if 'dynamic_config_path' in config['root']:
+    if 'root' in config and 'dynamic_config_path' in config['root']:
         try:
             importlib.import_module(config['root']['dynamic_config_path'])
             root_module = config['root']['dynamic_config_path'].partition('.')[0]
@@ -101,7 +101,7 @@ def cli():
             click.echo(f"WARNGIN: Failed to import {config['root']['dynamic_config_path']} with '{e}'. You may be missing dynamic secret resolution.")
 
     if not root_module:
-        config_file = config._find_nuthatch_config(Path.cwd())
+        config_file = config._find_project_config(Path.cwd())
         if config_file:
             with open(config_file, "rb") as f:
                 config = tomllib.load(f)

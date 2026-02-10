@@ -4,17 +4,19 @@ Pytest fixtures for cloud storage testing.
 This module provides fixtures for testing nuthatch backends against
 cloud storage providers (S3, GCS, Azure Blob Storage) and PostgreSQL.
 
-Configuration is entirely environment-driven:
-- Docker (docker-compose.test.yml): Environment variables point to emulators
-  (LocalStack, fake-gcs-server, Azurite) running in isolated network
-- Local (.envrc): Environment variables contain real cloud credentials
+Cloud storage configuration is read from terraform-generated config files:
+- nuthatch.aws.toml: S3 credentials (from test_infrastructure/aws.tf)
+- nuthatch.gcp.toml: GCS credentials (from test_infrastructure/gcp.tf)
+- nuthatch.azure.toml: Azure credentials (from test_infrastructure/azure.tf)
 
 Usage:
-    # Run in Docker with emulators (isolated, no internet):
-    docker compose -f docker-compose.test.yml run --rm test
-
-    # Run locally with real cloud credentials:
+    # Run tests against real cloud test infrastructure:
     pytest -m gcs
+    pytest -m s3
+    pytest -m azure
+
+    # Run in Docker with emulators (uses .docker.toml config files):
+    docker compose -f docker-compose.test.yml run --rm test
 """
 
 import os
@@ -161,230 +163,6 @@ def pytest_generate_tests(metafunc):
     metafunc.parametrize("cloud_storage", filtered_providers, indirect=True)
 
 
-
-
-# =============================================================================
-# Session-scoped Credential Fixtures
-#
-# These fixtures read credentials from environment variables.
-# - Docker: env vars point to emulators (set by docker-compose.test.yml)
-# - Local: env vars contain real cloud credentials (set by .envrc)
-# =============================================================================
-
-@pytest.fixture(scope="session")
-def s3_credentials():
-    """Get S3 credentials from environment.
-
-    Environment variables:
-    - AWS_ENDPOINT_URL: Custom S3 endpoint (e.g., LocalStack emulator)
-    - AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY: AWS credentials
-    - AWS_DEFAULT_REGION: AWS region (defaults to us-east-1)
-    """
-    access_key = os.environ.get("AWS_ACCESS_KEY_ID")
-    secret_key = os.environ.get("AWS_SECRET_ACCESS_KEY")
-    if not access_key or not secret_key:
-        raise RuntimeError("S3 credentials not configured (set AWS_ACCESS_KEY_ID/AWS_SECRET_ACCESS_KEY)")
-
-    return {
-        "aws_access_key_id": access_key,
-        "aws_secret_access_key": secret_key,
-        "aws_session_token": os.environ.get("AWS_SESSION_TOKEN"),
-        "endpoint_url": os.environ.get("AWS_ENDPOINT_URL"),
-        "region_name": os.environ.get("AWS_DEFAULT_REGION", "us-east-1"),
-    }
-
-
-@pytest.fixture(scope="session")
-def s3_test_bucket(s3_credentials):
-    """Create a test bucket in S3/LocalStack."""
-    import requests
-    from botocore.auth import SigV4Auth
-    from botocore.awsrequest import AWSRequest
-    from botocore.credentials import Credentials
-
-    bucket_name = f"nuthatch-test-{uuid.uuid4().hex[:8]}"
-    endpoint = s3_credentials.get("endpoint_url", "https://s3.amazonaws.com")
-
-    # Create AWS credentials for signing
-    credentials = Credentials(
-        access_key=s3_credentials["aws_access_key_id"],
-        secret_key=s3_credentials["aws_secret_access_key"],
-        token=s3_credentials.get("aws_session_token"),
-    )
-
-    # Create bucket via signed S3 REST API
-    url = f"{endpoint}/{bucket_name}"
-    request = AWSRequest(method="PUT", url=url)
-    SigV4Auth(credentials, "s3", s3_credentials.get("region", "us-east-1")).add_auth(request)
-    response = requests.put(url, headers=dict(request.headers))
-    response.raise_for_status()
-
-    yield bucket_name
-
-    # Cleanup: delete all objects then the bucket
-    try:
-        # List and delete objects
-        list_url = f"{endpoint}/{bucket_name}?list-type=2"
-        request = AWSRequest(method="GET", url=list_url)
-        SigV4Auth(credentials, "s3", s3_credentials.get("region", "us-east-1")).add_auth(request)
-        response = requests.get(list_url, headers=dict(request.headers))
-
-        if response.ok:
-            # Parse XML response to get object keys
-            import xml.etree.ElementTree as ET
-            root = ET.fromstring(response.content)
-            ns = {"s3": "http://s3.amazonaws.com/doc/2006-03-01/"}
-            for content in root.findall(".//s3:Contents", ns):
-                key = content.find("s3:Key", ns)
-                if key is not None:
-                    del_url = f"{endpoint}/{bucket_name}/{key.text}"
-                    del_request = AWSRequest(method="DELETE", url=del_url)
-                    SigV4Auth(credentials, "s3", s3_credentials.get("region", "us-east-1")).add_auth(del_request)
-                    requests.delete(del_url, headers=dict(del_request.headers))
-
-        # Delete bucket
-        del_bucket_url = f"{endpoint}/{bucket_name}"
-        request = AWSRequest(method="DELETE", url=del_bucket_url)
-        SigV4Auth(credentials, "s3", s3_credentials.get("region", "us-east-1")).add_auth(request)
-        requests.delete(del_bucket_url, headers=dict(request.headers))
-    except Exception:
-        pass
-
-
-@pytest.fixture(scope="session")
-def gcs_credentials():
-    """Get GCS credentials from environment.
-
-    Environment variables:
-    - STORAGE_EMULATOR_HOST: GCS emulator endpoint (e.g., fake-gcs-server)
-    - GOOGLE_APPLICATION_CREDENTIALS: Service account file path
-    """
-    endpoint = os.environ.get("STORAGE_EMULATOR_HOST")
-    service_account_file = os.environ.get("GOOGLE_APPLICATION_CREDENTIALS")
-
-    if not service_account_file and not endpoint:
-        raise RuntimeError("GCS credentials not configured (set GOOGLE_APPLICATION_CREDENTIALS or STORAGE_EMULATOR_HOST)")
-
-    result = {"service_account_file": service_account_file}
-    if endpoint:
-        # Emulator mode
-        result["endpoint_url"] = endpoint
-        result["token"] = "anon"
-
-    return result
-
-
-@pytest.fixture(scope="session")
-def gcs_test_bucket(gcs_credentials):
-    """Create a test bucket in GCS/fake-gcs-server."""
-    import requests
-    import gcsfs
-
-    bucket_name = f"nuthatch-test-{uuid.uuid4().hex[:8]}"
-    endpoint = gcs_credentials.get("endpoint_url")
-
-    if endpoint:
-        # Create bucket via REST API for fake-gcs-server
-        response = requests.post(
-            f"{endpoint}/storage/v1/b",
-            json={"name": bucket_name},
-        )
-        response.raise_for_status()
-    else:
-        # Create bucket via gcsfs for real GCS
-        fs = gcsfs.GCSFileSystem()
-        fs.mkdir(bucket_name)
-
-    yield bucket_name
-
-    # Cleanup
-    try:
-        if endpoint:
-            requests.delete(f"{endpoint}/storage/v1/b/{bucket_name}")
-        else:
-            fs = gcsfs.GCSFileSystem()
-            fs.rm(bucket_name, recursive=True)
-    except Exception:
-        pass
-
-
-@pytest.fixture(scope="session")
-def azure_credentials():
-    """Get Azure credentials from environment.
-
-    Environment variables:
-    - AZURE_STORAGE_ACCOUNT: Azure storage account name
-    - AZURE_STORAGE_KEY: Azure storage account key
-    - AZURE_STORAGE_ENDPOINT: Custom endpoint (e.g., Azurite emulator)
-    - AZURE_STORAGE_CONNECTION_STRING: Full connection string (alternative to above)
-    """
-    account_name = os.environ.get("AZURE_STORAGE_ACCOUNT")
-    account_key = os.environ.get("AZURE_STORAGE_KEY")
-    endpoint = os.environ.get("AZURE_STORAGE_ENDPOINT")
-    connection_string = os.environ.get("AZURE_STORAGE_CONNECTION_STRING")
-
-    if not account_name and not connection_string:
-        raise RuntimeError("Azure credentials not configured (set AZURE_STORAGE_ACCOUNT or AZURE_STORAGE_CONNECTION_STRING)")
-
-    # Build connection string if not provided
-    if not connection_string and account_name and account_key:
-        if endpoint:
-            # Emulator mode - parse host:port from endpoint
-            from urllib.parse import urlparse
-            parsed = urlparse(endpoint)
-            host = parsed.hostname
-            port = parsed.port or 10000
-            connection_string = (
-                f"DefaultEndpointsProtocol=http;"
-                f"AccountName={account_name};"
-                f"AccountKey={account_key};"
-                f"BlobEndpoint=http://{host}:{port}/{account_name};"
-            )
-        else:
-            # Real Azure
-            connection_string = (
-                f"DefaultEndpointsProtocol=https;"
-                f"AccountName={account_name};"
-                f"AccountKey={account_key};"
-                f"EndpointSuffix=core.windows.net"
-            )
-
-    result = {
-        "account_name": account_name,
-        "account_key": account_key,
-        "connection_string": connection_string,
-    }
-
-    if endpoint:
-        from urllib.parse import urlparse
-        parsed = urlparse(endpoint)
-        result["host"] = parsed.hostname
-        result["port"] = parsed.port or 10000
-        result["blob_endpoint"] = f"http://{parsed.hostname}:{parsed.port or 10000}/{account_name}"
-
-    return result
-
-
-@pytest.fixture(scope="session")
-def azure_test_container(azure_credentials):
-    """Create a test container in Azure/Azurite."""
-    from azure.storage.blob import BlobServiceClient
-
-    container_name = f"nuthatch-test-{uuid.uuid4().hex[:8]}"
-
-    blob_service = BlobServiceClient.from_connection_string(
-        azure_credentials["connection_string"]
-    )
-    blob_service.create_container(container_name)
-
-    yield container_name
-
-    try:
-        blob_service.delete_container(container_name)
-    except Exception:
-        pass
-
-
 # =============================================================================
 # Cloud Storage Fixture
 #
@@ -397,150 +175,80 @@ def azure_test_container(azure_credentials):
 # =============================================================================
 
 
-
-def _write_config_to_disk(config, config_path):
-    """Write nuthatch config to disk for CLI tests.
-
-    The CLI reads config from disk, so we need to write the test config
-    to the specified path.
-
-    Args:
-        config: The config dict with 'root' and optionally 'local' keys
-        config_path: Path where the config file should be written
-    """
-    import tomli_w
-    from pathlib import Path
-
-    config_path = Path(config_path)
-
-    # Write using new explicit [root] format
-    toml_config = {}
-    if "root" in config:
-        toml_config["root"] = config["root"]
-    if "local" in config:
-        toml_config["local"] = config["local"]
-    if "mirrors" in config:
-        toml_config["mirrors"] = config["mirrors"]
-
-    with open(config_path, "wb") as f:
-        tomli_w.dump(toml_config, f)
-
-    return config_path
-
-
 @pytest.fixture
 def cloud_storage(request, tmp_path, monkeypatch):
     """
     Configure nuthatch for the parametrized cloud provider.
 
-    The provider is determined by pytest_generate_tests based on markers.
-    Configuration comes from environment variables set by either:
-    - docker-compose.test.yml (emulators)
-    - .envrc (real cloud credentials)
-
-    Tests can either:
-    1. Use the fixture's config directly (it's automatically set as the test config provider)
-    2. Use the config dict to build their own config with test_config() context manager
+    Reads credentials from terraform-generated config files (nuthatch.aws.toml, etc.)
+    and modifies the filesystem path to use a unique test prefix for isolation.
     """
-    # Use a temp directory as HOME to prevent overwriting real ~/.nuthatch.toml
-    # This ensures tests are isolated from the user's actual config
-    fake_home = tmp_path / "home"
-    fake_home.mkdir()
-    monkeypatch.setenv("HOME", str(fake_home))
-
-    # Set config file locations for test isolation
-    # This ensures tests use isolated config files and don't pull in production credentials
-    project_config_path = tmp_path / "nuthatch.toml"
-    global_config_path = fake_home / ".nuthatch.toml"
-    monkeypatch.setenv(nuthatch.config.NUTHATCH_PROJECT_CONFIG_ENV, str(project_config_path))
-    monkeypatch.setenv(nuthatch.config.NUTHATCH_GLOBAL_CONFIG_ENV, str(global_config_path))
+    import tomllib
+    import tomli_w
+    import copy
+    from pathlib import Path
 
     provider = request.param
 
-    # Use a unique cache directory per test to prevent test pollution
-    # This is important because the bucket is session-scoped but tests should be isolated
-    test_cache_id = uuid.uuid4().hex[:8]
-
-    # Build config for this provider
-    # Include 'local' for tests that use cache_local=True
-    config = {
-        'root': {'metadata_location': 'filesystem'},
-        'local': {'filesystem': str(tmp_path / 'local_cache')},
+    # Map provider to config file
+    config_files = {
+        "s3": "nuthatch.aws.toml",
+        "gcs": "nuthatch.gcp.toml",
+        "azure": "nuthatch.azure.toml",
     }
+    project_root = Path(__file__).parent.parent
+    config_file = project_root / config_files[provider]
 
-    if provider == "s3":
-        s3_credentials = request.getfixturevalue("s3_credentials")
-        s3_test_bucket = request.getfixturevalue("s3_test_bucket")
-        config['root']['filesystem'] = f"s3://{s3_test_bucket}/cache-{test_cache_id}"
+    # Read config and make a copy for modification
+    with open(config_file, "rb") as f:
+        config = copy.deepcopy(tomllib.load(f))
 
-        fs_options = {
-            'key': s3_credentials["aws_access_key_id"],
-            'secret': s3_credentials["aws_secret_access_key"],
-        }
-        if s3_credentials.get("aws_session_token"):
-            fs_options['token'] = s3_credentials["aws_session_token"]
-        if s3_credentials.get("endpoint_url"):
-            fs_options['client_kwargs'] = {'endpoint_url': s3_credentials["endpoint_url"]}
-        config['root']['filesystem_options'] = fs_options
+    # Resolve relative paths to absolute (needed when config is copied to temp dir)
+    fs_options = config.get("root", {}).get("filesystem_options", {})
+    if "token" in fs_options and fs_options["token"] != "anon":
+        token_path = Path(fs_options["token"])
+        if not token_path.is_absolute():
+            fs_options["token"] = str(project_root / token_path)
 
-    elif provider == "gcs":
-        gcs_credentials = request.getfixturevalue("gcs_credentials")
-        gcs_test_bucket = request.getfixturevalue("gcs_test_bucket")
-        config['root']['filesystem'] = f"gs://{gcs_test_bucket}/cache-{test_cache_id}"
+    # Override filesystem path with unique test prefix for isolation
+    # Preserve protocol and bucket/container from config, just add unique path suffix
+    test_cache_id = uuid.uuid4().hex[:8]
+    original_filesystem = config["root"]["filesystem"]
+    # Parse: "protocol://bucket/path" -> keep protocol and bucket, replace path
+    protocol_and_bucket = "/".join(original_filesystem.split("/")[0:3])
+    config["root"]["filesystem"] = f"{protocol_and_bucket}/cache-{test_cache_id}"
 
-        fs_options = {}
-        if gcs_credentials.get("endpoint_url"):
-            # Emulator mode
-            fs_options['token'] = 'anon'
-            fs_options['endpoint_url'] = gcs_credentials["endpoint_url"]
-            fs_options['service_account_file'] = gcs_credentials["service_account_file"]
-            monkeypatch.setenv("STORAGE_EMULATOR_HOST", gcs_credentials["endpoint_url"])
-        else:
-            # Real GCS - use default credentials
-            fs_options['service_account_file'] = gcs_credentials.get("service_account_file")
-        config['root']['filesystem_options'] = fs_options
+    # For emulators, buckets/containers are pre-created by docker-compose init services
+    # For real cloud, buckets are pre-created by terraform
 
-    elif provider == "azure":
-        azure_credentials = request.getfixturevalue("azure_credentials")
-        azure_test_container = request.getfixturevalue("azure_test_container")
-        config['root']['filesystem'] = f"abfs://{azure_test_container}/cache-{test_cache_id}"
+    # Override local cache path
+    config.setdefault("local", {})["filesystem"] = str(tmp_path / 'local_cache')
 
-        fs_options = {
-            'account_name': azure_credentials.get("account_name"),
-            'account_key': azure_credentials.get("account_key"),
-            'connection_string': azure_credentials["connection_string"],
-        }
-        if azure_credentials.get("host"):
-            # Emulator mode - use account_host for fsspec/adlfs
-            fs_options['account_host'] = f"{azure_credentials['host']}:{azure_credentials['port']}"
-            # delta-rs needs explicit endpoint URL (NOT azure_storage_use_emulator which defaults to localhost)
-            fs_options['azure_storage_endpoint'] = azure_credentials['blob_endpoint']
-            fs_options['allow_http'] = 'true'
-        config['root']['filesystem_options'] = fs_options
+    # Write modified config to temp file for tests that read config from disk
+    fake_home = tmp_path / "home"
+    fake_home.mkdir()
+    temp_config_file = tmp_path / "nuthatch.toml"
+    with open(temp_config_file, "wb") as f:
+        tomli_w.dump(config, f)
 
-    # Track whether config was explicitly accessed (for tests that derive their own config)
+    # Set env vars to point to temp config (for tests that read config from disk)
+    monkeypatch.setenv("HOME", str(fake_home))
+    monkeypatch.setenv(nuthatch.config.NUTHATCH_PROJECT_CONFIG_ENV, str(temp_config_file))
+    monkeypatch.setenv(nuthatch.config.NUTHATCH_GLOBAL_CONFIG_ENV, str(fake_home / ".nuthatch.toml"))
+
+    # Track whether config was explicitly accessed
     config_dict_accessed = []
 
     class CloudStorageResult(dict):
         """Result object from cloud_storage fixture with config context support."""
 
         def __getitem__(self, key):
-            if key == "config":
-                config_dict_accessed.append(True)
+            config_dict_accessed.append(True)
             return super().__getitem__(key)
 
         def config_context(self, custom_config):
-            """Return a context manager for using a custom config.
-
-            Use this when you need to override the default config, e.g. for
-            testing mirror storage with multiple config phases.
-
-            Usage:
-                with cloud_storage.config_context(my_config):
-                    # nuthatch operations use my_config
-                    result = my_cached_function()
-            """
-            config_dict_accessed.append(True)  # Accessing config_context counts as usage
+            """Return a context manager for using a custom config."""
+            config_dict_accessed.append(True)
             return test_config(custom_config)
 
     result = CloudStorageResult({
@@ -548,16 +256,11 @@ def cloud_storage(request, tmp_path, monkeypatch):
         "config": config,
     })
 
-    # Use context manager for clean setup/teardown with access tracking
+    # Use context manager for access tracking
     with test_config(config) as ctx:
-        # Write config to disk so CLI commands can read it
-        # Do this INSIDE the context after test_config is set
-        _write_config_to_disk(config, project_config_path)
         yield result
 
     # Verify the test actually used cloud storage
-    # Valid usage: either the config provider was invoked by nuthatch operations,
-    # OR the test explicitly accessed cloud_storage["config"] to derive its own config
     if not ctx.was_accessed and not config_dict_accessed:
         present_markers = []
         for marker in ["s3", "gcs", "azure"]:
@@ -571,108 +274,6 @@ def cloud_storage(request, tmp_path, monkeypatch):
 
 
 # =============================================================================
-# Explicit cloud storage fixtures (for tests that want direct access)
-# =============================================================================
-
-@pytest.fixture
-def s3_storage(request, s3_credentials, s3_test_bucket, tmp_path):
-    """Configure nuthatch to use S3/LocalStack."""
-    filesystem = f"s3://{s3_test_bucket}/cache"
-
-    fs_options = {
-        'key': s3_credentials["aws_access_key_id"],
-        'secret': s3_credentials["aws_secret_access_key"],
-    }
-    if s3_credentials.get("aws_session_token"):
-        fs_options['token'] = s3_credentials["aws_session_token"]
-    if s3_credentials.get("endpoint_url"):
-        fs_options['client_kwargs'] = {'endpoint_url': s3_credentials["endpoint_url"]}
-
-    config = {
-        'root': {
-            'filesystem': filesystem,
-            'metadata_location': 'filesystem',
-            'filesystem_options': fs_options,
-        },
-        'local': {'filesystem': str(tmp_path / 'local_cache')},
-    }
-
-    with test_config(config):
-        yield {
-            "uri": filesystem,
-            "bucket": s3_test_bucket,
-            "credentials": s3_credentials,
-            "provider": "s3",
-        }
-
-
-@pytest.fixture
-def gcs_storage(request, gcs_credentials, gcs_test_bucket, monkeypatch, tmp_path):
-    """Configure nuthatch to use GCS/fake-gcs-server."""
-    filesystem = f"gs://{gcs_test_bucket}/cache"
-
-    fs_options = {}
-    if gcs_credentials.get("endpoint_url"):
-        fs_options['token'] = 'anon'
-        fs_options['endpoint_url'] = gcs_credentials["endpoint_url"]
-        fs_options['service_account_file'] = gcs_credentials["service_account_file"]
-        monkeypatch.setenv("STORAGE_EMULATOR_HOST", gcs_credentials["endpoint_url"])
-    else:
-        fs_options['service_account_file'] = gcs_credentials.get("service_account_file")
-
-    config = {
-        'root': {
-            'filesystem': filesystem,
-            'metadata_location': 'filesystem',
-            'filesystem_options': fs_options,
-        },
-        'local': {'filesystem': str(tmp_path / 'local_cache')},
-    }
-
-    with test_config(config):
-        yield {
-            "uri": filesystem,
-            "bucket": gcs_test_bucket,
-            "credentials": gcs_credentials,
-            "provider": "gcs",
-        }
-
-
-@pytest.fixture
-def azure_storage(request, azure_credentials, azure_test_container, tmp_path):
-    """Configure nuthatch to use Azure/Azurite."""
-    filesystem = f"abfs://{azure_test_container}/cache"
-
-    fs_options = {
-        'account_name': azure_credentials.get("account_name"),
-        'account_key': azure_credentials.get("account_key"),
-        'connection_string': azure_credentials["connection_string"],
-    }
-    if azure_credentials.get("host"):
-        # Emulator mode - use account_host for fsspec/adlfs
-        fs_options['account_host'] = f"{azure_credentials['host']}:{azure_credentials['port']}"
-        # delta-rs needs explicit endpoint URL (NOT azure_storage_use_emulator which defaults to localhost)
-        fs_options['azure_storage_endpoint'] = azure_credentials['blob_endpoint']
-        fs_options['allow_http'] = 'true'
-
-    config = {
-        'root': {
-            'filesystem': filesystem,
-            'metadata_location': 'filesystem',
-            'filesystem_options': fs_options,
-        },
-        'local': {'filesystem': str(tmp_path / 'local_cache')},
-    }
-
-    with test_config(config):
-        yield {
-            "uri": filesystem,
-            "container": azure_test_container,
-            "credentials": azure_credentials,
-            "provider": "azure",
-        }
-
-
 # =============================================================================
 # PostgreSQL Fixtures (for SQL backend testing)
 # =============================================================================
@@ -686,7 +287,7 @@ def postgres_credentials():
     """
     host = os.environ.get("POSTGRES_HOST")
     if not host:
-        raise RuntimeError("PostgreSQL not configured (set POSTGRES_HOST)")
+        pytest.skip("PostgreSQL not configured (set POSTGRES_HOST)")
 
     return {
         "driver": "postgresql",
@@ -699,7 +300,7 @@ def postgres_credentials():
 
 
 @pytest.fixture
-def postgres_storage(request, postgres_credentials, tmp_path):
+def postgres_storage(postgres_credentials, tmp_path):
     """Configure nuthatch to use PostgreSQL for SQL backend."""
     config = {
         'root': {

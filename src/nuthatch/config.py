@@ -224,7 +224,12 @@ def config_parameter(parameter_name, location='root', backend=None, secret=False
         # Get the module object associated with the caller's frame
         caller_frame = inspect.stack()[1]
         module = inspect.getmodule(caller_frame.frame)
-        if hasattr(module, '__name__'):
+        if module is None:
+            # Fallback to frame's globals when inspect.getmodule returns None
+            # (can happen with mounted files in Docker, dynamically executed code, etc.)
+            module_name = caller_frame.frame.f_globals.get('__name__', '')
+            module = module_name.partition('.')[0] if module_name else None
+        elif hasattr(module, '__name__'):
             module = module.__name__.partition('.')[0]
         if module not in dynamic_parameters:
             dynamic_parameters[module] = {}
@@ -413,6 +418,7 @@ class NuthatchConfig:
 
         Supports formats:
         - NUTHATCH_ROOT_<PARAM> - root location parameter
+        - NUTHATCH_ROOT_FILESYSTEM_OPTIONS_<KEY> - nested filesystem_options
         - NUTHATCH_LOCAL_<PARAM> - local location parameter
         - NUTHATCH_MIRRORS_<NAME>_<PARAM> - mirror parameter
         """
@@ -433,9 +439,9 @@ class NuthatchConfig:
                             logger.warning(f"Found nuthatch environment variable {key} with mirror, backend but no parameter. Skipping.")
                         else:
                             backend_config = mirror_config.setdefault(parts[3].lower(), {})
-                            backend_config['_'.join(parts[4:]).lower()] = value
+                            self._set_nested_param(backend_config, parts[4:], value)
                     else:
-                        mirror_config['_'.join(parts[3:]).lower()] = value
+                        self._set_nested_param(mirror_config, parts[3:], value)
                 # Standard locations: ROOT, LOCAL
                 elif parts[1] in ['ROOT', 'LOCAL']:
                     if self._is_backend(parts[2].lower()):
@@ -444,12 +450,40 @@ class NuthatchConfig:
                         else:
                             location_config = config.setdefault(parts[1].lower(), {})
                             backend_config = location_config.setdefault(parts[2].lower(), {})
-                            backend_config['_'.join(parts[3:]).lower()] = value
+                            self._set_nested_param(backend_config, parts[3:], value)
                     else:
                         location_config = config.setdefault(parts[1].lower(), {})
-                        location_config['_'.join(parts[2:]).lower()] = value
+                        self._set_nested_param(location_config, parts[2:], value)
 
         return config
+
+    def _set_nested_param(self, config_dict, parts, value):
+        """Set a parameter value, handling nested dicts like filesystem_options.
+
+        Supports:
+        - ['FILESYSTEM'] -> config_dict['filesystem'] = value
+        - ['FILESYSTEM_OPTIONS', 'KEY'] -> config_dict['filesystem_options']['key'] = value
+        - ['FILESYSTEM_OPTIONS_KEY'] -> config_dict['filesystem_options']['key'] = value
+        """
+        # Known dict fields that can have nested keys
+        dict_fields = {'filesystem_options'}
+
+        # Join parts to form potential param name
+        param_parts = [p.lower() for p in parts]
+
+        # Check if this is a nested dict field (e.g., FILESYSTEM_OPTIONS_KEY)
+        for i in range(len(param_parts)):
+            potential_dict_field = '_'.join(param_parts[:i+1])
+            if potential_dict_field in dict_fields and i + 1 < len(param_parts):
+                # This is a nested dict field with a key after it
+                nested_dict = config_dict.setdefault(potential_dict_field, {})
+                nested_key = '_'.join(param_parts[i+1:])
+                nested_dict[nested_key] = value
+                return
+
+        # Not a nested field, just set the value directly
+        param_name = '_'.join(param_parts)
+        config_dict[param_name] = value
 
     def _get_dynamic_config(self, wrapped_module):
         root_module_name = None
