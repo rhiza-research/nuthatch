@@ -109,7 +109,6 @@ class TerracottaBackend(DatabaseBackend, FileBackend):
     backend_name = 'terracotta'
 
     def __init__(self, cacheable_config, cache_key, namespace, args, backend_kwargs={}):
-        # This calls both inits right?
         FileBackend.__init__(self, cacheable_config, cache_key, namespace, args, backend_kwargs, extension='terracotta')
         DatabaseBackend.__init__(self, cacheable_config, cache_key, namespace, args, backend_kwargs)
 

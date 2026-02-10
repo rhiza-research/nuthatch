@@ -226,7 +226,7 @@ class FileBackend(NuthatchBackend):
     """Base class for all backends that rely on a filesystem."""
 
     def __init__(self, cacheable_config, cache_key, namespace, args, backend_kwargs, extension=None):
-        super().__init__(cacheable_config, cache_key, namespace, args, backend_kwargs)
+        NuthatchBackend.__init__(self, cacheable_config, cache_key, namespace, args, backend_kwargs)
 
         self.base_path = os.path.expanduser(self.config['filesystem'])
 
@@ -269,7 +269,7 @@ class DatabaseBackend(NuthatchBackend):
     """Base class for all backends that rely on a database."""
 
     def __init__(self, cacheable_config, cache_key, namespace, args, backend_kwargs):
-        super().__init__(cacheable_config, cache_key, namespace, args, backend_kwargs)
+        NuthatchBackend.__init__(self, cacheable_config, cache_key, namespace, args, backend_kwargs)
 
         logger.debug(self.config)
         if not all(prop in self.config for prop in ['driver', 'username', 'password', 'host', 'port', 'database']):
