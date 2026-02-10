@@ -26,7 +26,7 @@ COPY tests/ ./tests/
 
 # Create a minimal git repo for version detection
 # hatch-vcs uses setuptools-scm which needs a git repo to determine version
-RUN git init && \
+RUN git init -b main && \
     git config user.email "test@test.com" && \
     git config user.name "Test" && \
     git add -A && \
