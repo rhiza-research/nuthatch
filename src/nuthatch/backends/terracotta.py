@@ -231,9 +231,8 @@ class TerracottaBackend(DatabaseBackend, FileBackend):
         raise NotImplementedError("Terracotta does not support upsert.")
 
     def read(self, engine):
-        datasets_table = sqlalchemy.Table(
-            "datasets", self.driver.meta_store.sqla_metadata, autoload_with=self.driver.meta_store.sqla_engine
-        )
+        datasets_table = sqlalchemy.Table("datasets", self.driver.meta_store.sqla_metadata,
+                                          autoload_with=self.driver.meta_store.sqla_engine)
         stmt = (
             datasets_table.select()
             .where(datasets_table.c['key'].like(self.cache_key.replace('/', '_') + '%'))
@@ -254,9 +253,8 @@ class TerracottaBackend(DatabaseBackend, FileBackend):
         # Delete the written file/folder
         self.fs.rm(self.path, recursive=True)
 
-        datasets_table = sqlalchemy.Table(
-            "datasets", self.driver.meta_store.sqla_metadata, autoload_with=self.driver.meta_store.sqla_engine
-        )
+        datasets_table = sqlalchemy.Table("datasets", self.driver.meta_store.sqla_metadata,
+                                          autoload_with=self.driver.meta_store.sqla_engine)
         stmt = (
             datasets_table.select()
             .where(datasets_table.c['key'].like(self.cache_key.replace('/', '_') + '%'))
