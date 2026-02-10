@@ -3,6 +3,7 @@ import sys
 import copy
 import xarray as xr
 import dask.dataframe as dd
+from humanfriendly import parse_size
 
 import logging
 logger = logging.getLogger(__name__)
@@ -45,7 +46,7 @@ def save_to_memory(cache_key, data, config):
         object_size = remote_object_size
         cache_key_lru = remote_cache_key_lru
         if 'remote_cache_size' in config:
-            max_size = config['remote_cache_size']
+            max_size = parse_size(config['remote_cache_size'])
         else:
             max_size = 32*(10**9)
     else:
@@ -53,7 +54,7 @@ def save_to_memory(cache_key, data, config):
         object_size = local_object_size
         cache_key_lru = local_cache_key_lru
         if 'local_cache_size' in config:
-            max_size = config['local_cache_size']
+            max_size = parse_size(config['local_cache_size'])
         else:
             max_size = 2*(10**9)
 
