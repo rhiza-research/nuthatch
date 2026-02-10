@@ -5,6 +5,8 @@ import xarray as xr
 import numpy as np
 import pandas as pd
 
+from tests.conftest import skip_azure_delta_on_emulator
+
 
 pytestmark = [pytest.mark.s3, pytest.mark.gcs, pytest.mark.azure]
 
@@ -88,6 +90,7 @@ def test_xarray_timeseries(cloud_storage):
     assert ds3['time'].min().values == pd.Timestamp("2000-06-01")
 
 def test_tabular_timeseries(cloud_storage):
+    skip_azure_delta_on_emulator(cloud_storage)
     ds = simple_tabular_timeseries("2000-01-01", "2001-01-01", recompute=True, cache_mode='overwrite')
     ds2 = simple_tabular_timeseries(None, None)
     ds3 = simple_tabular_timeseries("2000-06-01", "2000-07-01")

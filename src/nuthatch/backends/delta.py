@@ -104,7 +104,14 @@ class DeltaBackend(FileBackend):
             if 'AZURE_SAS_TOKEN' not in remapped_options and 'sas_token' in original_options:
                 remapped_options['AZURE_SAS_TOKEN'] = original_options['sas_token']
             if 'AZURE_STORAGE_CONNECTION_STRING' not in remapped_options and 'connection_string' in original_options:
-                remapped_options['AZURE_STORAGE_CONNECTION_STRING'] = original_options['connection_string']
+                # Parse connection string and extract account name/key for deltalake
+                # Deltalake's Rust backend prefers explicit credentials over connection string
+                conn_str = original_options['connection_string']
+                for part in conn_str.split(';'):
+                    if part.startswith('AccountName=') and 'AZURE_STORAGE_ACCOUNT_NAME' not in remapped_options:
+                        remapped_options['AZURE_STORAGE_ACCOUNT_NAME'] = part.split('=', 1)[1]
+                    elif part.startswith('AccountKey=') and 'AZURE_STORAGE_ACCOUNT_KEY' not in remapped_options:
+                        remapped_options['AZURE_STORAGE_ACCOUNT_KEY'] = part.split('=', 1)[1]
             if 'AZURE_TENANT_ID' not in remapped_options and 'tenant_id' in original_options:
                 remapped_options['AZURE_TENANT_ID'] = original_options['tenant_id']
             if 'AZURE_CLIENT_ID' not in remapped_options and 'client_id' in original_options:

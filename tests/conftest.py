@@ -26,6 +26,12 @@ import pytest
 import nuthatch.config
 
 
+def skip_azure_delta_on_emulator(cloud_storage):
+    """Skip test if using delta backend on Azure emulator (Azurite doesn't support HNS)."""
+    if os.environ.get('NUTHATCH_EMULATOR') and cloud_storage['provider'] == 'azure':
+        pytest.skip("Delta Lake requires ADLS Gen2 (Azurite doesn't support HNS)")
+
+
 class test_config:
     """Context manager for setting test config.
 
