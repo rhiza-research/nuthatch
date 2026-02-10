@@ -26,7 +26,8 @@ dependencies = [
     "click",
     "polars",
     "dateparser",
-    "tomli-w"
+    "tomli-w",
+    "multiprocess"
 ]
 
 # TODO: Make backend submodules so that their

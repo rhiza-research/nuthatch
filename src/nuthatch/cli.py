@@ -10,6 +10,7 @@ import importlib
 import click
 import fsspec
 import shutil
+import multiprocess
 from nuthatch.config import NuthatchConfig
 from .backend import get_backend_by_name, registered_backends
 from nuthatch.cache import Cache
@@ -237,9 +238,10 @@ def list_caches(cache_key, namespace, backend, location, verbose):
 @click.option('--namespace', help='Namespace for the cache')
 @click.option('--backend', help='Backend to use')
 @click.option('--location', help='Location to search', default='root')
+@click.option('--parallel', is_flag=True, help='Amount of parallelism')
 @click.option('--force', '-f', is_flag=True, help='Force deletion without confirmation')
 @click.option('--metadata-only', '-m', is_flag=True, help='Only delete the metadata for the cache, not the underlying data.')
-def delete_cache(cache_key, namespace, backend, location, force, metadata_only):
+def delete_cache(cache_key, namespace, backend, location, parallel, force, metadata_only):
     """Clear cache entries."""
     caches = list_helper(cache_key, namespace, backend, location)
     global root_module
@@ -251,7 +253,7 @@ def delete_cache(cache_key, namespace, backend, location, force, metadata_only):
 
     click.confirm(f"Are you sure you want to delete {len(caches)} cache entries?\n{str(caches[['cache_key', 'backend']])}\n", abort=True)
 
-    for cache in caches.to_dict(orient='records'):
+    def delete_func(cache):
         if cache['backend'] == 'null':
             cache = Cache(config[location], cache['cache_key'], namespace, None, None, None, {})
         else:
@@ -262,6 +264,14 @@ def delete_cache(cache_key, namespace, backend, location, force, metadata_only):
         else:
             cache.delete()
 
+    cache_list = caches.to_dict(orient='records')
+
+    if not parallel:
+        for cache in cache_list:
+            delete_func(cache)
+    else:
+        with multiprocess.Pool(processes=os.cpu_count()*5) as pool:
+            pool.map(delete_func, cache_list)
 
 @cli.command('print-config')
 @click.option('--location', help='Location to search', default='root')
