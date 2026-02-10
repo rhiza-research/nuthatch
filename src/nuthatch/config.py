@@ -43,17 +43,92 @@ class GlobalConfigSchema(BaseModel):
     skipped_filesystems: list = []
 
 
+class FileBackendConfigSchema(BaseModel):
+    """Schema for file-based backend configuration (basic, zarr, delta, parquet).
+
+    File backends store cached data on a filesystem (local, GCS, S3, etc.).
+    Used by: basic.py, zarr.py, delta.py, parquet.py (all inherit from FileBackend)
+    """
+    model_config = ConfigDict(extra='forbid')
+
+    # From backend.py:231 - self.base_path = os.path.expanduser(self.config['filesystem'])
+    filesystem: str | None = None
+    # From backend.py:243-256 - fs_options = self.config['filesystem_options']
+    filesystem_options: dict = {}
+
+
+class DatabaseBackendConfigSchema(BaseModel):
+    """Schema for database backend configuration (sql).
+
+    Database backends store cached data in a SQL database.
+    Used by: sql.py (inherits from DatabaseBackend)
+    """
+    model_config = ConfigDict(extra='forbid')
+
+    # From backend.py:280-288 - all required for DatabaseBackend
+    driver: str | None = None
+    host: str | None = None
+    port: int | None = None
+    database: str | None = None
+    username: str | None = None
+    password: str | None = None
+    # From backend.py:293-303 - optional separate write credentials
+    write_username: str | None = None
+    write_password: str | None = None
+
+
+class TerracottaBackendConfigSchema(BaseModel):
+    """Schema for terracotta backend configuration.
+
+    Terracotta inherits from BOTH DatabaseBackend AND FileBackend.
+    Used by: terracotta.py
+    """
+    model_config = ConfigDict(extra='forbid')
+
+    # From FileBackend (backend.py:231, 243-256)
+    filesystem: str | None = None
+    filesystem_options: dict = {}
+    # From DatabaseBackend (backend.py:280-288)
+    driver: str | None = None
+    host: str | None = None
+    port: int | None = None
+    database: str | None = None
+    username: str | None = None
+    password: str | None = None
+    # From terracotta.py:116 - tc.update_settings(SQL_USER=self.config['write_username'], ...)
+    write_username: str | None = None
+    write_password: str | None = None
+
+
 class LocationConfigSchema(BaseModel):
     """Schema for a cache location (root, local, or mirrors.<name>).
 
-    Each location defines where cached data is stored and how to access it.
-    Locations can have backend-specific subsections (e.g., [root.zarr]).
+    Location-level settings are inherited by all backends.
+    Backend subsections can override these settings.
     """
-    model_config = ConfigDict(extra='allow')  # Allow backend-specific subsections
+    model_config = ConfigDict(extra='forbid')
 
+    # File backend settings (from backend.py FileBackend)
     filesystem: str | None = None
     filesystem_options: dict = {}
-    metadata_location: str | None = None
+
+    # Database backend settings (from backend.py DatabaseBackend)
+    driver: str | None = None
+    host: str | None = None
+    port: int | None = None
+    database: str | None = None
+    username: str | None = None
+    password: str | None = None
+    write_username: str | None = None
+    write_password: str | None = None
+
+    # Backend-specific overrides
+    sql: DatabaseBackendConfigSchema | None = None
+    delta: FileBackendConfigSchema | None = None
+    basic: FileBackendConfigSchema | None = None
+    zarr: FileBackendConfigSchema | None = None
+    terracotta: TerracottaBackendConfigSchema | None = None
+    parquet: FileBackendConfigSchema | None = None
 
 
 class ProjectConfigSchema(GlobalConfigSchema):

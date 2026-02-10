@@ -1,0 +1,8 @@
+# Taplo configuration for TOML validation in VS Code
+# Requires "Even Better TOML" extension
+
+[[rule]]
+include = ["nuthatch.toml", "nuthatch.*.toml", "**/nuthatch.toml"]
+
+[rule.schema]
+path = "./nuthatch.schema.json"

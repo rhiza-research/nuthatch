@@ -1,0 +1,22 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://github.com/rhiza-research/nuthatch/nuthatch-global.schema.json",
+  "title": "Nuthatch Global Configuration",
+  "description": "Schema for ~/.nuthatch.toml global configuration",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "filesystem_options": {
+      "type": "object",
+      "description": "Global filesystem options applied to all projects",
+      "additionalProperties": true
+    },
+    "skipped_filesystems": {
+      "type": "array",
+      "description": "List of filesystem URIs to skip globally",
+      "items": {
+        "type": "string"
+      }
+    }
+  }
+}

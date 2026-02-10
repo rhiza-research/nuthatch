@@ -1,0 +1,218 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://github.com/rhiza-research/nuthatch/nuthatch.schema.json",
+  "title": "Nuthatch Configuration",
+  "description": "Schema for nuthatch.toml configuration files",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "filesystem_options": {
+      "type": "object",
+      "description": "Global filesystem options applied to all locations",
+      "additionalProperties": true
+    },
+    "skipped_filesystems": {
+      "type": "array",
+      "description": "List of filesystem URIs to skip",
+      "items": {
+        "type": "string"
+      }
+    },
+    "dynamic_config_path": {
+      "type": "string",
+      "description": "Python module path for dynamic configuration"
+    },
+    "root": {
+      "$ref": "#/$defs/location",
+      "description": "Primary cache location"
+    },
+    "local": {
+      "$ref": "#/$defs/location",
+      "description": "Local cache location for faster access"
+    },
+    "mirrors": {
+      "type": "object",
+      "description": "Read-only mirror locations",
+      "additionalProperties": {
+        "$ref": "#/$defs/location"
+      }
+    }
+  },
+  "$defs": {
+    "file_backend_config": {
+      "type": "object",
+      "description": "Configuration for file-based backends (basic, zarr, delta, parquet). Source: backend.py FileBackend class.",
+      "additionalProperties": false,
+      "properties": {
+        "filesystem": {
+          "type": "string",
+          "description": "Filesystem URI (e.g., gs://bucket/path, s3://bucket/path, ~/local/path). From backend.py:231"
+        },
+        "filesystem_options": {
+          "type": "object",
+          "description": "Options passed to fsspec filesystem (credentials, cache settings, etc.). From backend.py:243-256",
+          "additionalProperties": true
+        }
+      }
+    },
+    "database_backend_config": {
+      "type": "object",
+      "description": "Configuration for database backends (sql). Source: backend.py DatabaseBackend class.",
+      "additionalProperties": false,
+      "properties": {
+        "driver": {
+          "type": "string",
+          "description": "SQLAlchemy database driver (e.g., 'postgresql', 'mysql+pymysql'). From backend.py:283"
+        },
+        "host": {
+          "type": "string",
+          "description": "Database server hostname. From backend.py:285"
+        },
+        "port": {
+          "type": "integer",
+          "description": "Database server port. From backend.py:286"
+        },
+        "database": {
+          "type": "string",
+          "description": "Database name. From backend.py:287"
+        },
+        "username": {
+          "type": "string",
+          "description": "Database username for read access. From backend.py:284"
+        },
+        "password": {
+          "type": "string",
+          "description": "Database password for read access. From backend.py:285"
+        },
+        "write_username": {
+          "type": "string",
+          "description": "Optional separate username for write operations. From backend.py:294"
+        },
+        "write_password": {
+          "type": "string",
+          "description": "Optional separate password for write operations. From backend.py:295"
+        }
+      }
+    },
+    "terracotta_backend_config": {
+      "type": "object",
+      "description": "Configuration for terracotta backend. Inherits from both FileBackend and DatabaseBackend. Source: terracotta.py",
+      "additionalProperties": false,
+      "properties": {
+        "filesystem": {
+          "type": "string",
+          "description": "Filesystem URI for storing raster files. From FileBackend (backend.py:231)"
+        },
+        "filesystem_options": {
+          "type": "object",
+          "description": "fsspec filesystem options. From FileBackend (backend.py:243-256)",
+          "additionalProperties": true
+        },
+        "driver": {
+          "type": "string",
+          "description": "SQLAlchemy driver for terracotta metastore. From DatabaseBackend (backend.py:283)"
+        },
+        "host": {
+          "type": "string",
+          "description": "Database host. From DatabaseBackend (backend.py:285)"
+        },
+        "port": {
+          "type": "integer",
+          "description": "Database port. From DatabaseBackend (backend.py:286)"
+        },
+        "database": {
+          "type": "string",
+          "description": "Database name. From DatabaseBackend (backend.py:287)"
+        },
+        "username": {
+          "type": "string",
+          "description": "Database username. From DatabaseBackend (backend.py:284)"
+        },
+        "password": {
+          "type": "string",
+          "description": "Database password. From DatabaseBackend (backend.py:285)"
+        },
+        "write_username": {
+          "type": "string",
+          "description": "Username for writing to terracotta metastore. From terracotta.py:116"
+        },
+        "write_password": {
+          "type": "string",
+          "description": "Password for writing to terracotta metastore. From terracotta.py:116"
+        }
+      }
+    },
+    "location": {
+      "type": "object",
+      "description": "Cache location configuration. Location-level settings are inherited by all backends.",
+      "additionalProperties": false,
+      "properties": {
+        "filesystem": {
+          "type": "string",
+          "description": "Filesystem URI (e.g., gs://bucket/path, s3://bucket/path, ~/local/path)"
+        },
+        "filesystem_options": {
+          "type": "object",
+          "description": "Options passed to fsspec filesystem (credentials, cache settings, etc.)",
+          "additionalProperties": true
+        },
+        "driver": {
+          "type": "string",
+          "description": "SQLAlchemy database driver (for database backends)"
+        },
+        "host": {
+          "type": "string",
+          "description": "Database server hostname (for database backends)"
+        },
+        "port": {
+          "type": "integer",
+          "description": "Database server port (for database backends)"
+        },
+        "database": {
+          "type": "string",
+          "description": "Database name (for database backends)"
+        },
+        "username": {
+          "type": "string",
+          "description": "Database username (for database backends)"
+        },
+        "password": {
+          "type": "string",
+          "description": "Database password (for database backends)"
+        },
+        "write_username": {
+          "type": "string",
+          "description": "Optional separate write username (for database backends)"
+        },
+        "write_password": {
+          "type": "string",
+          "description": "Optional separate write password (for database backends)"
+        },
+        "sql": {
+          "$ref": "#/$defs/database_backend_config",
+          "description": "SQL backend configuration overrides"
+        },
+        "delta": {
+          "$ref": "#/$defs/file_backend_config",
+          "description": "Delta Lake backend configuration overrides"
+        },
+        "basic": {
+          "$ref": "#/$defs/file_backend_config",
+          "description": "Basic (pickle) backend configuration overrides"
+        },
+        "zarr": {
+          "$ref": "#/$defs/file_backend_config",
+          "description": "Zarr backend configuration overrides"
+        },
+        "terracotta": {
+          "$ref": "#/$defs/terracotta_backend_config",
+          "description": "Terracotta backend configuration overrides"
+        },
+        "parquet": {
+          "$ref": "#/$defs/file_backend_config",
+          "description": "Parquet backend configuration overrides"
+        }
+      }
+    }
+  }
+}
