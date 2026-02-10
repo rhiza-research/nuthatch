@@ -1,0 +1,15 @@
+#:schema https://raw.githubusercontent.com/rhiza-research/nuthatch/main/nuthatch.schema.json
+# AWS / LocalStack configuration
+
+[root]
+filesystem = "s3://nuthatch-test/cache"
+
+[root.filesystem_options]
+key = "test"
+secret = "test"
+
+[root.filesystem_options.client_kwargs]
+endpoint_url = "http://aws:4566"
+
+[local]
+filesystem = "~/.nuthatch/local-cache"
