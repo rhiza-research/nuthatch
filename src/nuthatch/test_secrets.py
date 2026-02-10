@@ -1,6 +1,5 @@
 # An example import test test secret resolution for cli
 from nuthatch import config_parameter
-from google.cloud import secretmanager
 
 @config_parameter('password', location='root', secret=True)
 def postgres_write_password():

@@ -1,9 +1,9 @@
 import os
 import shutil
-from typing import Tuple
 import terracotta as tc
 import sqlalchemy
 import xarray as xr
+import rioxarray # Must import for .rio to work # noqa: F401
 import numpy as np
 from rasterio.io import MemoryFile
 from rasterio.enums import Resampling
