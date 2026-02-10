@@ -126,6 +126,7 @@ services:
 
   # Test runner
   test:
+    image: ghcr.io/rhiza-research/nuthatch-test:latest
     build:
       context: .
       dockerfile: Dockerfile.test
