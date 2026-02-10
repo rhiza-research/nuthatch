@@ -96,7 +96,7 @@ services:
     networks:
       - isolated
     healthcheck:
-      test: ["CMD", "node", "-e", "require('net').createConnection(10000, 'localhost').on('connect', () => process.exit(0)).on('error', () => process.exit(1))"]
+      test: ["CMD-SHELL", "node -e \"require('http').get('http://127.0.0.1:10000/', (r) => process.exit(0)).on('error', () => process.exit(1))\""]
       interval: 5s
       timeout: 5s
       retries: 10
