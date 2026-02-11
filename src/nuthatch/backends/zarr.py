@@ -174,11 +174,11 @@ class ZarrBackend(FileBackend):
                 # If rechunk is passed then check to see if the rechunk array
                 # matches chunking. If not then rechunk
                 if engine == xr.DataArray:
-                    ds_remote = xr.open_dataarray(self.path, engine='zarr', chunks={}, decode_timedelta=True, consolidated=True)
+                    ds_remote = xr.open_dataarray(self.path, engine='zarr', chunks={}, decode_timedelta=True, storage_options=self.filesystem_options, consolidated=True)
                     if not isinstance(self.chunking, dict):
                         raise ValueError("If auto_rechunk is True, a chunking dict must be supplied.")
                 else:
-                    ds_remote = xr.open_dataset(self.path, engine='zarr', chunks={}, decode_timedelta=True, consolidated=True)
+                    ds_remote = xr.open_dataset(self.path, engine='zarr', chunks={}, decode_timedelta=True, storage_options=self.filesystem_options, consolidated=True)
                     if not isinstance(self.chunking, dict):
                         raise ValueError("If auto_rechunk is True, a chunking dict must be supplied.")
 
@@ -214,7 +214,7 @@ class ZarrBackend(FileBackend):
                     open_func = xr.open_dataarray
 
                 if self.target_read_chunk_size_mb:
-                    stored_ds = open_func(self.path, engine='zarr', chunks={}, decode_timedelta=True)
+                    stored_ds = open_func(self.path, engine='zarr', chunks={}, decode_timedelta=True, storage_options=self.filesystem_options, consolidated=True)
                     chunk_size, original_chunks = get_chunk_size(stored_ds)
 
                     # We can't get smaller, log a warning and return
@@ -224,7 +224,7 @@ class ZarrBackend(FileBackend):
                         return stored_ds
                     elif self.target_read_chunk_size_mb > chunk_size and self.target_read_chunk_size_mb < chunk_size*2:
                         # This is the correct chunk size, just return. We can't make something less than 2x smaller
-                        return open_func(self.path, engine='zarr', chunks={}, decode_timedelta=True)
+                        return open_func(self.path, engine='zarr', chunks={}, decode_timedelta=True, storage_options=self.filesystem_options, consolidated=True)
                     else:
                         # The algorith for increasing works as follows:
                         #  - compute a multiplier between the current size and the target size
@@ -265,9 +265,9 @@ class ZarrBackend(FileBackend):
                         else:
                             logger.info(f"Resized read chunks to {chunks_dict} with calculated size of {chunk_size:.0f} MB to match target size of {self.target_read_chunk_size_mb} MB")
 
-                        return open_func(self.path, engine='zarr', chunks=chunks_dict, decode_timedelta=True)
+                        return open_func(self.path, engine='zarr', chunks=chunks_dict, decode_timedelta=True, storage_options=self.filesystem_options, consolidated=True)
                 else:
-                    return open_func(self.path, engine='zarr', chunks={}, decode_timedelta=True)
+                    return open_func(self.path, engine='zarr', chunks={}, decode_timedelta=True, storage_options=self.filesystem_options, consolidated=True)
         else:
             raise NotImplementedError(f"Zarr backend does not support reading zarrs to {engine} engine")
 
