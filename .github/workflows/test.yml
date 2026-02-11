@@ -44,7 +44,7 @@ jobs:
     - name: Run tests with docker compose
       run: |
         mkdir -p coverage
-        docker compose run --no-build --rm -v $(pwd)/coverage:/app/coverage test \
+        docker compose run --rm -v $(pwd)/coverage:/app/coverage test \
           -v \
           --junitxml=/app/coverage/junit.xml \
           --cov-report=xml:/app/coverage/coverage.xml \
