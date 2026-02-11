@@ -10,6 +10,7 @@ import sys
 import logging
 logger = logging.getLogger(__name__)
 
+
 @cache(cache=False, cache_args=['name', 'species', 'stride'])
 def simple_data(name='test', species='coraciidae', stride='day'):
     """Generate a simple timeseries dataset for testing."""
@@ -29,7 +30,7 @@ def simple_xarray_timeseries(start_time, end_time, name='test', species='coracii
     return ds
 
 
-def test_memoizer():
+def test_memoizer(local_config):
     ds = simple_xarray_timeseries("2000-01-01", "2005-01-01", memoize=True)
     ds = simple_xarray_timeseries("2000-01-01", "2005-01-01", memoize=True)
 
@@ -40,7 +41,7 @@ def test_memoizer():
 
 
 
-def test_memoizer_overflow():
+def test_memoizer_overflow(local_config):
     set_parameter("100KB", 'remote_cache_size', location='root')
     set_parameter("1KB", 'local_cache_size', location='root')
 

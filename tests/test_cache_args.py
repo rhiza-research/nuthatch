@@ -1,14 +1,40 @@
 import numpy as np
+import pytest
 from nuthatch import cache
 from nuthatch import config_parameter
+import nuthatch.config
 
-@config_parameter('filesystem', location='root')
-def set_filesystem():
-    return './.cache'
 
-@config_parameter('filesystem', location='local')
-def set_filesystem2():
-    return './.cache2'
+@pytest.fixture(autouse=True)
+def setup_config_parameters(tmp_path):
+    """Set up config parameters for cache_args tests.
+
+    These tests don't use cloud storage - they use local filesystem caching
+    to test cache argument behavior.
+    """
+    # Clear any existing dynamic parameters to start fresh
+    nuthatch.config.dynamic_parameters.clear()
+
+    # Create temp directories for caching
+    root_cache = tmp_path / "cache"
+    local_cache = tmp_path / "local_cache"
+    root_cache.mkdir()
+    local_cache.mkdir()
+
+    # Register config parameters for this test module
+    @config_parameter('filesystem', location='root')
+    def set_filesystem():
+        return str(root_cache)
+
+    @config_parameter('filesystem', location='local')
+    def set_filesystem2():
+        return str(local_cache)
+
+    yield
+
+    # Clean up after test
+    nuthatch.config.dynamic_parameters.clear()
+
 
 def test_far_nesting():
 

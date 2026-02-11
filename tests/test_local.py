@@ -11,7 +11,7 @@ def ls(el):
     return ret
 
 
-def test_local_storage():
+def test_local_storage(local_config):
     # Cache = False, no caching
     ds = ls('josh', cache_mode='off')
     ds2 = ls('josh', cache_mode='off')

@@ -22,10 +22,6 @@ logger = logging.getLogger(__name__)
 
 dynamic_parameters = {}
 
-# Test hook - set this to bypass disk loading during tests
-# This is manipulated by test_config in conftest.py
-_test_config_provider = None
-
 # Environment variables for config file locations
 NUTHATCH_GLOBAL_CONFIG_ENV = "NUTHATCH_GLOBAL_CONFIG"
 NUTHATCH_PROJECT_CONFIG_ENV = "NUTHATCH_PROJECT_CONFIG"
@@ -310,8 +306,7 @@ class NuthatchConfig:
             expanded = os.path.expanduser(env_path)
             if os.path.exists(expanded):
                 return expanded
-            logger.warning(f"{NUTHATCH_PROJECT_CONFIG_ENV} set to '{env_path}' but file does not exist")
-            return None
+            raise FileNotFoundError(f"{NUTHATCH_PROJECT_CONFIG_ENV} set to '{env_path}' but file does not exist")
         return self._find_project_config(Path.cwd())
 
     def set_global_skipped_filesystem(self, filesystem):
@@ -565,10 +560,6 @@ class NuthatchConfig:
             self.config = sub_config
             return
 
-        # Test hook - bypass disk loading if test provider is set
-        if _test_config_provider is not None:
-            self.config = self._expand_config(_test_config_provider())
-            return
 
         logger.debug("Constructing top level config")
         final_config = {}
@@ -586,8 +577,9 @@ class NuthatchConfig:
         # If the wrapped function is in our package that's fine - they should be merged in
         # But if it's in another package we don't always want them to overwrite our root settings (very rarely)
         # And we often want to add them as additional mirros to our current environment
+        # Skip filesystem search if project config is explicitly set via env var
         wrapped_config = {}
-        if hasattr(wrapped_module, '__file__'):
+        if not os.environ.get(NUTHATCH_PROJECT_CONFIG_ENV) and hasattr(wrapped_module, '__file__'):
             wrapped_config = self._get_config_file(wrapped_module.__file__)
 
         dynamic_config = self._get_dynamic_config(wrapped_module)

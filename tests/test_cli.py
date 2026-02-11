@@ -309,7 +309,7 @@ class TestListCommand:
         from nuthatch.config import NuthatchConfig
 
         # Create a cache entry (use 2-level key for CLI glob compatibility)
-        config = NuthatchConfig(wrapped_module='tests')
+        config = NuthatchConfig(wrapped_module=None)
         cache = Cache(config['root'], "test/key", None, None, {}, 'basic', {})
         cache.write({"test": "data"})
 
@@ -324,7 +324,7 @@ class TestListCommand:
         from nuthatch.config import NuthatchConfig
 
         # Create cache entries with different namespaces
-        config = NuthatchConfig(wrapped_module='tests')
+        config = NuthatchConfig(wrapped_module=None)
         cache1 = Cache(config['root'], "nsfilter/key1", "ns1", None, {}, 'basic', {})
         cache1.write("data1")
 
@@ -343,7 +343,7 @@ class TestListCommand:
         from nuthatch.cache import Cache
         from nuthatch.config import NuthatchConfig
 
-        config = NuthatchConfig(wrapped_module='tests')
+        config = NuthatchConfig(wrapped_module=None)
         # Create matching and non-matching caches
         cache1 = Cache(config['root'], "pattern/match", None, None, {}, 'basic', {})
         cache1.write("matching data")
@@ -437,7 +437,7 @@ class TestDeleteCommand:
         from nuthatch.config import NuthatchConfig
 
         # Use 2-level key for CLI glob compatibility
-        config = NuthatchConfig(wrapped_module='tests')
+        config = NuthatchConfig(wrapped_module=None)
         cache = Cache(config['root'], "deltest/key", None, None, {}, 'basic', {})
         cache.write("data to delete")
 
@@ -452,7 +452,7 @@ class TestDeleteCommand:
         from nuthatch.config import NuthatchConfig
 
         # Use 2-level key for CLI glob compatibility
-        config = NuthatchConfig(wrapped_module='tests')
+        config = NuthatchConfig(wrapped_module=None)
         cache = Cache(config['root'], "delconf/key", None, None, {}, 'basic', {})
         cache.write("data to delete")
 
@@ -472,7 +472,7 @@ class TestDeleteCommand:
         from nuthatch.config import NuthatchConfig
 
         # Use 2-level key for CLI glob compatibility
-        config = NuthatchConfig(wrapped_module='tests')
+        config = NuthatchConfig(wrapped_module=None)
         cache = Cache(config['root'], "delforce/key", None, None, {}, 'basic', {})
         cache.write("data to delete")
 
@@ -526,7 +526,7 @@ class TestImportCommand:
         from nuthatch.cache import Cache
         from nuthatch.config import NuthatchConfig
 
-        config = NuthatchConfig(wrapped_module='tests')
+        config = NuthatchConfig(wrapped_module=None)
 
         # Create a cache entry normally (creates both data file and metadata)
         cache = Cache(config['root'], "importtest/data", None, None, {}, 'basic', {})
@@ -589,7 +589,7 @@ class TestCopyCommand:
         from nuthatch.config import NuthatchConfig
 
         # Create a cache entry to copy
-        config = NuthatchConfig(wrapped_module='tests')
+        config = NuthatchConfig(wrapped_module=None)
         cache = Cache(config['root'], "cptest/key", None, None, {}, 'basic', {})
         cache.write({"test": "data"})
 
@@ -604,7 +604,7 @@ class TestCopyCommand:
         from nuthatch.config import NuthatchConfig
 
         # Create a cache entry to copy
-        config = NuthatchConfig(wrapped_module='tests')
+        config = NuthatchConfig(wrapped_module=None)
         cache = Cache(config['root'], "cpconf/key", None, None, {}, 'basic', {})
         cache.write({"test": "copy data"})
 
@@ -629,7 +629,7 @@ class TestCopyCommand:
         from nuthatch.config import NuthatchConfig
 
         # Create a cache entry with namespace
-        config = NuthatchConfig(wrapped_module='tests')
+        config = NuthatchConfig(wrapped_module=None)
         cache = Cache(config['root'], "cpns/key", "test_ns", None, {}, 'basic', {})
         cache.write("namespaced data")
 

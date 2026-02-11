@@ -2,20 +2,6 @@ from nuthatch import cache
 import xarray as xr
 import numpy as np
 import pandas as pd
-from google.cloud import secretmanager
-from nuthatch.config import config_parameter
-
-
-@config_parameter('password', location='root')
-def postgres_write_password():
-    """Get a postgres write password."""
-    client = secretmanager.SecretManagerServiceClient()
-
-    response = client.access_secret_version(
-        request={"name": "projects/750045969992/secrets/postgres-write-password/versions/latest"})
-    key = response.payload.data.decode("UTF-8")
-
-    return key
 
 
 @cache(cache_args=[])
@@ -59,7 +45,7 @@ def time_latlon_array():
     return ds
 
 
-def test_terracotta():
+def test_terracotta(postgres_storage):
     # cache the array
     ds = simple_latlon_array(backend='zarr')
     # Write to terracotta

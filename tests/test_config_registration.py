@@ -89,8 +89,12 @@ def test_project_config_env_var(tmp_path, monkeypatch):
 def test_global_config_rejects_invalid_keys(tmp_path, monkeypatch):
     """Test that global config validation rejects invalid keys."""
     # Set env vars to isolate test
-    monkeypatch.setenv(NUTHATCH_PROJECT_CONFIG_ENV, str(tmp_path / "project.toml"))
-    monkeypatch.setenv(NUTHATCH_GLOBAL_CONFIG_ENV, str(tmp_path / "global.toml"))
+    project_config = tmp_path / "project.toml"
+    project_config.write_text("")
+    global_config = tmp_path / "global.toml"
+    global_config.write_text("")
+    monkeypatch.setenv(NUTHATCH_PROJECT_CONFIG_ENV, str(project_config))
+    monkeypatch.setenv(NUTHATCH_GLOBAL_CONFIG_ENV, str(global_config))
 
     config = NuthatchConfig(wrapped_module='isolated_test')
     invalid_config = {'filesystem': '/tmp/test', 'other_key': 'value'}
@@ -101,8 +105,12 @@ def test_global_config_rejects_invalid_keys(tmp_path, monkeypatch):
 def test_global_config_accepts_filesystem_options(tmp_path, monkeypatch):
     """Test that global config validation accepts filesystem_options."""
     # Set env vars to isolate test
-    monkeypatch.setenv(NUTHATCH_PROJECT_CONFIG_ENV, str(tmp_path / "project.toml"))
-    monkeypatch.setenv(NUTHATCH_GLOBAL_CONFIG_ENV, str(tmp_path / "global.toml"))
+    project_config = tmp_path / "project.toml"
+    project_config.write_text("")
+    global_config = tmp_path / "global.toml"
+    global_config.write_text("")
+    monkeypatch.setenv(NUTHATCH_PROJECT_CONFIG_ENV, str(project_config))
+    monkeypatch.setenv(NUTHATCH_GLOBAL_CONFIG_ENV, str(global_config))
 
     config = NuthatchConfig(wrapped_module='isolated_test')
     valid_config = {'filesystem_options': {'token': 'anon', 'cache_timeout': 0}}
@@ -113,8 +121,12 @@ def test_global_config_accepts_filesystem_options(tmp_path, monkeypatch):
 def test_global_config_accepts_skipped_filesystems(tmp_path, monkeypatch):
     """Test that global config validation accepts skipped_filesystems."""
     # Set env vars to isolate test
-    monkeypatch.setenv(NUTHATCH_PROJECT_CONFIG_ENV, str(tmp_path / "project.toml"))
-    monkeypatch.setenv(NUTHATCH_GLOBAL_CONFIG_ENV, str(tmp_path / "global.toml"))
+    project_config = tmp_path / "project.toml"
+    project_config.write_text("")
+    global_config = tmp_path / "global.toml"
+    global_config.write_text("")
+    monkeypatch.setenv(NUTHATCH_PROJECT_CONFIG_ENV, str(project_config))
+    monkeypatch.setenv(NUTHATCH_GLOBAL_CONFIG_ENV, str(global_config))
 
     config = NuthatchConfig(wrapped_module='isolated_test')
     valid_config = {'skipped_filesystems': ['gs://bucket1', 's3://bucket2']}

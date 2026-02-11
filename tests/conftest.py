@@ -32,44 +32,6 @@ def skip_azure_delta_on_emulator(cloud_storage):
         pytest.skip("Delta Lake requires ADLS Gen2 (Azurite doesn't support HNS)")
 
 
-class test_config:
-    """Context manager for setting test config.
-
-    Usage:
-        with test_config({'root': {'filesystem': 's3://test'}}) as ctx:
-            # nuthatch operations use this config
-            result = my_cached_function()
-            # Check if config was accessed
-            assert ctx.was_accessed
-
-        # To reset config to normal disk-based loading:
-        test_config.reset()
-    """
-
-    def __init__(self, config):
-        self.config = config
-        self.previous_provider = None
-        self.was_accessed = False
-
-    def __enter__(self):
-        self.previous_provider = nuthatch.config._test_config_provider
-
-        def tracking_provider():
-            self.was_accessed = True
-            return self.config
-
-        nuthatch.config._test_config_provider = tracking_provider
-        return self
-
-    def __exit__(self, exc_type, exc_val, exc_tb):
-        nuthatch.config._test_config_provider = self.previous_provider
-        return False
-
-    @staticmethod
-    def reset():
-        """Reset to normal disk-based config loading."""
-        nuthatch.config._test_config_provider = None
-
 
 def pytest_configure(config):
     """Register custom markers."""
@@ -193,6 +155,10 @@ def cloud_storage(request, tmp_path, monkeypatch):
     import tomli_w
     import copy
     from pathlib import Path
+    from contextlib import contextmanager
+
+    # Clear any module-level @config_parameter registrations to prevent test pollution
+    nuthatch.config.dynamic_parameters.clear()
 
     provider = request.param
 
@@ -242,41 +208,93 @@ def cloud_storage(request, tmp_path, monkeypatch):
     monkeypatch.setenv(nuthatch.config.NUTHATCH_PROJECT_CONFIG_ENV, str(temp_config_file))
     monkeypatch.setenv(nuthatch.config.NUTHATCH_GLOBAL_CONFIG_ENV, str(fake_home / ".nuthatch.toml"))
 
-    # Track whether config was explicitly accessed
-    config_dict_accessed = []
-
     class CloudStorageResult(dict):
-        """Result object from cloud_storage fixture with config context support."""
+        def __init__(self, *args, **kwargs):
+            super().__init__(*args, **kwargs)
+            self._accessed = False
 
         def __getitem__(self, key):
-            config_dict_accessed.append(True)
+            self._accessed = True
             return super().__getitem__(key)
-
-        def config_context(self, custom_config):
-            """Return a context manager for using a custom config."""
-            config_dict_accessed.append(True)
-            return test_config(custom_config)
 
     result = CloudStorageResult({
         "provider": provider,
         "config": config,
     })
 
-    # Use context manager for access tracking
-    with test_config(config) as ctx:
-        yield result
+    @contextmanager
+    def config_context(custom_config):
+        """Temporarily swap the nuthatch config on disk."""
+        result._accessed = True
+        with open(temp_config_file, "wb") as f:
+            tomli_w.dump(custom_config, f)
+        try:
+            yield
+        finally:
+            with open(temp_config_file, "wb") as f:
+                tomli_w.dump(config, f)
 
-    # Verify the test actually used cloud storage
-    if not ctx.was_accessed and not config_dict_accessed:
-        present_markers = []
-        for marker in ["s3", "gcs", "azure"]:
-            if request.node.get_closest_marker(marker):
-                present_markers.append(f"@pytest.mark.{marker}")
-        markers_str = ", ".join(present_markers)
+    result.config_context = config_context
+
+    # Track NuthatchConfig construction as evidence of cloud storage usage
+    original_init = nuthatch.config.NuthatchConfig.__init__
+
+    def tracking_init(self_inner, *args, **kwargs):
+        result._accessed = True
+        return original_init(self_inner, *args, **kwargs)
+
+    monkeypatch.setattr(nuthatch.config.NuthatchConfig, '__init__', tracking_init)
+
+    yield result
+
+    if not result._accessed:
         pytest.fail(
-            f"Test requested cloud_storage fixture but never accessed cloud storage config. "
-            f"Remove cloud provider markers ({markers_str}) if this test doesn't need cloud storage."
+            f"Test {request.node.name} requests cloud_storage but never used it. "
+            "Remove cloud provider markers and use a local config fixture instead."
         )
+
+
+# =============================================================================
+# Local-Only Fixture
+#
+# For tests that need nuthatch config but don't use cloud storage.
+# =============================================================================
+
+
+@pytest.fixture
+def local_config(tmp_path, monkeypatch):
+    """Configure nuthatch with local filesystem paths only.
+
+    For tests that need valid nuthatch config but don't interact with
+    cloud storage (e.g., memoizer tests, local caching tests).
+    """
+    import tomli_w
+
+    nuthatch.config.dynamic_parameters.clear()
+
+    root_cache = tmp_path / "root_cache"
+    local_cache = tmp_path / "local_cache"
+    root_cache.mkdir()
+    local_cache.mkdir()
+
+    config = {
+        "root": {"filesystem": str(root_cache)},
+        "local": {"filesystem": str(local_cache)},
+    }
+
+    fake_home = tmp_path / "home"
+    fake_home.mkdir()
+    temp_config_file = tmp_path / "nuthatch.toml"
+    with open(temp_config_file, "wb") as f:
+        tomli_w.dump(config, f)
+
+    monkeypatch.setenv("HOME", str(fake_home))
+    monkeypatch.setenv(nuthatch.config.NUTHATCH_PROJECT_CONFIG_ENV, str(temp_config_file))
+    monkeypatch.setenv(nuthatch.config.NUTHATCH_GLOBAL_CONFIG_ENV, str(fake_home / ".nuthatch.toml"))
+
+    yield
+
+    nuthatch.config.dynamic_parameters.clear()
 
 
 # =============================================================================
@@ -306,15 +324,54 @@ def postgres_credentials():
 
 
 @pytest.fixture
-def postgres_storage(postgres_credentials, tmp_path):
+def postgres_storage(request, postgres_credentials, tmp_path, monkeypatch):
     """Configure nuthatch to use PostgreSQL for SQL backend."""
+    import tomli_w
+    import sqlalchemy
+
+    # Clear any module-level @config_parameter registrations to prevent test pollution
+    nuthatch.config.dynamic_parameters.clear()
+
+    # Check if this test uses terracotta - if so, use a unique database name
+    # because terracotta's create() tries to CREATE DATABASE (we don't create it here)
+    test_name = request.node.name
+    if 'terracotta' in test_name:
+        # Use a unique database name - terracotta will create it
+        db_name = f"tc_{uuid.uuid4().hex[:8]}"
+        credentials = {**postgres_credentials, 'database': db_name}
+    else:
+        credentials = postgres_credentials
+
     config = {
         'root': {
             'filesystem': str(tmp_path / 'nuthatch_cache'),
-            'metadata_location': 'filesystem',
-            'sql': postgres_credentials,
+            **credentials,
         }
     }
 
-    with test_config(config):
-        yield {"credentials": postgres_credentials, "config": config}
+    # Write config to temp file and point nuthatch at it via env vars
+    fake_home = tmp_path / "home"
+    fake_home.mkdir()
+    temp_config_file = tmp_path / "nuthatch.toml"
+    with open(temp_config_file, "wb") as f:
+        tomli_w.dump(config, f)
+
+    monkeypatch.setenv("HOME", str(fake_home))
+    monkeypatch.setenv(nuthatch.config.NUTHATCH_PROJECT_CONFIG_ENV, str(temp_config_file))
+    monkeypatch.setenv(nuthatch.config.NUTHATCH_GLOBAL_CONFIG_ENV, str(fake_home / ".nuthatch.toml"))
+
+    yield {"credentials": credentials, "config": config}
+
+    # Cleanup: drop the terracotta database if we created one
+    if 'terracotta' in test_name:
+        admin_url = f"postgresql://{postgres_credentials['username']}:{postgres_credentials['password']}@{postgres_credentials['host']}:{postgres_credentials['port']}/postgres"
+        engine = sqlalchemy.create_engine(admin_url, isolation_level="AUTOCOMMIT")
+        with engine.connect() as conn:
+            # Terminate connections to the database before dropping
+            conn.execute(sqlalchemy.text(f"""
+                SELECT pg_terminate_backend(pid)
+                FROM pg_stat_activity
+                WHERE datname = '{db_name}' AND pid <> pg_backend_pid()
+            """))
+            conn.execute(sqlalchemy.text(f"DROP DATABASE IF EXISTS {db_name}"))
+        engine.dispose()
