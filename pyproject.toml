@@ -19,7 +19,8 @@ dependencies = [
     "dask-deltatable",
     "xarray",
     "pyarrow",
-    "terracotta",
+    "terracotta==0.8.5",
+    "rioxarray",
     "gitpython",
     "psycopg2-binary",
     "zarr<3",
@@ -30,6 +31,8 @@ dependencies = [
     "s3fs",
     "adlfs",
     "pydantic",
+    "multiprocess",
+    "humanfriendly",
 ]
 
 # TODO: Make backend submodules so that their
@@ -48,6 +51,8 @@ dev = [
     # Utilities
     "pooch",                   # Download and cache test data files
     "google-cloud-secret-manager",  # Access secrets from GCP Secret Manager
+    "dask[distributed]",
+    "bokeh>=3.1.0",
     "requests",                # HTTP client for API calls
     "ruff>=0.1.0",             # Linter and code formatter
 ]

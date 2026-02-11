@@ -10,6 +10,7 @@ import importlib
 import click
 import fsspec
 import shutil
+import multiprocess
 from nuthatch.config import NuthatchConfig
 from .backend import get_backend_by_name, registered_backends
 from nuthatch.cache import Cache
@@ -260,9 +261,10 @@ def list_caches(cache_key, namespace, backend, location, verbose):
 @click.option('--namespace', help='Namespace for the cache')
 @click.option('--backend', help='Backend to use')
 @click.option('--location', help='Location to search', default='root')
+@click.option('--parallel', is_flag=True, help='Amount of parallelism')
 @click.option('--force', '-f', is_flag=True, help='Force deletion without confirmation')
 @click.option('--metadata-only', '-m', is_flag=True, help='Only delete the metadata for the cache, not the underlying data.')
-def delete_cache(cache_key, namespace, backend, location, force, metadata_only):
+def delete_cache(cache_key, namespace, backend, location, parallel, force, metadata_only):
     """Delete cache entries matching a pattern.
 
     CACHE_KEY is a glob pattern to match entries for deletion.
@@ -285,16 +287,26 @@ def delete_cache(cache_key, namespace, backend, location, force, metadata_only):
 
     click.confirm(f"Are you sure you want to delete {len(caches)} cache entries?\n{str(caches[['cache_key', 'backend']])}\n", abort=True)
 
-    for cache_entry in caches.to_dict(orient='records'):
-        if cache_entry['backend'] == 'null':
-            cache = Cache(config[location], cache_entry['cache_key'], namespace, None, None, None, {})
+    def delete_func(cache):
+        if cache['backend'] == 'null':
+            cache = Cache(config[location], cache['cache_key'], namespace, None, None, None, {})
         else:
-            cache = Cache(config[location], cache_entry['cache_key'], namespace, None, None, cache_entry['backend'], {})
+            cache = Cache(config[location], cache['cache_key'], namespace, None, None, cache['backend'], {})
         click.echo(f"Deleting {cache.cache_key} from {location} with backend {cache.backend_name}.")
         if metadata_only:
             cache._delete_metadata()
         else:
             cache.delete()
+
+    cache_list = caches.to_dict(orient='records')
+
+    if not parallel:
+        for cache in cache_list:
+            delete_func(cache)
+    else:
+        with multiprocess.Pool(processes=os.cpu_count()*5) as pool:
+            pool.map(delete_func, cache_list)
+
 
 @cli.command('cp')
 @click.argument('cache_key')
@@ -334,8 +346,6 @@ def copy_cache(cache_key, namespace, from_location, to_location):
 
         click.echo(f"Copy {cache_entry['cache_key']} from {from_location} to {to_location} with backend {from_cache.backend_name}.")
         to_cache.sync(from_cache)
-
-
 
 @cli.command('print-config')
 @click.option('--location', help='Location to search', default='root')

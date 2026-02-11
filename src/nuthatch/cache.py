@@ -2,6 +2,7 @@ import os
 import copy
 import datetime
 import getpass
+import random
 from abc import ABC, abstractmethod
 
 import git
@@ -13,10 +14,22 @@ from nuthatch.backend import get_backend_by_name
 import logging
 logger = logging.getLogger(__name__)
 
+
+class NuthatchWriteError(Exception):
+    """Custom exception for errors encountered during Nuthatch cache writes."""
+    pass
+
+
+class NuthatchReadError(Exception):
+    """Custom exception for errors encountered during Nuthatch cache reads."""
+    pass
+
+
 class Metastore(ABC):
     """The base class for a cache metastore. Must basically implement schema and table
     create, check conditional row existence, row insert, row, select, row update, and row delete.
     """
+
     def __init__(self, config):
         """Must create a metastore of the specified schema.
 
@@ -35,7 +48,6 @@ class Metastore(ABC):
             True if exists, false otherwise
         """
         pass
-
 
     @abstractmethod
     def get_cache(self, cache_key, namespace):
@@ -60,7 +72,6 @@ class Metastore(ABC):
         """
         pass
 
-
     @abstractmethod
     def delete_cache(self, cache_key, namespace):
         """Updates or creates a row of values that matches the were clause.
@@ -78,13 +89,16 @@ class Metastore(ABC):
 
 class NuthatchMetastore(Metastore):
     """Nuthatch custom metastore."""
-    def __init__(self, config):
+
+    def __init__(self, config, readonly=False):
         base_path = config['filesystem']
         table_path = os.path.expanduser(os.path.join(base_path, 'nuthatch_metadata.nut'))
         self.table_path = table_path
         self.extension = 'parquet'
         self.config = config
         self.exists = os.path.join(table_path, 'exists.nut')
+        write_int = random.randint(0, 1000000000)
+        self.write_check = os.path.join(table_path, f'write_check/{write_int}.nut')
 
         if 'filesystem_options' not in config:
             self.config['filesystem_options'] = {}
@@ -108,8 +122,29 @@ class NuthatchMetastore(Metastore):
             pre_level = logging.getLogger(module).getEffectiveLevel()
             logging.getLogger(module).setLevel(logging.CRITICAL + 1)
 
-        if not self.fs.exists(self.exists):
-            self.fs.touch(self.exists)
+        try:
+            # Check if the file exists. If we don't have permission, fsspec will mostly return
+            # False, but catch a potential exeception.
+            exists = self.fs.exists(self.exists)
+        except Exception as e:
+            raise NuthatchReadError(f"Cache read error: {e}")
+
+        if exists:
+            # If it exists, we have read permissions. Check if we can write.
+            if not readonly:
+                try:
+                    self.fs.touch(self.write_check)
+                except Exception as e:
+                    raise NuthatchWriteError(f"Cache write error: {e}")
+        else:
+            # If exist has returned False, we probably don't have read permissions.
+            # But it's possible that the file doesn't exist because it's a new filesystem.
+            # If we can create the file, we'll just continue but log a read error
+            # in case no caches exist at all and we can exit early
+            try:
+                self.fs.touch(self.exists)
+            except Exception as e:
+                raise NuthatchReadError(f"Cache read error: {e}")
 
         # Reset to the original level
         if module:
@@ -181,12 +216,10 @@ class NuthatchMetastore(Metastore):
         elif not cache_key:
             cache_key = '*/*'
 
-
         join_list.append(cache_key)
 
         if namespace:
             join_list.append(namespace)
-
 
         full_path = os.path.join(*join_list) + '.null'
 
@@ -221,7 +254,6 @@ class NuthatchMetastore(Metastore):
             return self.fs.glob(full_path)
 
 
-
 class Cache():
     """The cache class interacts with the metastore and the backends to store the
     data itself and information about cache state. Currently delta and sql
@@ -232,7 +264,8 @@ class Cache():
     - Managing the metadata in the metadata database or delta table
     - Writing and reading data to the backend
     """
-    def __init__(self, config, cache_key, namespace, version, args, requested_backend, backend_kwargs):
+
+    def __init__(self, config, cache_key, namespace, version, args, requested_backend, backend_kwargs, readonly=False):
         self.cache_key = cache_key
         self.config = config
         self.namespace = namespace
@@ -242,7 +275,7 @@ class Cache():
 
         # Either instantiate a delta table or a postgres table
         logger.debug(f"Using Nuthatch Metastore at {config['filesystem']}")
-        self.metastore = NuthatchMetastore(config)
+        self.metastore = NuthatchMetastore(config, readonly)
 
         self.backend = None
         self.backend_name = None
@@ -260,7 +293,8 @@ class Cache():
         if backend_class and self.cache_key:
             if backend_class.backend_name in config:
                 try:
-                    self.backend  = backend_class(self.config[backend_class.backend_name], cache_key, namespace, args, copy.deepcopy(backend_kwargs))
+                    self.backend = backend_class(self.config[backend_class.backend_name], cache_key, namespace,
+                                                 args, copy.deepcopy(backend_kwargs))
                 except RuntimeError:
                     pass
 
@@ -338,7 +372,7 @@ class Cache():
         try:
             repo = git.Repo(search_parent_directories=True)
             sha = repo.head.object.hexsha
-        except: # noqa: E722
+        except:  # noqa: E722
             sha = 'no_git_repo'
 
         path = 'None'
@@ -358,7 +392,6 @@ class Cache():
         }
 
         self.metastore.write_cache(self.cache_key, self.namespace, self.backend_name, values)
-
 
     def exists(self):
         """Check if the metadata exists, is confirmed, and the data exists in the backend.
@@ -385,7 +418,6 @@ class Cache():
         else:
             raise ValueError("Inconsistent and unknown cache state.")
 
-
     def write(self, ds):
         """Write data to the backend.
 
@@ -402,7 +434,6 @@ class Cache():
         else:
             raise RuntimeError("Cannot not write to an uninitialized backend")
 
-
     def upsert(self, ds, upsert_keys=None):
         if self.backend:
             ds = self.backend.upsert(ds, upsert_keys)
@@ -410,7 +441,6 @@ class Cache():
             return ds
         else:
             raise RuntimeError("Cannot not upsert to an uninitialized backend")
-
 
     def read(self, engine=None):
         """Read data from the backend.
@@ -472,7 +502,8 @@ class Cache():
                 backend_class = get_backend_by_name(from_cache.backend_name)
                 backend_name = backend_class.backend_name
                 if backend_name in self.config:
-                    self.backend = backend_class(self.config[backend_name], self.cache_key, self.namespace, self.args, copy.deepcopy(self.backend_kwargs))
+                    self.backend = backend_class(self.config[backend_name], self.cache_key, self.namespace,
+                                                 self.args, copy.deepcopy(self.backend_kwargs))
                     self.backend_name = backend_class.backend_name
                 else:
                     raise RuntimeError("Error finding backend config for syncing.")

@@ -41,8 +41,8 @@ def test_memoizer():
 
 
 def test_memoizer_overflow():
-    set_parameter(100000, 'remote_cache_size', location='root')
-    set_parameter(1000, 'local_cache_size', location='root')
+    set_parameter("100KB", 'remote_cache_size', location='root')
+    set_parameter("1KB", 'local_cache_size', location='root')
 
     for i in range(0, 10000):
         usage = nuthatch.memoizer.get_cache_usage(nuthatch.memoizer.remote_object_size)

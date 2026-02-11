@@ -9,7 +9,7 @@ from inspect import signature, Parameter
 import logging
 import sys
 
-from nuthatch.cache import Cache
+from nuthatch.cache import Cache, NuthatchReadError
 from nuthatch.backend import get_default_backend
 from nuthatch.config import NuthatchConfig
 from nuthatch.memoizer import save_to_memory, recall_from_memory
@@ -28,16 +28,18 @@ global_memoize = None
 global_cache_mode = None
 global_retry_null_cache = None
 global_fs_warning = []
+global_backend_kwargs = None
 
 
-def set_global_cache_variables(recompute=None, memoize=None, cache_mode=None, retry_null_cache=None):
+def set_global_cache_variables(recompute=None, memoize=None, cache_mode=None, retry_null_cache=None, backend_kwargs=None):
     """Reset all global variables to defaults and set the new values."""
     global global_recompute, global_memoize, global_cache_mode, \
-        global_retry_null_cache
+        global_retry_null_cache, global_backend_kwargs
 
     # Simple logic for global variables
     global_retry_null_cache = retry_null_cache
     global_cache_mode = cache_mode
+    global_backend_kwargs = backend_kwargs
 
     # More complex logic for recompute
     if recompute == True:  # noqa: E712, must check the boolean
@@ -76,6 +78,7 @@ def check_if_nested_fn():
 
 def get_cache_args(passed_kwargs, default_cache_kwargs, decorator_args, func_name):
     """Extract the cache arguments from the kwargs and return them."""
+    passed_backend_kwargs = passed_kwargs['backend_kwargs'] if 'backend_kwargs' in passed_kwargs else None
     cache_args = {}
     for k in default_cache_kwargs:
         if k in passed_kwargs:
@@ -96,22 +99,28 @@ def get_cache_args(passed_kwargs, default_cache_kwargs, decorator_args, func_nam
     cache_args['cache'] = decorator_args['cache']
 
     if 'backend_kwargs' in cache_args and isinstance(cache_args['backend_kwargs'], dict):
-        cache_args['backend_kwargs'] = cache_args['backend_kwargs'].update(decorator_args['backend_kwargs'])
+        cache_args['backend_kwargs'].update(decorator_args['backend_kwargs'])
     elif 'backend_kwargs' in cache_args and cache_args['backend_kwargs'] is None:
         cache_args['backend_kwargs'] = decorator_args['backend_kwargs']
+
+    if 'storage_backend_kwargs' in cache_args and isinstance(cache_args['storage_backend_kwargs'], dict):
+        cache_args['storage_backend_kwargs'].update(decorator_args['storage_backend_kwargs'])
+    elif 'storage_backend_kwargs' in cache_args and cache_args['storage_backend_kwargs'] is None:
+        cache_args['storage_backend_kwargs'] = decorator_args['storage_backend_kwargs']
 
     # Check if this is a nested cacheable function
     if not check_if_nested_fn():
         # This is a top level cacheable function, reset global cache variables
         set_global_cache_variables(recompute=cache_args['recompute'], memoize=cache_args['memoize'],
-                                   cache_mode=cache_args['cache_mode'], retry_null_cache=cache_args['retry_null_cache'])
+                                   cache_mode=cache_args['cache_mode'], retry_null_cache=cache_args['retry_null_cache'],
+                                   backend_kwargs=passed_backend_kwargs)
         if isinstance(cache_args['recompute'], list) or isinstance(cache_args['recompute'], str) or cache_args['recompute'] == '_all':
             cache_args['recompute'] = True
         if isinstance(cache_args['memoize'], list) or isinstance(cache_args['memoize'], str) or cache_args['memoize'] == '_all':
             cache_args['memoize'] = True
     else:
         # Inherit global cache variables
-        global global_recompute, global_memoize, global_cache_mode, global_retry_null_cache
+        global global_recompute, global_memoize, global_cache_mode, global_retry_null_cache, global_backend_kwargs
 
         # Set all global variables
         if global_retry_null_cache is not None:
@@ -124,6 +133,8 @@ def get_cache_args(passed_kwargs, default_cache_kwargs, decorator_args, func_nam
         if global_memoize:
             if func_name in global_memoize or global_memoize == '_all':
                 cache_args['memoize'] = True
+        if global_backend_kwargs:
+            cache_args['backend_kwargs'].update(global_backend_kwargs)
 
     return cache_args
 
@@ -208,13 +219,16 @@ def extract_all_arg_values(args, params, kwargs):
     all_arg_values = {}
 
     def add_arg(a):
+        # Prevent the memoizer from adding objects to the cache key that would result
+        # in a cache key that is too long
         return (isinstance(a, int) or isinstance(a, float) or
                 isinstance(a, str) or isinstance(a, bool) or
-                len(str(a)) < 30)
+                len(str(a)) < 500)
 
     for a in kwargs:
-        if add_arg(kwargs[a]):
-            all_arg_values[a] = kwargs[a]
+        if not add_arg(kwargs[a]):
+            raise RuntimeError(f"Argument {a} is too long to memoize. Please shorten the argument value.")
+        all_arg_values[a] = kwargs[a]
 
     # If it's not in kwargs it must either be (1) in args or (2) passed as default
     for i, p in enumerate(params):
@@ -323,16 +337,26 @@ def instantiate_read_caches(config, cache_key, namespace, version, cache_arg_val
         try:
             # If this is not a skipped filesystem, try to instantiate the cache
             cache = Cache(location_values, cache_key, namespace, version,
-                          cache_arg_values, requested_backend, backend_kwargs)
+                          cache_arg_values, requested_backend, backend_kwargs, readonly=True)
             caches[location_name] = cache
             found_cache = True
-        except Exception as e:  # noqa
-            logger.warning(
-                f"Failed to access the cache at {location_values['filesystem']}. Adding it to the excluded filesystems list at ~/.nuthatch.toml so future runs are faster. Please remove it if you gain access in the future.")
-            config.set_global_skipped_filesystem(
-                location_values['filesystem'])
+        except NuthatchReadError as e:  # noqa
+            inp = input(f"""Failed to read from the cache at {location_values['filesystem']}.
+                            Would you like to add it to the excluded filesystems
+                            list at ~/.nuthatch.toml so future runs are faster? (y/n).""")
+            if inp == 'y' or inp == 'Y':
+                # Set the filesystem to be skipped in the global config
+                config.set_global_skipped_filesystem(location_values['filesystem'])
+                logger.warning(
+                    f"""Added {location_values['filesystem']} to excluded filesystems list at ~/.nuthatch.toml so future runs are faster.
+                       You will have to manually remove it if you gain access to this cache in the future.""")
             global_fs_warning.append(location_values['filesystem'])
             cache_exception = f'Failed to access configured nuthatch cache "{location_name}" with error "{type(e).__name__}: {e}". If you couldn`t access the expected data, this could be the reason.'
+        except Exception as e:
+            # If we have a general exception, we should just log the error and continue.
+            global_fs_warning.append(location_values['filesystem'])
+            cache_exception = f'Failed to access configured nuthatch cache "{location_name}" with error "{type(e).__name__}: {e}". If you couldn`t access the expected data, this could be the reason.'
+            logger.warning(cache_exception)
 
     # Try to instantiate the root cache
     if 'root' in config:
@@ -346,7 +370,8 @@ def instantiate_read_caches(config, cache_key, namespace, version, cache_arg_val
     if not found_cache:
         raise RuntimeError("No Nuthatch configuration has been found.\n"
                            "-> If you are developing a Nuthatch project, please configure nuthatch in a nuthatch.toml file in your project root\n"
-                           "-> If you are calling a project that uses nuthatch, it should just work! Please contact the project's maintainer.")
+                           "-> If you are calling a project that uses nuthatch, it should just work! Please contact the project's maintainer."
+                           f"-> There was a logged exception {cache_exception} that could be related to this error.")
 
     # Move root to beginning of the ordered dictionary of caches to check
     if 'root' in caches:
@@ -372,7 +397,7 @@ def get_storage_backend(ds, backend, backend_kwargs, storage_backend, storage_ba
         storage_backend = get_default_backend(type(ds))
         if not storage_backend_kwargs:
             storage_backend_kwargs = backend_kwargs
-    elif backend:
+    elif not storage_backend and backend:
         storage_backend = backend
         storage_backend_kwargs = backend_kwargs
 
@@ -418,7 +443,7 @@ def get_cache_mode(cache_mode):
     """Based on the configurable cache mode, return the appropriate cache read and write behavior."""
     # Set cache read and write behavior based on the write mode
     if cache_mode == 'write':  # only write to the root cache
-        force_overwrite = False
+        force_overwrite = None
         fail_if_no_cache = False
         write_global = True
         write_local = False
@@ -432,7 +457,7 @@ def get_cache_mode(cache_mode):
         read_global = True
         read_local = False
     elif cache_mode == 'local':  # write to the local cache
-        force_overwrite = False
+        force_overwrite = None
         fail_if_no_cache = False
         write_global = False
         write_local = True
@@ -453,35 +478,35 @@ def get_cache_mode(cache_mode):
         read_global = True
         read_local = False
     elif cache_mode == 'local_strict':  # ignore the root cache for both read and write
-        force_overwrite = False
+        force_overwrite = None
         fail_if_no_cache = False
         write_global = False
         write_local = True
         read_global = False
         read_local = True
     elif cache_mode == 'local_api':  # act like an API - fetch globally and store locally. don't ever compute
-        force_overwrite = False
+        force_overwrite = None
         fail_if_no_cache = True
         write_global = False
         write_local = True
         read_global = True
         read_local = True
     elif cache_mode == 'read_only':  # read only from caches, no writing
-        force_overwrite = False
+        force_overwrite = None
         fail_if_no_cache = False
         write_global = False
         write_local = False
         read_global = True
         read_local = True
     elif cache_mode == 'read_only_strict':  # read only from caches, no writing, fail if no cache
-        force_overwrite = False
+        force_overwrite = None
         fail_if_no_cache = True
         write_global = False
         write_local = False
         read_global = True
         read_local = True
     elif cache_mode == 'off':  # completely disable caching
-        force_overwrite = False
+        force_overwrite = None
         fail_if_no_cache = False
         write_global = False
         write_local = False
@@ -601,12 +626,17 @@ def cache(cache=True,
             #######################################################################################
             # The function parameters and their values
             params = signature(func).parameters
-            cache_arg_values = extract_cache_arg_values(cache_args, args, params, passed_kwargs)
-            all_arg_values = extract_all_arg_values(args, params, passed_kwargs)
-
             # Calculate our unique cache key from the params and values
+            cache_arg_values = extract_cache_arg_values(cache_args, args, params, passed_kwargs)
             cache_key, cache_print = get_cache_key(func, cache_arg_values)
-            memoizer_cache_key, memoizer_cache_print = get_cache_key(func, all_arg_values)
+            try:
+                all_arg_values = extract_all_arg_values(args, params, passed_kwargs)
+                memoizer_cache_key, memoizer_cache_print = get_cache_key(func, all_arg_values)
+            except RuntimeError:
+                memoize = False
+                memoizer_cache_key = None
+                memoizer_cache_print = None
+
             pretty_print = partial(pretty_cache_print, cache_print, memoizer_cache_print)
 
             ########################################################################################
@@ -839,13 +869,18 @@ def cache(cache=True,
 
                 if write_cache.exists() and not upsert and ((write_local and location == 'local') or (write_global and location == 'root')):
                     # If the cache exists and we would need to write to it / overwrite it
-                    if not force_overwrite:
+                    if force_overwrite is None:
                         # Ask the user
                         inp = input(f"""A cache already exists at {pretty_print(location)} for type {write_cache.get_backend()} in {location} cache.
                                     Are you sure you want to overwrite it? (y/n)""")
                         write = True if inp == 'y' or inp == 'Y' else False
+                    elif force_overwrite == False:  # noqa: E712, must check the boolean
+                        logger.info(
+                            f"Skipping overwrite of existing cache for {pretty_print(location)} in {location} cache.")
+                        write = False
                     else:
-                        logger.info(f"Overwriting existing cache for {pretty_print(location)} in {location} cache.")
+                        logger.info(f"""Overwriting existing cache for {pretty_print(location)} in {location} cache.
+                                      backend {write_cache.get_backend()}""")
                         write = True
                 else:
                     write = True
@@ -863,7 +898,7 @@ def cache(cache=True,
 
                 if filepath_only:
                     # If we only need to return the filepath, return it
-                    return_value = write_cache.get_uri()
+                    return write_cache.get_uri()
 
             for processor in post_processors:
                 return_value = processor(return_value)
