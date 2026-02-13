@@ -636,7 +636,7 @@ class NuthatchConfig:
             final_config |= current_config
             final_config |= environ_config
 
-        if 'local' not in final_config or 'fileysstem' not in final_config['local']:
+        if 'local' not in final_config or 'filesystem' not in final_config['local']:
             local = final_config.setdefault('local', {})
             local['filesystem'] = "~/.nuthatch/caches"
             self.default_local = True
