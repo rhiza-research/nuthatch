@@ -146,6 +146,7 @@ class ProjectConfigSchema(GlobalConfigSchema):
     model_config = ConfigDict(extra='forbid')
 
     dynamic_config_path: str | None = None
+    cache_mode: str | None = None
 
     # Location sections
     local: LocationConfigSchema | None = None
@@ -506,23 +507,7 @@ class NuthatchConfig:
         return key in nuthatch.backend.registered_backends.keys()
 
     def _expand_config(self, config):
-        """Expand config so that all config parameters fall in [location][backend] format.
-
-        Validates that config uses the correct format:
-        - Location config must be under [root], [local], or [mirrors.<name>]
-        - No top-level keys except global settings (filesystem_options, skipped_filesystems, dynamic_config_path)
-        """
-        # These keys are valid at top level (global settings), not per-location
-        global_top_level_keys = {'filesystem_options', 'skipped_filesystems', 'dynamic_config_path'}
-
-        # Validate no invalid top-level keys
-        for key in config.keys():
-            if not self._is_location(key) and key not in global_top_level_keys:
-                raise ValueError(
-                    f"Invalid top-level config key '{key}'. "
-                    "Configuration must be under [root], [local], or [mirrors.<name>] sections."
-                )
-
+        """Expand config so that all config parameters fall in [location][backend] format."""
         # Expand backend config for all locations
         # Copy generic location parameters to all registered backends
         for location, location_values in config.items():

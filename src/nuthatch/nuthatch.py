@@ -108,6 +108,22 @@ def get_cache_args(passed_kwargs, default_cache_kwargs, decorator_args, func_nam
     elif 'storage_backend_kwargs' in cache_args and cache_args['storage_backend_kwargs'] is None:
         cache_args['storage_backend_kwargs'] = decorator_args['storage_backend_kwargs']
 
+    # Apply global overrides when the function doesn't explicitly set its own value
+    global global_recompute, global_memoize, global_cache_mode, global_retry_null_cache, global_backend_kwargs
+
+    if global_retry_null_cache is not None and cache_args['retry_null_cache'] is None:
+        cache_args['retry_null_cache'] = global_retry_null_cache
+    if global_cache_mode is not None and cache_args['cache_mode'] is None:
+        cache_args['cache_mode'] = global_cache_mode
+    if global_recompute:
+        if func_name in global_recompute or global_recompute == '_all':
+            cache_args['recompute'] = True
+    if global_memoize:
+        if func_name in global_memoize or global_memoize == '_all':
+            cache_args['memoize'] = True
+    if global_backend_kwargs and cache_args.get('backend_kwargs'):
+        cache_args['backend_kwargs'].update(global_backend_kwargs)
+
     # Check if this is a nested cacheable function
     if not check_if_nested_fn():
         # This is a top level cacheable function, reset global cache variables
@@ -118,23 +134,6 @@ def get_cache_args(passed_kwargs, default_cache_kwargs, decorator_args, func_nam
             cache_args['recompute'] = True
         if isinstance(cache_args['memoize'], list) or isinstance(cache_args['memoize'], str) or cache_args['memoize'] == '_all':
             cache_args['memoize'] = True
-    else:
-        # Inherit global cache variables
-        global global_recompute, global_memoize, global_cache_mode, global_retry_null_cache, global_backend_kwargs
-
-        # Set all global variables
-        if global_retry_null_cache is not None:
-            cache_args['retry_null_cache'] = global_retry_null_cache
-        if global_cache_mode is not None:
-            cache_args['cache_mode'] = global_cache_mode
-        if global_recompute:
-            if func_name in global_recompute or global_recompute == '_all':
-                cache_args['recompute'] = True
-        if global_memoize:
-            if func_name in global_memoize or global_memoize == '_all':
-                cache_args['memoize'] = True
-        if global_backend_kwargs:
-            cache_args['backend_kwargs'].update(global_backend_kwargs)
 
     return cache_args
 
@@ -649,8 +648,10 @@ def cache(cache=True,
             # Get the configuration information need for cache operations (e.g., cache locations, permissions, etc.)
             config = NuthatchConfig(wrapped_module=inspect.getmodule(func))
 
-            # If the cache mode is not set, figure out a reasonable default
-            if cache_mode is None and root_cache_is_valid(config):
+            # If the cache mode is not set, check config then figure out a reasonable default
+            if cache_mode is None and 'cache_mode' in config:
+                cache_mode = config['cache_mode']
+            elif cache_mode is None and root_cache_is_valid(config):
                 cache_mode = 'write'
             elif cache_mode is None:
                 cache_mode = 'local_api'
@@ -668,30 +669,30 @@ def cache(cache=True,
 
             # Initialize the read caches dictionary
             read_caches = {}
+            cache_exception = None
 
-            cache_exception = None  # a boolean to track if we have failed to access a mirror cache
-            if cache and read_global:
-                # If the cache is enabled, we will need to read from the caches (and the mirrors, if configured.)
-                # if the memoizer and local cache fail to hit
-                try:
-                    caches, cache_exception = instantiate_read_caches(
-                        config, cache_key, namespace, version, cache_arg_values, backend, backend_kwargs)
-                except RuntimeError as e:
-                    if read_global == True or write_global == True:  # noqa: E712, must check the boolean
-                        raise e
-                    else:
-                        # If we're not writing to the global cache, we can continue
-                        # This is useful for pipelines that don't need to read from the global cache
-                        pass
-                read_caches |= caches
-
+            # Instantiate local cache first (no network required)
             if read_local:
-                # Instantiate the local cache for reading
                 local_cache = instantiate_local_read_cache(
                     config, memoizer_cache_key, namespace, version, cache_arg_values, backend, backend_kwargs)
                 read_caches['local'] = local_cache
 
-                # Ensure that the local cache is the first in the ordered dictionary
+            # Only instantiate global caches if local cache doesn't already have the data.
+            # This avoids slow/hanging network connections when data is available locally.
+            local_has_data = (read_local and read_caches.get('local') and
+                              (read_caches['local'].is_null() or read_caches['local'].exists()))
+            if cache and read_global and not local_has_data:
+                try:
+                    caches, cache_exception = instantiate_read_caches(
+                        config, cache_key, namespace, version, cache_arg_values, backend, backend_kwargs)
+                    read_caches |= caches
+                except RuntimeError as e:
+                    if write_global or not read_local:
+                        raise e
+                    # If we have a local cache to fall back to, continue without global caches
+
+            # Ensure that the local cache is the first in the ordered dictionary
+            if 'local' in read_caches:
                 local_cache = read_caches.pop('local')
                 read_caches = {'local': local_cache, **read_caches}
 
