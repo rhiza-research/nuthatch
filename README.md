@@ -185,12 +185,23 @@ Nuthatch searches upward from the current directory for `nuthatch.toml` if no en
 
 #### Packaging nuthatch.toml with your project
 
-If you publish your project to PyPI and want consumers to automatically access your caches when they import your package, place `nuthatch.toml` alongside your source code (e.g. `src/yourpackage/nuthatch.toml`) and include it as package data:
+**For local development**, placing `nuthatch.toml` in the root of your project directory (alongside `pyproject.toml`) is recommended. Nuthatch searches upward from the current directory, so any tooling in the project — whether inside `src/` or not — will find it.
 
+**For distributing on PyPI**, place `nuthatch.toml` alongside your source code (e.g. `src/yourpackage/nuthatch.toml`) and explicitly include it as package data. This is necessary because when installed, nuthatch searches upward from the installed module location (e.g. `.../site-packages/yourpackage/`), which never reaches the original project root. `MANIFEST.in` and `data-files` are not sufficient — the file must land inside the installed package directory.
+
+For **setuptools**:
 ```toml
 # pyproject.toml
 [tool.setuptools.package-data]
 yourpackage = ["nuthatch.toml"]
+```
+
+For **hatchling**:
+```toml
+# pyproject.toml
+[tool.hatch.build.targets.wheel]
+packages = ["src/yourpackage"]
+include = ["src/yourpackage/nuthatch.toml"]
 ```
 
 Nuthatch discovers config files by searching upward from the calling module's location, so the file must be included in the installed package. When an installed package's config is loaded, its root filesystem is automatically added as a mirror rather than overriding the consumer's root config.
