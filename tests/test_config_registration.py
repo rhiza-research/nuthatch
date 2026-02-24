@@ -165,7 +165,7 @@ def test_invalid_top_level_key_raises_error(tmp_path, monkeypatch):
     global_config.write_text("")
     monkeypatch.setenv(NUTHATCH_GLOBAL_CONFIG_ENV, str(global_config))
 
-    with pytest.raises(ValueError, match="Invalid top-level config key"):
+    with pytest.raises(ValueError, match="Project nuthatch config at"):
         NuthatchConfig(wrapped_module='isolated_test')
 
 

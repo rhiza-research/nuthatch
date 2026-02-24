@@ -384,6 +384,21 @@ class NuthatchConfig:
 
         return self._validate_global_config(config)
 
+    def _validate_project_config(self, config):
+        """Validate project config against ProjectConfigSchema.
+
+        Raises:
+            ValueError: If config contains invalid keys or values
+        """
+        try:
+            ProjectConfigSchema(**config)
+        except ValidationError as e:
+            config_path = self._get_project_config_path()
+            raise ValueError(
+                f"Project nuthatch config at '{config_path}' is invalid: {e}."
+            ) from e
+        return config
+
     def _load_project_config(self):
         """Load the project configuration file.
 
@@ -399,8 +414,8 @@ class NuthatchConfig:
 
         # Handle [nuthatch] section format
         if 'nuthatch' in config:
-            return config['nuthatch']
-        return config
+            return self._validate_project_config(config['nuthatch'])
+        return self._validate_project_config(config)
 
     def _get_environ_config(self):
         """Parse nuthatch configuration from environment variables.
