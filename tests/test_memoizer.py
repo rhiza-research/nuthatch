@@ -60,7 +60,6 @@ def test_memoizer_overflow():
 
 
 def test_clear_memoizer():
-
     # Garauntee memoized ds is from memory
     simple_xarray_timeseries("2000-01-01", "2005-01-01", memoize=True)
     memoized_ds1 = simple_xarray_timeseries("2000-01-01", "2005-01-01", memoize=True)
@@ -68,13 +67,13 @@ def test_clear_memoizer():
 
     assert memoized_ds1 == memoized_ds2
 
-    # Clear the memoized
+    # Clear the memoizer
     clear_memoizer()
 
-    # Recompute, not in memory anymore
+    # Not in memory anymore, so the reference returned should be the full graph
     unmemoized_ds = simple_xarray_timeseries("2000-01-01", "2005-01-01", memoize=True)
 
-    # the gr4aph of memoized vs unmemoized should be different
+    # the graph of memoized vs unmemoized should be different
     assert memoized_ds2 != unmemoized_ds
 
 
