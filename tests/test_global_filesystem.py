@@ -2,11 +2,14 @@
 
 These tests verify that filesystems can be added to the global skipped filesystems
 list in ~/.nuthatch.toml, and that the system properly prompts users when cache
-reads fail to add inaccessible filesystems to this list.
+reads fail to add inaccessible filesystems to this list. Also verifies that test
+fixtures properly isolate the home directory.
 """
 import os
 import tempfile
 import tomllib
+
+import pytest
 
 from nuthatch.config import NuthatchConfig
 from nuthatch.nuthatch import instantiate_read_caches
@@ -215,3 +218,71 @@ def test_failed_read_user_declines_to_add_filesystem(monkeypatch):
             # Clean up the temporary config file
             if os.path.exists(config_file):
                 os.unlink(config_file)
+
+
+@pytest.mark.s3
+@pytest.mark.gcs
+@pytest.mark.azure
+class TestHomeIsolation:
+    """Tests that verify test isolation from real user home directory."""
+
+    def test_config_writes_to_temp_home_not_real_home(self, cloud_storage):
+        """Verify cloud_storage fixture isolates HOME and project config."""
+        from pathlib import Path
+
+        # Access config to satisfy fixture validation
+        _ = cloud_storage["config"]
+        # cloud_storage fixture sets HOME to a temp directory
+        # Verify that Path.home() returns a temp path, not the real home
+        current_home = Path.home()
+
+        # The cloud_storage fixture should have set HOME to tmp_path/home
+        assert "tmp" in str(current_home) or "pytest" in str(current_home), \
+            f"HOME should be a temp directory, got: {current_home}"
+
+        # Verify project config is set via env var to a temp location
+        project_config_path = os.environ.get("NUTHATCH_PROJECT_CONFIG")
+        assert project_config_path, "NUTHATCH_PROJECT_CONFIG should be set"
+        assert "tmp" in project_config_path or "pytest" in project_config_path, \
+            f"Project config should be in temp directory, got: {project_config_path}"
+
+    def test_config_reads_from_temp_home(self, cloud_storage):
+        """Verify NuthatchConfig uses isolated project config."""
+        from pathlib import Path
+        import tomllib
+
+        # Get project config path from env var
+        project_config_path = Path(os.environ.get("NUTHATCH_PROJECT_CONFIG"))
+        assert project_config_path.exists(), f"Project config should exist at {project_config_path}"
+
+        with open(project_config_path, "rb") as f:
+            disk_config = tomllib.load(f)
+
+        # The config written to disk should match the test config
+        test_filesystem = cloud_storage["config"]["root"]["filesystem"]
+
+        # The disk config should have our test filesystem path in [root] section
+        assert "root" in disk_config, "Config should have [root] section"
+        assert disk_config["root"]["filesystem"] == test_filesystem, \
+            f"Disk config filesystem should match test config: {test_filesystem}"
+
+    def test_real_home_not_modified(self, cloud_storage):
+        """Verify the real user home is not used during tests."""
+        from pathlib import Path
+        import pwd
+
+        # Access config to satisfy fixture validation
+        _ = cloud_storage["config"]
+        # Get what would be the real home if HOME wasn't patched
+        real_home = Path(pwd.getpwuid(os.getuid()).pw_dir)
+
+        # The current HOME should NOT be the real home
+        current_home = Path.home()
+        assert current_home != real_home, \
+            f"Current HOME ({current_home}) should differ from real home ({real_home})"
+
+        # Verify project config env var points to temp location, not real home
+        project_config_path = os.environ.get("NUTHATCH_PROJECT_CONFIG")
+        assert project_config_path, "NUTHATCH_PROJECT_CONFIG should be set"
+        assert str(real_home) not in project_config_path, \
+            "Project config should not be in real home directory"
