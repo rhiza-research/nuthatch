@@ -1,6 +1,6 @@
 # Test the memoizer here
 from nuthatch.processors import timeseries
-from nuthatch import cache, set_parameter
+from nuthatch import cache, set_parameter, clear_memoizer
 import xarray as xr
 import numpy as np
 import pandas as pd
@@ -57,3 +57,23 @@ def test_memoizer_overflow():
         if usage + sys.getsizeof(ds) > 1000:
             break
         logger.info(nuthatch.memoizer.get_cache_usage(nuthatch.memoizer.local_object_size))
+
+
+def test_clear_memoizer():
+    # Garauntee memoized ds is from memory
+    simple_xarray_timeseries("2000-01-01", "2005-01-01", memoize=True)
+    memoized_ds1 = simple_xarray_timeseries("2000-01-01", "2005-01-01", memoize=True)
+    memoized_ds2 = simple_xarray_timeseries("2000-01-01", "2005-01-01", memoize=True)
+
+    assert memoized_ds1 == memoized_ds2
+
+    # Clear the memoizer
+    clear_memoizer()
+
+    # Not in memory anymore, so the reference returned should be the full graph
+    unmemoized_ds = simple_xarray_timeseries("2000-01-01", "2005-01-01", memoize=True)
+
+    # the graph of memoized vs unmemoized should be different
+    assert memoized_ds2 != unmemoized_ds
+
+
