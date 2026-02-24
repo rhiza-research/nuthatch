@@ -59,6 +59,7 @@ dev = [
 
 [project.scripts]
 nuthatch = "nuthatch.cli:main"
+nuthatch-export-schema = "nuthatch.export_schema:main"
 
 
 [project.optional-dependencies]

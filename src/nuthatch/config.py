@@ -6,6 +6,7 @@ for lower latency caching or a number of `mirror` locations, and you can
 set specific parameters for specific backends (i.e. terracotta and zarr
 could leverage different filesystems if specified)
 """
+
 from pathlib import Path
 import os
 import tomllib
@@ -13,10 +14,11 @@ import tomli_w
 import inspect
 import copy
 
-from pydantic import BaseModel, ConfigDict, ValidationError
+from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
 import logging
 import nuthatch
+
 logger = logging.getLogger(__name__)
 
 
@@ -35,8 +37,8 @@ class GlobalConfigSchema(BaseModel):
     """
     model_config = ConfigDict(extra='forbid')
 
-    filesystem_options: dict = {}
-    skipped_filesystems: list = []
+    filesystem_options: dict = Field(default={}, description="Global filesystem options applied to all projects")
+    skipped_filesystems: list[str] = Field(default=[], description="List of filesystem URIs to skip globally")
 
 
 class FileBackendConfigSchema(BaseModel):
@@ -45,12 +47,10 @@ class FileBackendConfigSchema(BaseModel):
     File backends store cached data on a filesystem (local, GCS, S3, etc.).
     Used by: basic.py, zarr.py, delta.py, parquet.py (all inherit from FileBackend)
     """
-    model_config = ConfigDict(extra='forbid')
+    model_config = ConfigDict(extra='forbid', title="file_backend_config", json_schema_extra={"description": "Configuration for file-based backends (basic, zarr, delta, parquet). Source: backend.py FileBackend class."})
 
-    # From backend.py:231 - self.base_path = os.path.expanduser(self.config['filesystem'])
-    filesystem: str | None = None
-    # From backend.py:243-256 - fs_options = self.config['filesystem_options']
-    filesystem_options: dict = {}
+    filesystem: str | None = Field(default=None, description="Filesystem URI (e.g., gs://bucket/path, s3://bucket/path, ~/local/path). From backend.py:231")
+    filesystem_options: dict = Field(default={}, description="Options passed to fsspec filesystem (credentials, cache settings, etc.). From backend.py:243-256")
 
 
 class DatabaseBackendConfigSchema(BaseModel):
@@ -59,18 +59,16 @@ class DatabaseBackendConfigSchema(BaseModel):
     Database backends store cached data in a SQL database.
     Used by: sql.py (inherits from DatabaseBackend)
     """
-    model_config = ConfigDict(extra='forbid')
+    model_config = ConfigDict(extra='forbid', title="database_backend_config", json_schema_extra={"description": "Configuration for database backends (sql). Source: backend.py DatabaseBackend class."})
 
-    # From backend.py:280-288 - all required for DatabaseBackend
-    driver: str | None = None
-    host: str | None = None
-    port: int | None = None
-    database: str | None = None
-    username: str | None = None
-    password: str | None = None
-    # From backend.py:293-303 - optional separate write credentials
-    write_username: str | None = None
-    write_password: str | None = None
+    driver: str | None = Field(default=None, description="SQLAlchemy database driver (e.g., 'postgresql', 'mysql+pymysql'). From backend.py:283")
+    host: str | None = Field(default=None, description="Database server hostname. From backend.py:285")
+    port: int | None = Field(default=None, description="Database server port. From backend.py:286")
+    database: str | None = Field(default=None, description="Database name. From backend.py:287")
+    username: str | None = Field(default=None, description="Database username for read access. From backend.py:284")
+    password: str | None = Field(default=None, description="Database password for read access. From backend.py:285")
+    write_username: str | None = Field(default=None, description="Optional separate username for write operations. From backend.py:294")
+    write_password: str | None = Field(default=None, description="Optional separate password for write operations. From backend.py:295")
 
 
 class TerracottaBackendConfigSchema(BaseModel):
@@ -79,21 +77,18 @@ class TerracottaBackendConfigSchema(BaseModel):
     Terracotta inherits from BOTH DatabaseBackend AND FileBackend.
     Used by: terracotta.py
     """
-    model_config = ConfigDict(extra='forbid')
+    model_config = ConfigDict(extra='forbid', title="terracotta_backend_config", json_schema_extra={"description": "Configuration for terracotta backend. Inherits from both FileBackend and DatabaseBackend. Source: terracotta.py"})
 
-    # From FileBackend (backend.py:231, 243-256)
-    filesystem: str | None = None
-    filesystem_options: dict = {}
-    # From DatabaseBackend (backend.py:280-288)
-    driver: str | None = None
-    host: str | None = None
-    port: int | None = None
-    database: str | None = None
-    username: str | None = None
-    password: str | None = None
-    # From terracotta.py:116 - tc.update_settings(SQL_USER=self.config['write_username'], ...)
-    write_username: str | None = None
-    write_password: str | None = None
+    filesystem: str | None = Field(default=None, description="Filesystem URI for storing raster files. From FileBackend (backend.py:231)")
+    filesystem_options: dict = Field(default={}, description="fsspec filesystem options. From FileBackend (backend.py:243-256)")
+    driver: str | None = Field(default=None, description="SQLAlchemy driver for terracotta metastore. From DatabaseBackend (backend.py:283)")
+    host: str | None = Field(default=None, description="Database host. From DatabaseBackend (backend.py:285)")
+    port: int | None = Field(default=None, description="Database port. From DatabaseBackend (backend.py:286)")
+    database: str | None = Field(default=None, description="Database name. From DatabaseBackend (backend.py:287)")
+    username: str | None = Field(default=None, description="Database username. From DatabaseBackend (backend.py:284)")
+    password: str | None = Field(default=None, description="Database password. From DatabaseBackend (backend.py:285)")
+    write_username: str | None = Field(default=None, description="Username for writing to terracotta metastore. From terracotta.py:116")
+    write_password: str | None = Field(default=None, description="Password for writing to terracotta metastore. From terracotta.py:116")
 
 
 class LocationConfigSchema(BaseModel):
@@ -102,29 +97,29 @@ class LocationConfigSchema(BaseModel):
     Location-level settings are inherited by all backends.
     Backend subsections can override these settings.
     """
-    model_config = ConfigDict(extra='forbid')
+    model_config = ConfigDict(extra='forbid', title="location", json_schema_extra={"description": "Cache location configuration. Location-level settings are inherited by all backends."})
 
     # File backend settings (from backend.py FileBackend)
-    filesystem: str | None = None
-    filesystem_options: dict = {}
+    filesystem: str | None = Field(default=None, description="Filesystem URI (e.g., gs://bucket/path, s3://bucket/path, ~/local/path)")
+    filesystem_options: dict = Field(default={}, description="Options passed to fsspec filesystem (credentials, cache settings, etc.)")
 
     # Database backend settings (from backend.py DatabaseBackend)
-    driver: str | None = None
-    host: str | None = None
-    port: int | None = None
-    database: str | None = None
-    username: str | None = None
-    password: str | None = None
-    write_username: str | None = None
-    write_password: str | None = None
+    driver: str | None = Field(default=None, description="SQLAlchemy database driver (for database backends)")
+    host: str | None = Field(default=None, description="Database server hostname (for database backends)")
+    port: int | None = Field(default=None, description="Database server port (for database backends)")
+    database: str | None = Field(default=None, description="Database name (for database backends)")
+    username: str | None = Field(default=None, description="Database username (for database backends)")
+    password: str | None = Field(default=None, description="Database password (for database backends)")
+    write_username: str | None = Field(default=None, description="Optional separate write username (for database backends)")
+    write_password: str | None = Field(default=None, description="Optional separate write password (for database backends)")
 
     # Backend-specific overrides
-    sql: DatabaseBackendConfigSchema | None = None
-    delta: FileBackendConfigSchema | None = None
-    basic: FileBackendConfigSchema | None = None
-    zarr: FileBackendConfigSchema | None = None
-    terracotta: TerracottaBackendConfigSchema | None = None
-    parquet: FileBackendConfigSchema | None = None
+    sql: DatabaseBackendConfigSchema | None = Field(default=None, description="SQL backend configuration overrides")
+    delta: FileBackendConfigSchema | None = Field(default=None, description="Delta Lake backend configuration overrides")
+    basic: FileBackendConfigSchema | None = Field(default=None, description="Basic (pickle) backend configuration overrides")
+    zarr: FileBackendConfigSchema | None = Field(default=None, description="Zarr backend configuration overrides")
+    terracotta: TerracottaBackendConfigSchema | None = Field(default=None, description="Terracotta backend configuration overrides")
+    parquet: FileBackendConfigSchema | None = Field(default=None, description="Parquet backend configuration overrides")
 
 
 class ProjectConfigSchema(GlobalConfigSchema):
@@ -145,15 +140,13 @@ class ProjectConfigSchema(GlobalConfigSchema):
     """
     model_config = ConfigDict(extra='forbid')
 
-    dynamic_config_path: str | None = None
-    cache_mode: str | None = None
-
-    # Location sections
-    local: LocationConfigSchema | None = None
-    root: LocationConfigSchema | None = None
-
-    # Mirrors dict ([mirrors.name] sections)
-    mirrors: dict | None = None
+    filesystem_options: dict = Field(default={}, description="Global filesystem options applied to all locations")
+    skipped_filesystems: list[str] = Field(default=[], description="List of filesystem URIs to skip")
+    dynamic_config_path: str | None = Field(default=None, description="Python module path for dynamic configuration")
+    root: LocationConfigSchema | None = Field(default=None, description="Primary cache location")
+    cache_mode: str | None = Field(default=None, description="Default cache mode for all cacheable functions. One of: write, overwrite, local, local_overwrite, local_sync, local_strict, local_api, read_only, read_only_strict, off")
+    local: LocationConfigSchema | None = Field(default=None, description="Local cache location for faster access")
+    mirrors: dict[str, LocationConfigSchema] | None = Field(default=None, description="Read-only mirror locations")
 
 
 
