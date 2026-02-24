@@ -569,7 +569,7 @@ class NuthatchConfig:
         # These configurations are scoped to the environment of the wrapped function
         # If the wrapped function is in our package that's fine - they should be merged in
         # But if it's in another package we don't always want them to overwrite our root settings (very rarely)
-        # And we often want to add them as additional mirros to our current environment
+        # And we often want to add them as additional mirrors to our current environment
         # Skip filesystem search if project config is explicitly set via env var
         wrapped_config = {}
         if not os.environ.get(NUTHATCH_PROJECT_CONFIG_ENV) and hasattr(wrapped_module, '__file__'):
@@ -593,7 +593,7 @@ class NuthatchConfig:
             logger.debug(final_config)
         elif hasattr(wrapped_module, '__file__') and ('site-packages' in wrapped_module.__file__ or 'dist-packages' in wrapped_module.__file__):
             if os.getenv("NUTHATCH_ALLOW_INSTALLED_PACKAGE_CONFIGURATION", 'False').lower() in ('true', '1', 't'):
-                # We are in an installed package, but we have a specific overwride to enable the installed package to set root parameters
+                # We are in an installed package, but we have a specific override to enable the installed package to set root parameters
                 final_config |= global_config
                 final_config |= current_config
                 final_config |= environ_config
