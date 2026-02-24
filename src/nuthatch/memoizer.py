@@ -18,6 +18,9 @@ remote_cache_key_lru = []
 
 def clear_memoizer():
     """Reset memoizer. Useful if references are known to be lost."""
+    global local_memoized_objects, local_object_size, local_cache_key_lru
+    global remote_memoized_objects, remote_object_size, remote_cache_key_lru
+
     local_memoized_objects = {}
     local_object_size = {}
     local_cache_key_lru = []
