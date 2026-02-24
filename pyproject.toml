@@ -19,7 +19,7 @@ dependencies = [
     "dask-deltatable",
     "xarray",
     "pyarrow",
-    "terracotta==0.8.5",
+    "terracotta==0.8.6",
     "rioxarray",
     "gitpython",
     "psycopg2-binary",

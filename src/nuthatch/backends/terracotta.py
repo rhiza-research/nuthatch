@@ -194,7 +194,7 @@ class TerracottaBackend(DatabaseBackend, FileBackend):
         ds.rio.write_crs("epsg:3857", inplace=True)
 
         # Insert the parameters.
-        with self.driver.connect():
+        with self.driver.connect(verify=False):
             if self.time_dim in ds.dims:
                 for t in ds.time:
                     # Select just this time and squeeze the dimension
