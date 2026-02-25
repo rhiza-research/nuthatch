@@ -95,19 +95,3 @@ def test_check_if_nested_fn():
     # Test nested cached function with processor wrapper - should return True
     result = processor_outer_func(cache_mode='off')
     assert result.attrs['is_nested'] == True  # noqa: E712
-
-
-def test_local_sync(cloud_storage):
-    data = num(10, recompute=True, cache_mode='overwrite')
-
-    # Should sync the data to local
-    data2 = num(10, cache_local=True)
-
-    assert data == data2
-
-    data3 = num(10, recompute=True, cache_mode='overwrite')
-    # Should resync the data to local
-    data4 = num(10, cache_local=True)
-
-    assert data2 != data3
-    assert data4 == data3

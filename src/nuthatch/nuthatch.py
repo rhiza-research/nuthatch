@@ -563,8 +563,6 @@ def cache(cache=True,
             to match backend. Useful for pulling from one backend and writing to another.
         storage_backend_kwargs(dict): A dictionary of backend-specific arguments that will be passed to
             and used back the backend for writing
-        cache_local (bool): If True, will mirror the result locally, at the location
-            specified by the LOCAL_CACHE_ROOT_DIR variable. Default is False.
         memoize(bool): Whether to memoize the result in memory. Default is False.
         upsert_keys (list(str)): Column names of the primary keys to user for upsert.
     """
