@@ -104,9 +104,7 @@ class NuthatchMetastore(Metastore):
             self.config['filesystem_options'] = {}
 
         # Get filesystem_options as a plain dict for external library consumption
-        fs_options = self.config['filesystem_options']
-        if hasattr(fs_options, 'copy'):
-            fs_options = fs_options.copy()
+        fs_options = self.config['filesystem_options'].as_dict()
 
         # This instantiates an fsspec filesystem
         if fsspec.utils.get_protocol(self.table_path) == 'file':

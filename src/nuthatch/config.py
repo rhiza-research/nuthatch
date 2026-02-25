@@ -722,6 +722,18 @@ class NuthatchConfig:
         except KeyError:
             return default
 
+    def as_dict(self):
+        """Recursively convert to a plain dict.
+
+        Nested NuthatchConfig values are also converted so that
+        isinstance(..., dict) checks work downstream.
+        """
+        def _to_plain_dict(obj):
+            if hasattr(obj, 'items'):
+                return {k: _to_plain_dict(v) for k, v in obj.items()}
+            return obj
+        return _to_plain_dict(self)
+
     def copy(self):
         return self.config.copy()
 

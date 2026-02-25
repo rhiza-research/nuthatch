@@ -244,13 +244,7 @@ class FileBackend(NuthatchBackend):
             self.config['filesystem_options'] = {}
 
         # Get filesystem_options as a plain dict for external library consumption
-        # dict() only converts the top level; nested NuthatchConfig values must
-        # also be converted so that isinstance(..., dict) checks work downstream.
-        def _to_plain_dict(obj):
-            if hasattr(obj, 'items'):
-                return {k: _to_plain_dict(v) for k, v in obj.items()}
-            return obj
-        self.filesystem_options = _to_plain_dict(self.config['filesystem_options'])
+        self.filesystem_options = self.config['filesystem_options'].as_dict()
 
         # This instantiates an fsspec filesystem
         if fsspec.utils.get_protocol(self.path) == 'file':
