@@ -1,11 +1,28 @@
 import pandas as pd
 import dask.dataframe as dd
+import dask_deltatable.utils as _ddt_utils
 from deltalake import DeltaTable, write_deltalake
 from nuthatch.backend import FileBackend, register_backend
 import fsspec
 
 import logging
 logger = logging.getLogger(__name__)
+
+# Workaround for dask_deltatable bug: maybe_set_aws_credentials doesn't
+# recognize fsspec's key/secret format, causing it to fall through to a
+# boto3 import path that injects invalid kwargs into storage_options.
+# Related: https://github.com/dask-contrib/dask-deltatable/issues/88
+# TODO: file upstream issue and remove this patch once fixed.
+_original_maybe_set_aws_credentials = _ddt_utils.maybe_set_aws_credentials
+
+
+def _patched_maybe_set_aws_credentials(path, options):
+    if options and ('key' in options or 'secret' in options):
+        return options
+    return _original_maybe_set_aws_credentials(path, options)
+
+
+_ddt_utils.maybe_set_aws_credentials = _patched_maybe_set_aws_credentials
 
 @register_backend
 class DeltaBackend(FileBackend):
