@@ -7,11 +7,6 @@
   "description": "Schema for ~/.nuthatch.toml global configuration",
   "additionalProperties": false,
   "properties": {
-    "filesystem_options": {
-      "type": "object",
-      "description": "Global filesystem options applied to all projects",
-      "additionalProperties": true
-    },
     "skipped_filesystems": {
       "type": "array",
       "description": "List of filesystem URIs to skip globally",

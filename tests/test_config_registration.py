@@ -58,7 +58,7 @@ def test_config_backend_reg(tmp_path, monkeypatch):
 def test_global_config_env_var(tmp_path, monkeypatch):
     """Test NUTHATCH_GLOBAL_CONFIG env var overrides default location."""
     config_file = tmp_path / "custom-global.toml"
-    config_file.write_text("[filesystem_options]\ncache_timeout = 123\n")
+    config_file.write_text('skipped_filesystems = ["gs://skip-me"]\n')
     monkeypatch.setenv(NUTHATCH_GLOBAL_CONFIG_ENV, str(config_file))
     # Also set project config to empty to isolate the test
     project_config = tmp_path / "project.toml"
@@ -67,8 +67,7 @@ def test_global_config_env_var(tmp_path, monkeypatch):
 
     # Use 'isolated_test' as module name to avoid dynamic configs registered by tests/__init__.py
     config = NuthatchConfig(wrapped_module='isolated_test')
-    # filesystem_options is a global setting, accessed at top level (not per-location)
-    assert config['filesystem_options']['cache_timeout'] == 123
+    assert config['skipped_filesystems'] == ["gs://skip-me"]
 
 
 def test_project_config_env_var(tmp_path, monkeypatch):
@@ -102,8 +101,8 @@ def test_global_config_rejects_invalid_keys(tmp_path, monkeypatch):
         config._validate_global_config(invalid_config)
 
 
-def test_global_config_accepts_filesystem_options(tmp_path, monkeypatch):
-    """Test that global config validation accepts filesystem_options."""
+def test_global_config_rejects_filesystem_options(tmp_path, monkeypatch):
+    """Test that global config validation rejects filesystem_options."""
     # Set env vars to isolate test
     project_config = tmp_path / "project.toml"
     project_config.write_text("")
@@ -113,9 +112,9 @@ def test_global_config_accepts_filesystem_options(tmp_path, monkeypatch):
     monkeypatch.setenv(NUTHATCH_GLOBAL_CONFIG_ENV, str(global_config))
 
     config = NuthatchConfig(wrapped_module='isolated_test')
-    valid_config = {'filesystem_options': {'token': 'anon', 'cache_timeout': 0}}
-    result = config._validate_global_config(valid_config)
-    assert result == valid_config
+    invalid_config = {'filesystem_options': {'token': 'anon', 'cache_timeout': 0}}
+    with pytest.raises(ValueError, match="is invalid"):
+        config._validate_global_config(invalid_config)
 
 
 def test_global_config_accepts_skipped_filesystems(tmp_path, monkeypatch):

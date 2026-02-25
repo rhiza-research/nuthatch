@@ -32,12 +32,11 @@ NUTHATCH_PROJECT_CONFIG_ENV = "NUTHATCH_PROJECT_CONFIG"
 class GlobalConfigSchema(BaseModel):
     """Schema for global nuthatch config (~/.nuthatch.toml).
 
-    Global config is restricted to only filesystem_options and skipped_filesystems.
+    Global config is restricted to only skipped_filesystems.
     All other configuration must go in project-specific nuthatch.toml files.
     """
     model_config = ConfigDict(extra='forbid')
 
-    filesystem_options: dict = Field(default={}, description="Global filesystem options applied to all projects")
     skipped_filesystems: list[str] = Field(default=[], description="List of filesystem URIs to skip globally")
 
 
@@ -146,7 +145,6 @@ class ProjectConfigSchema(GlobalConfigSchema):
     """
     model_config = ConfigDict(extra='forbid')
 
-    filesystem_options: dict = Field(default={}, description="Global filesystem options applied to all locations")
     skipped_filesystems: list[str] = Field(default=[], description="List of filesystem URIs to skip")
     dynamic_config_path: str | None = Field(default=None, description="Python module path for dynamic configuration")
     root: LocationConfigSchema | None = Field(default=None, description="Primary cache location")
@@ -374,7 +372,7 @@ class NuthatchConfig:
     def _load_global_config(self):
         """Load and validate the global configuration file.
 
-        The global config can ONLY contain filesystem_options and skipped_filesystems.
+        The global config can ONLY contain skipped_filesystems.
         """
         config_path = self._get_global_config_path()
 
