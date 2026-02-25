@@ -324,7 +324,7 @@ def postgres_credentials():
 
 
 @pytest.fixture
-def postgres_storage(request, postgres_credentials, tmp_path, monkeypatch):
+def sql_storage(request, postgres_credentials, tmp_path, monkeypatch):
     """Configure nuthatch to use PostgreSQL for SQL backend."""
     import tomli_w
     import sqlalchemy

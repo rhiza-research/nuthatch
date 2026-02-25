@@ -45,7 +45,7 @@ def time_latlon_array():
     return ds
 
 
-def test_terracotta(postgres_storage):
+def test_terracotta(sql_storage):
     # cache the array
     ds = simple_latlon_array(backend='zarr')
     # Write to terracotta

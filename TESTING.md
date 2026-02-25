@@ -53,7 +53,7 @@ docker compose down -v
 
 ```
 tests/
-├── conftest.py                  # Fixtures: cloud_storage, local_config, postgres_storage
+├── conftest.py                  # Fixtures: cloud_storage, local_config, sql_storage
 ├── fixtures/
 │   ├── fake_gcs_service_account.json
 │   └── nuthatch.toml
@@ -149,14 +149,14 @@ def test_local_caching(local_config):
     assert result == [1, 2, 3]
 ```
 
-### `postgres_storage`
+### `sql_storage`
 
 For tests that need PostgreSQL:
 
 ```python
-def test_sql_backend(postgres_storage):
-    # postgres_storage["credentials"] has connection details
-    # postgres_storage["config"] has the nuthatch config
+def test_sql_backend(sql_storage):
+    # sql_storage["credentials"] has connection details
+    # sql_storage["config"] has the nuthatch config
     ...
 ```
 
