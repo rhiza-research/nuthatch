@@ -89,6 +89,8 @@ class TerracottaBackendConfigSchema(BaseModel):
     password: str | None = Field(default=None, description="Database password. From DatabaseBackend (backend.py:285)")
     write_username: str | None = Field(default=None, description="Username for writing to terracotta metastore. From terracotta.py:116")
     write_password: str | None = Field(default=None, description="Password for writing to terracotta metastore. From terracotta.py:116")
+    override_path: str | None = Field(default=None, description="Base path override for registering tifs with terracotta. Defaults to filesystem. From terracotta.py:133")
+    resampling_method: str | None = Field(default=None, description="Resampling method for reprojection. One of: nearest, average, bilinear, cubic. From terracotta.py:148")
 
 
 class LocationConfigSchema(BaseModel):
@@ -112,6 +114,10 @@ class LocationConfigSchema(BaseModel):
     password: str | None = Field(default=None, description="Database password (for database backends)")
     write_username: str | None = Field(default=None, description="Optional separate write username (for database backends)")
     write_password: str | None = Field(default=None, description="Optional separate write password (for database backends)")
+
+    # Memoizer settings
+    local_cache_size: str | None = Field(default=None, description="Max size of in-memory cache for local (non-dask) objects. Human-readable string (e.g. '2GB'). From memoizer.py")
+    remote_cache_size: str | None = Field(default=None, description="Max size of in-memory cache for remote (dask/xarray) objects. Human-readable string (e.g. '32GB'). From memoizer.py")
 
     # Backend-specific overrides
     sql: DatabaseBackendConfigSchema | None = Field(default=None, description="SQL backend configuration overrides")

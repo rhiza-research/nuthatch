@@ -144,6 +144,14 @@
         "write_password": {
           "type": "string",
           "description": "Password for writing to terracotta metastore. From terracotta.py:116"
+        },
+        "override_path": {
+          "type": "string",
+          "description": "Base path override for registering tifs with terracotta. Defaults to filesystem. From terracotta.py:133"
+        },
+        "resampling_method": {
+          "type": "string",
+          "description": "Resampling method for reprojection. One of: nearest, average, bilinear, cubic. From terracotta.py:148"
         }
       }
     },
@@ -192,6 +200,14 @@
         "write_password": {
           "type": "string",
           "description": "Optional separate write password (for database backends)"
+        },
+        "local_cache_size": {
+          "type": "string",
+          "description": "Max size of in-memory cache for local (non-dask) objects. Human-readable string (e.g. '2GB'). From memoizer.py"
+        },
+        "remote_cache_size": {
+          "type": "string",
+          "description": "Max size of in-memory cache for remote (dask/xarray) objects. Human-readable string (e.g. '32GB'). From memoizer.py"
         },
         "sql": {
           "$ref": "#/$defs/database_backend_config",
