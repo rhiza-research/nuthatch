@@ -1,5 +1,6 @@
 import pandas as pd
 import dask.dataframe as dd
+import dask_deltatable as ddt
 import dask_deltatable.utils as _ddt_utils
 from deltalake import DeltaTable, write_deltalake
 from nuthatch.backend import FileBackend, register_backend
@@ -168,8 +169,10 @@ class DeltaBackend(FileBackend):
         if engine == 'pandas' or engine == pd.DataFrame or engine is None:
             return DeltaTable(self.path, storage_options=self._delta_storage_options).to_pandas()
         elif engine == 'dask' or engine == dd.DataFrame:
-            return dd.from_pandas(DeltaTable(self.path, storage_options=self._delta_storage_options).to_pandas())
-            #dd.from_polars(ps.read_delta(self.path, storage_options=self._delta_storage_options)
-            #return ddt.read_deltalake(self.path, storage_options=self._delta_storage_options)
+            return ddt.read_deltalake(
+                self.path,
+                storage_options=self.filesystem_options,
+                delta_storage_options=self._delta_storage_options,
+            )
         else:
             raise RuntimeError("Delta backend only supports dask and pandas engines.")
