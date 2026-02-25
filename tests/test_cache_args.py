@@ -197,6 +197,23 @@ def test_deep_cache():
     second = deep_cached_func3(recompute=["deep_cached_func3", "deep_cached_func1"], cache_mode='overwrite')
     assert first == second
 
+def test_unknown_kwargs_rejected():
+    """Test that unknown kwargs raise TypeError instead of being silently ignored."""
+    @cache(cache_args=['x'])
+    def simple_func(x=1):
+        return x
+
+    # Valid cache kwargs should work
+    simple_func(x=1, cache_mode='off')
+
+    # Unknown kwargs should raise TypeError
+    with pytest.raises(TypeError, match="unexpected keyword arguments"):
+        simple_func(x=1, cache_local=True)
+
+    with pytest.raises(TypeError, match="unexpected keyword arguments"):
+        simple_func(x=1, nonexistent_kwarg=42)
+
+
 def test_force_overwrite():
     # Test force overwrite here
     pass
