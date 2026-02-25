@@ -19,11 +19,15 @@ Usage:
     docker compose -f docker-compose.test.yml run --rm test
 """
 
+import logging
 import os
 import uuid
 import pytest
 
 import nuthatch.config
+
+# Suppress verbose Azure SDK logging in test output
+logging.getLogger("azure").setLevel(logging.WARNING)
 
 
 def skip_azure_delta_on_emulator(cloud_storage):
