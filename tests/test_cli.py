@@ -215,9 +215,7 @@ class TestCliGroup:
 # List Command Tests
 # =============================================================================
 
-@pytest.mark.s3
-@pytest.mark.gcs
-@pytest.mark.azure
+@pytest.mark.cloud
 class TestListCommand:
     """Tests for the 'list' command."""
 
@@ -295,9 +293,7 @@ class TestListCommand:
 # Print-Config Command Tests
 # =============================================================================
 
-@pytest.mark.s3
-@pytest.mark.gcs
-@pytest.mark.azure
+@pytest.mark.cloud
 class TestPrintConfigCommand:
     """Tests for the 'print-config' command."""
 
@@ -343,9 +339,7 @@ class TestPrintConfigCommand:
 # Delete Command Tests
 # =============================================================================
 
-@pytest.mark.s3
-@pytest.mark.gcs
-@pytest.mark.azure
+@pytest.mark.cloud
 class TestDeleteCommand:
     """Tests for the 'delete' command."""
 
@@ -419,9 +413,7 @@ class TestDeleteCommand:
 # Import Command Tests
 # =============================================================================
 
-@pytest.mark.s3
-@pytest.mark.gcs
-@pytest.mark.azure
+@pytest.mark.cloud
 class TestImportCommand:
     """Tests for the 'import' command."""
 
@@ -495,9 +487,7 @@ class TestImportCommand:
 # =============================================================================
 
 
-@pytest.mark.s3
-@pytest.mark.gcs
-@pytest.mark.azure
+@pytest.mark.cloud
 class TestCopyCommand:
     """Tests for the 'cp' command."""
 

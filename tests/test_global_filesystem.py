@@ -220,9 +220,7 @@ def test_failed_read_user_declines_to_add_filesystem(monkeypatch):
                 os.unlink(config_file)
 
 
-@pytest.mark.s3
-@pytest.mark.gcs
-@pytest.mark.azure
+@pytest.mark.cloud
 class TestHomeIsolation:
     """Tests that verify test isolation from real user home directory."""
 
