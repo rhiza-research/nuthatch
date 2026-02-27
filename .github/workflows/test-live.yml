@@ -1,0 +1,77 @@
+name: Live Cloud Tests
+
+on:
+  workflow_dispatch:
+    inputs:
+      provider:
+        description: 'Cloud provider to test against'
+        required: true
+        type: choice
+        options:
+          - all
+          - gcs
+
+env:
+  TEST_IMAGE: ghcr.io/rhiza-research/nuthatch-test:latest
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      checks: write
+      packages: read
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: Log in to GHCR
+      uses: docker/login-action@v3
+      with:
+        registry: ghcr.io
+        username: ${{ github.actor }}
+        password: ${{ secrets.GITHUB_TOKEN }}
+
+    - name: Pull test image
+      run: docker pull ${{ env.TEST_IMAGE }}
+
+    - name: Write cloud config files
+      run: |
+        echo "$NUTHATCH_GCP_TOML" > nuthatch.gcp.toml
+        echo "$NUTHATCH_GCP_SA_KEY" > nuthatch-test-sa-key.json
+      env:
+        NUTHATCH_GCP_TOML: ${{ secrets.NUTHATCH_GCP_TOML }}
+        NUTHATCH_GCP_SA_KEY: ${{ secrets.NUTHATCH_GCP_SA_KEY }}
+
+    - name: Run tests
+      run: |
+        mkdir -p coverage
+        MARKER_FLAG=""
+        if [ "${{ inputs.provider }}" != "all" ]; then
+          MARKER_FLAG="-m ${{ inputs.provider }}"
+        fi
+        docker run --rm \
+          -v $(pwd)/src:/app/src:ro \
+          -v $(pwd)/tests:/app/tests:ro \
+          -v $(pwd)/nuthatch.gcp.toml:/app/nuthatch.gcp.toml:ro \
+          -v $(pwd)/nuthatch-test-sa-key.json:/app/test_infrastructure/nuthatch-test-sa-key.json:ro \
+          -v $(pwd)/coverage:/app/coverage \
+          ${{ env.TEST_IMAGE }} \
+          -v $MARKER_FLAG \
+          --junitxml=/app/coverage/junit.xml
+
+    - name: Publish Test Results
+      uses: dorny/test-reporter@v1
+      if: always()
+      with:
+        name: Live Test Results (${{ inputs.provider }})
+        path: coverage/junit.xml
+        reporter: java-junit
+        fail-on-error: false
+
+    - name: Upload test artifacts
+      uses: actions/upload-artifact@v4
+      if: always()
+      with:
+        name: live-test-results-${{ inputs.provider }}
+        path: coverage/junit.xml
+        retention-days: 30
