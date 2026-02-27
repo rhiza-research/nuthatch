@@ -169,15 +169,16 @@ class ZarrBackend(FileBackend):
             # We must auto open chunks. This tries to use the underlying zarr chunking if possible.
             # Setting chunks=True triggers what I think is an xarray/zarr engine bug where
             # every chunk is only 4B!
+
             if self.auto_rechunk:
                 # If rechunk is passed then check to see if the rechunk array
                 # matches chunking. If not then rechunk
                 if engine == xr.DataArray:
-                    ds_remote = xr.open_dataarray(self.path, engine='zarr', chunks={}, decode_timedelta=True)
+                    ds_remote = xr.open_dataarray(self.path, engine='zarr', chunks={}, decode_timedelta=True, storage_options=self.filesystem_options)
                     if not isinstance(self.chunking, dict):
                         raise ValueError("If auto_rechunk is True, a chunking dict must be supplied.")
                 else:
-                    ds_remote = xr.open_dataset(self.path, engine='zarr', chunks={}, decode_timedelta=True)
+                    ds_remote = xr.open_dataset(self.path, engine='zarr', chunks={}, decode_timedelta=True, storage_options=self.filesystem_options)
                     if not isinstance(self.chunking, dict):
                         raise ValueError("If auto_rechunk is True, a chunking dict must be supplied.")
 
@@ -200,18 +201,18 @@ class ZarrBackend(FileBackend):
 
                     # Reopen the dataset - will use the appropriate global or local cache
                     return xr.open_dataset(self.path, engine='zarr',
-                                           chunks={}, decode_timedelta=True)
+                                           chunks={}, decode_timedelta=True, storage_options=self.filesystem_options)
                 else:
                     # Requested chunks already match rechunk.
                     return xr.open_dataset(self.path, engine='zarr',
-                                           chunks={}, decode_timedelta=True)
+                                           chunks={}, decode_timedelta=True, storage_options=self.filesystem_options)
             else:
                 open_func = xr.open_dataset
                 if engine == xr.DataArray:
                     open_func = xr.open_dataarray
 
                 if self.target_read_chunk_size_mb:
-                    stored_ds = open_func(self.path, engine='zarr', chunks={}, decode_timedelta=True)
+                    stored_ds = open_func(self.path, engine='zarr', chunks={}, decode_timedelta=True, storage_options=self.filesystem_options)
                     chunk_size, original_chunks = get_chunk_size(stored_ds)
 
                     # We can't get smaller, log a warning and return
@@ -221,7 +222,7 @@ class ZarrBackend(FileBackend):
                         return stored_ds
                     elif self.target_read_chunk_size_mb > chunk_size and self.target_read_chunk_size_mb < chunk_size*2:
                         # This is the correct chunk size, just return. We can't make something less than 2x smaller
-                        return open_func(self.path, engine='zarr', chunks={}, decode_timedelta=True)
+                        return open_func(self.path, engine='zarr', chunks={}, decode_timedelta=True, storage_options=self.filesystem_options)
                     else:
                         # The algorith for increasing works as follows:
                         #  - compute a multiplier between the current size and the target size
@@ -262,9 +263,9 @@ class ZarrBackend(FileBackend):
                         else:
                             logger.info(f"Resized read chunks to {chunks_dict} with calculated size of {chunk_size:.0f} MB to match target size of {self.target_read_chunk_size_mb} MB")
 
-                        return open_func(self.path, engine='zarr', chunks=chunks_dict, decode_timedelta=True)
+                        return open_func(self.path, engine='zarr', chunks=chunks_dict, decode_timedelta=True, storage_options=self.filesystem_options)
                 else:
-                    return open_func(self.path, engine='zarr', chunks={}, decode_timedelta=True)
+                    return open_func(self.path, engine='zarr', chunks={}, decode_timedelta=True, storage_options=self.filesystem_options)
         else:
             raise NotImplementedError(f"Zarr backend does not support reading zarrs to {engine} engine")
 
@@ -289,7 +290,11 @@ class ZarrBackend(FileBackend):
         except ValueError:
             logger.warning("Failed to get chunks size! Continuing with unknown chunking...")
         try:
-            ds.to_zarr(store=path, mode='w')
+            # Need to delete the path before writing on some filesystems
+            if self.fs.exists(path):
+                self.fs.rm(path, recursive=True)
+
+            ds.to_zarr(store=path, mode='w', storage_options=self.filesystem_options)
         except ValueError as e:
             if chunking == 'auto':
                 logger.error("Writing to backend zarr failed and chunking is set to 'auto'. This could be the problem. Try setting chunks explictly in the nuthatch function.")
