@@ -42,6 +42,7 @@ dev = [
     "pytest-cov>=4.0.0",       # Code coverage reporting
     "pytest-mock>=3.10.0",     # Mock object support for tests
     # Cloud storage filesystem interfaces (for testing with emulators)
+    "s3fs",                    # Amazon S3 filesystem
     "gcsfs",                   # Google Cloud Storage filesystem
     # Utilities
     "pooch",                   # Download and cache test data files
@@ -90,6 +91,7 @@ filterwarnings = [
 ]
 markers = [
     "cloud: test uses cloud storage (expands to all providers)",
+    "s3: test uses S3/LocalStack",
     "gcs: test uses GCS/fake-gcs-server",
 ]
 

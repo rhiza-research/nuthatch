@@ -9,6 +9,7 @@ on:
         type: choice
         options:
           - all
+          - s3
           - gcs
 
 env:
@@ -36,9 +37,11 @@ jobs:
 
     - name: Write cloud config files
       run: |
+        echo "$NUTHATCH_AWS_TOML" > nuthatch.aws.toml
         echo "$NUTHATCH_GCP_TOML" > nuthatch.gcp.toml
         echo "$NUTHATCH_GCP_SA_KEY" > nuthatch-test-sa-key.json
       env:
+        NUTHATCH_AWS_TOML: ${{ secrets.NUTHATCH_AWS_TOML }}
         NUTHATCH_GCP_TOML: ${{ secrets.NUTHATCH_GCP_TOML }}
         NUTHATCH_GCP_SA_KEY: ${{ secrets.NUTHATCH_GCP_SA_KEY }}
 
@@ -52,6 +55,7 @@ jobs:
         docker run --rm \
           -v $(pwd)/src:/app/src:ro \
           -v $(pwd)/tests:/app/tests:ro \
+          -v $(pwd)/nuthatch.aws.toml:/app/nuthatch.aws.toml:ro \
           -v $(pwd)/nuthatch.gcp.toml:/app/nuthatch.gcp.toml:ro \
           -v $(pwd)/nuthatch-test-sa-key.json:/app/test_infrastructure/nuthatch-test-sa-key.json:ro \
           -v $(pwd)/coverage:/app/coverage \
