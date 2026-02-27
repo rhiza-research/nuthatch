@@ -590,6 +590,17 @@ def cache(cache=True,
             final_cache_config = get_cache_args(
                 passed_kwargs, default_cache_kwargs, nonlocals, func.__name__)
 
+            # Validate that remaining kwargs are actual function parameters
+            # (prevents removed cache kwargs from being silently ignored)
+            sig = signature(func)
+            has_var_keyword = any(
+                p.kind == Parameter.VAR_KEYWORD for p in sig.parameters.values())
+            if not has_var_keyword:
+                func_params = set(sig.parameters.keys())
+                unknown = set(passed_kwargs.keys()) - func_params
+                if unknown:
+                    raise TypeError(f"{func.__name__}() got unexpected keyword arguments: {unknown}")
+
             # Set all the final cache config variables
             cache = final_cache_config['cache']
             cache_mode = final_cache_config['cache_mode']
