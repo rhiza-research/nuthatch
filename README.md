@@ -156,29 +156,55 @@ Nuthatch supports multiple backends for writing, and multiple engines (datatypes
 
 ## Nuthatch configuration
 
-If you are developing a Nuthatch-based project you should configure its root filestore, and possible its mirrors
-and your preferred local caching location. The root store most likely a remote cloud bucket (like gcs, s3, etc). Configuration can be done in three places: (1) in your pyproject.toml, (2) in a special nuthatch.toml built into your package
-or (3) in your code - useful if you need to access secrets dynamical or configure nuthatch on distributed workers.
+If you are developing a Nuthatch-based project you should configure its root filestore, and optionally its mirrors
+and your preferred local caching location. The root store is most likely a remote cloud bucket (GCS, S3, Azure). Configuration can be done in two places: (1) in a `nuthatch.toml` config file or (2) in your code - useful if you need to access secrets dynamically or configure nuthatch on distributed workers.
 
 Nuthatch itself and most storage backends only need access to a filesystem. Some storage backends, like databases,
 may need additional parameters.
 
 ### TOML Configuration
 
-In either pyproject.toml or src/nuthatch.toml:
+Create a `nuthatch.toml` file in your project root:
 
 ```toml
-[tool.nuthatch]
-filesystem = "s3://my-bucket/caches"
+[root]
+filesystem = "gs://my-bucket/caches"
 
-[tool.nuthatch.filesystem_options]
-key = "your_key_id" 
-secret= "your_secret_key" #do NOT put your secret in your toml file. Use dynamic secrets below.
+[root.filesystem_options]
+token = "anon"  # for public buckets; use @config_parameter for credentials
+
+[local]
+filesystem = "~/.nuthatch/local-cache"
 ```
 
-pyproject.toml cannot be easily packaged. If you would like your caches to be accessible
-when your package is installed and imported by others, you must use either a nuthatch.toml
-file or dynamic configuration. Make sure your nuthatch.toml is packaged with your project!
+`filesystem_options` are passed directly to [fsspec](https://filesystem-spec.readthedocs.io/). Credentials should be configured via `@config_parameter` decorators (see below) or environment variables, not stored in the config file.
+
+You can override the config file location with the `NUTHATCH_PROJECT_CONFIG` environment variable, or place a global config at `~/.nuthatch.toml` (overridable with `NUTHATCH_GLOBAL_CONFIG`).
+
+Nuthatch searches upward from the current directory for `nuthatch.toml` if no environment variable is set.
+
+#### Packaging nuthatch.toml with your project
+
+**For local development**, placing `nuthatch.toml` in the root of your project directory (alongside `pyproject.toml`) is recommended. Nuthatch searches upward from the current directory, so any tooling in the project — whether inside `src/` or not — will find it.
+
+**For distributing on PyPI**, place `nuthatch.toml` alongside your source code (e.g. `src/yourpackage/nuthatch.toml`) and explicitly include it as package data. This is necessary because when installed, nuthatch searches upward from the installed module location (e.g. `.../site-packages/yourpackage/`), which never reaches the original project root. `MANIFEST.in` and `data-files` are not sufficient — the file must land inside the installed package directory.
+
+For **setuptools**:
+```toml
+# pyproject.toml
+[tool.setuptools.package-data]
+yourpackage = ["nuthatch.toml"]
+```
+
+For **hatchling**:
+```toml
+# pyproject.toml
+[tool.hatch.build.targets.wheel]
+packages = ["src/yourpackage"]
+include = ["src/yourpackage/nuthatch.toml"]
+```
+
+Nuthatch discovers config files by searching upward from the calling module's location, so the file must be included in the installed package. When an installed package's config is loaded, its root filesystem is automatically added as a mirror rather than overriding the consumer's root config.
 
 ### Dynamic configuration - decorators
 
@@ -213,19 +239,21 @@ set_parameter({'filesystem': "gs://my-datalake"})
 ### Backend-specific configuration
 
 Nuthatch backends can be individually configured - for instance if all of your Zarr's are too big for
-the datalake and need cheaper storage you can set the zarr backend to have a different fileysystem location:
+the datalake and need cheaper storage you can set the zarr backend to have a different filesystem location:
 
 ```toml
-[tool.nuthatch.root.zarr]
+[root.zarr]
 filesystem = "s3://my-zarr-bucket/"
 ```
 
 ### Environment variables
 
-You can configure nuthatch with environment variables in the form NUTHATCH_<LOCATION>_<PARAMETER_NAME> or NUTHATCH_<LOCATION>_<BACKEND>_<PARAMETER_NAME> or NUTHATCH_<PARAMETER_NAME> (where location defalts to root.)
+You can configure nuthatch with environment variables in the form `NUTHATCH_<LOCATION>_<PARAMETER_NAME>` or `NUTHATCH_<LOCATION>_<BACKEND>_<PARAMETER_NAME>` or `NUTHATCH_<PARAMETER_NAME>` (where location defaults to root).
 
-There is a special environment varialbe 'NUTHATCH_ALLOW_INSTALLED_PACKAGE_CONFIGURATION' that enables dynamic
-parameters to set the root parameters even when Nuthatch is an installed package. This is useful for running
+Special environment variables:
+- `NUTHATCH_PROJECT_CONFIG` — path to a specific `nuthatch.toml` config file
+- `NUTHATCH_GLOBAL_CONFIG` — path to the global config file (default: `~/.nuthatch.toml`)
+- `NUTHATCH_ALLOW_INSTALLED_PACKAGE_CONFIGURATION` — enables dynamic parameters to set root parameters even when Nuthatch is an installed package. This is useful for running
 on clusters where your package is installed for execution even though it is the primary project.
 
 
@@ -234,4 +262,3 @@ on clusters where your package is installed for execution even though it is the 
 Current limitations:
  - Arguments must be basic types, not objects to key caches
  - There is currently no mechanism to detect cache "staleness". Automatically tracking and detecting changes is planned for future work.
- - We have **not** tested Nuthatch on S3 and Azure blob storage, only on google cloud, but that is ongoing and hopefully an update will be released soon.
