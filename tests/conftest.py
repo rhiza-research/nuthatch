@@ -2,14 +2,16 @@
 Pytest fixtures for cloud storage testing.
 
 This module provides fixtures for testing nuthatch backends against
-cloud storage providers (GCS via fake-gcs-server) and PostgreSQL.
+cloud storage providers (GCS via fake-gcs-server, Azure via Azurite) and PostgreSQL.
 
 Cloud storage configuration is read from config files:
 - nuthatch.gcp.toml: GCS credentials (from test_infrastructure/gcp.tf)
+- nuthatch.azure.toml: Azure credentials (from test_infrastructure/azure.tf)
 
 Usage:
     # Run tests against real cloud test infrastructure:
     pytest -m gcs
+    pytest -m azure
 
     # Run in Docker with emulators (uses .docker.toml config files):
     docker compose run --rm test
@@ -23,12 +25,13 @@ import pytest
 import nuthatch.config
 
 # All supported cloud storage providers. Add new providers here.
-CLOUD_PROVIDERS = ["gcs"]
+CLOUD_PROVIDERS = ["gcs", "azure"]
 
 def pytest_configure(config):
     """Register custom markers."""
     config.addinivalue_line("markers", "cloud: marks tests as requiring any cloud storage provider")
     config.addinivalue_line("markers", "gcs: marks tests as requiring GCS/fake-gcs-server")
+    config.addinivalue_line("markers", "azure: marks tests as requiring Azure/Azurite")
 
 
 def pytest_sessionfinish(session, exitstatus):
@@ -52,6 +55,12 @@ def pytest_sessionfinish(session, exitstatus):
     try:
         import gcsfs
         gcsfs.GCSFileSystem.clear_instance_cache()
+    except ImportError:
+        pass
+
+    try:
+        import adlfs
+        adlfs.AzureBlobFileSystem.clear_instance_cache()
     except ImportError:
         pass
 
@@ -145,6 +154,7 @@ def cloud_storage(request, tmp_path, monkeypatch):
     # Map provider to config file
     config_files = {
         "gcs": "nuthatch.gcp.toml",
+        "azure": "nuthatch.azure.toml",
     }
     project_root = Path(__file__).parent.parent
     config_file = project_root / config_files[provider]

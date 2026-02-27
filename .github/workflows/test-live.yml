@@ -10,6 +10,7 @@ on:
         options:
           - all
           - gcs
+          - azure
 
 env:
   TEST_IMAGE: ghcr.io/rhiza-research/nuthatch-test:latest
@@ -38,9 +39,11 @@ jobs:
       run: |
         echo "$NUTHATCH_GCP_TOML" > nuthatch.gcp.toml
         echo "$NUTHATCH_GCP_SA_KEY" > nuthatch-test-sa-key.json
+        echo "$NUTHATCH_AZURE_TOML" > nuthatch.azure.toml
       env:
         NUTHATCH_GCP_TOML: ${{ secrets.NUTHATCH_GCP_TOML }}
         NUTHATCH_GCP_SA_KEY: ${{ secrets.NUTHATCH_GCP_SA_KEY }}
+        NUTHATCH_AZURE_TOML: ${{ secrets.NUTHATCH_AZURE_TOML }}
 
     - name: Run tests
       run: |
@@ -54,6 +57,7 @@ jobs:
           -v $(pwd)/tests:/app/tests:ro \
           -v $(pwd)/nuthatch.gcp.toml:/app/nuthatch.gcp.toml:ro \
           -v $(pwd)/nuthatch-test-sa-key.json:/app/test_infrastructure/nuthatch-test-sa-key.json:ro \
+          -v $(pwd)/nuthatch.azure.toml:/app/nuthatch.azure.toml:ro \
           -v $(pwd)/coverage:/app/coverage \
           ${{ env.TEST_IMAGE }} \
           -v $MARKER_FLAG \

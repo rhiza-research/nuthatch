@@ -37,9 +37,58 @@ def _remap_gcs_options(options):
         remapped['GOOGLE_CLOUD_PROJECT'] = options['project']
 
     return remapped
+
+def _remap_azure_options(options):
+    """Remap fsspec Azure options to deltalake format."""
+    remapped = {}
+
+    # First pass through any keys already in deltalake format
+    azure_deltalake_keys = ['AZURE_STORAGE_ACCOUNT_NAME', 'AZURE_STORAGE_ACCOUNT_KEY',
+                            'AZURE_SAS_TOKEN', 'AZURE_STORAGE_CONNECTION_STRING',
+                            'AZURE_TENANT_ID', 'AZURE_CLIENT_ID', 'AZURE_CLIENT_SECRET',
+                            'AZURE_ENDPOINT_SUFFIX', 'azure_storage_use_emulator',
+                            'azure_storage_endpoint', 'allow_http']
+    for key in azure_deltalake_keys:
+        if key in options:
+            remapped[key] = options[key]
+
+    # Map fsspec keys to deltalake Azure keys (only if not already present)
+    if 'AZURE_STORAGE_ACCOUNT_NAME' not in remapped and 'account_name' in options:
+        remapped['AZURE_STORAGE_ACCOUNT_NAME'] = options['account_name']
+    if 'AZURE_STORAGE_ACCOUNT_KEY' not in remapped and 'account_key' in options:
+        remapped['AZURE_STORAGE_ACCOUNT_KEY'] = options['account_key']
+    if 'AZURE_SAS_TOKEN' not in remapped and 'sas_token' in options:
+        remapped['AZURE_SAS_TOKEN'] = options['sas_token']
+    if 'AZURE_TENANT_ID' not in remapped and 'tenant_id' in options:
+        remapped['AZURE_TENANT_ID'] = options['tenant_id']
+    if 'AZURE_CLIENT_ID' not in remapped and 'client_id' in options:
+        remapped['AZURE_CLIENT_ID'] = options['client_id']
+    if 'AZURE_CLIENT_SECRET' not in remapped and 'client_secret' in options:
+        remapped['AZURE_CLIENT_SECRET'] = options['client_secret']
+
+    # Parse connection_string for account credentials
+    if 'connection_string' in options and 'AZURE_STORAGE_ACCOUNT_NAME' not in remapped:
+        conn_str = options['connection_string']
+        for part in conn_str.split(';'):
+            if part.startswith('AccountName=') and 'AZURE_STORAGE_ACCOUNT_NAME' not in remapped:
+                remapped['AZURE_STORAGE_ACCOUNT_NAME'] = part.split('=', 1)[1]
+            elif part.startswith('AccountKey=') and 'AZURE_STORAGE_ACCOUNT_KEY' not in remapped:
+                remapped['AZURE_STORAGE_ACCOUNT_KEY'] = part.split('=', 1)[1]
+            elif part.startswith('BlobEndpoint='):
+                endpoint = part.split('=', 1)[1]
+                if endpoint.startswith('http://') and 'allow_http' not in remapped:
+                    remapped['allow_http'] = 'true'
+                if 'azure_storage_endpoint' not in remapped:
+                    remapped['azure_storage_endpoint'] = endpoint
+
+    return remapped
+
 _PROTOCOL_REMAPPERS = {
     'gs': _remap_gcs_options,
     'gcs': _remap_gcs_options,
+    'az': _remap_azure_options,
+    'abfs': _remap_azure_options,
+    'abfss': _remap_azure_options,
 }
 
 
