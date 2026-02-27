@@ -5,7 +5,7 @@ import uuid
 
 
 # All tests in this module require cloud storage
-pytestmark = [pytest.mark.s3, pytest.mark.gcs, pytest.mark.azure]
+pytestmark = [pytest.mark.cloud]
 
 
 @pytest.fixture
