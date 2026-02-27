@@ -2,14 +2,16 @@
 Pytest fixtures for cloud storage testing.
 
 This module provides fixtures for testing nuthatch backends against
-cloud storage providers (GCS via fake-gcs-server) and PostgreSQL.
+cloud storage providers (S3 via LocalStack, GCS via fake-gcs-server) and PostgreSQL.
 
 Cloud storage configuration is read from config files:
+- nuthatch.aws.toml: S3 credentials (from test_infrastructure/aws.tf)
 - nuthatch.gcp.toml: GCS credentials (from test_infrastructure/gcp.tf)
 
 Usage:
     # Run tests against real cloud test infrastructure:
     pytest -m gcs
+    pytest -m s3
 
     # Run in Docker with emulators (uses .docker.toml config files):
     docker compose run --rm test
@@ -23,11 +25,12 @@ import pytest
 import nuthatch.config
 
 # All supported cloud storage providers. Add new providers here.
-CLOUD_PROVIDERS = ["gcs"]
+CLOUD_PROVIDERS = ["s3", "gcs"]
 
 def pytest_configure(config):
     """Register custom markers."""
     config.addinivalue_line("markers", "cloud: marks tests as requiring any cloud storage provider")
+    config.addinivalue_line("markers", "s3: marks tests as requiring S3/LocalStack")
     config.addinivalue_line("markers", "gcs: marks tests as requiring GCS/fake-gcs-server")
 
 
@@ -49,6 +52,12 @@ def pytest_sessionfinish(session, exitstatus):
         pass
 
     # Clear fsspec caches
+    try:
+        import s3fs
+        s3fs.S3FileSystem.clear_instance_cache()
+    except ImportError:
+        pass
+
     try:
         import gcsfs
         gcsfs.GCSFileSystem.clear_instance_cache()
@@ -104,7 +113,7 @@ def pytest_generate_tests(metafunc):
 
     # Fail if test has NO markers at all (developer error)
     if not all_markers:
-        pytest.fail(f"Test {metafunc.function.__name__} requests cloud_storage but has no provider markers (@pytest.mark.cloud, @pytest.mark.gcs)")
+        pytest.fail(f"Test {metafunc.function.__name__} requests cloud_storage but has no provider markers (@pytest.mark.cloud, @pytest.mark.gcs, @pytest.mark.s3)")
 
     # If markers exist but none match the filter, skip parametrization (test will be deselected)
     if not filtered_providers:
@@ -144,6 +153,7 @@ def cloud_storage(request, tmp_path, monkeypatch):
 
     # Map provider to config file
     config_files = {
+        "s3": "nuthatch.aws.toml",
         "gcs": "nuthatch.gcp.toml",
     }
     project_root = Path(__file__).parent.parent

@@ -4,7 +4,7 @@
 # This prevents tests from accidentally connecting to production cloud services.
 #
 # Usage:
-#   docker compose up -d gcs postgres
+#   docker compose up -d aws gcs postgres
 #   docker compose run --rm test
 #
 #   # Run specific tests:
@@ -16,6 +16,12 @@
 # =============================================================================
 # Shared environment variables (YAML anchors)
 # =============================================================================
+x-aws-env: &aws-env
+  AWS_ENDPOINT_URL: http://aws:4566
+  AWS_ACCESS_KEY_ID: test
+  AWS_SECRET_ACCESS_KEY: test
+  AWS_DEFAULT_REGION: us-east-1
+
 x-gcs-env: &gcs-env
   STORAGE_EMULATOR_HOST: http://gcs:4443
   GOOGLE_APPLICATION_CREDENTIALS: /root/fake_gcs_service_account.json
@@ -31,6 +37,29 @@ x-postgres-env: &postgres-env
 # Services
 # =============================================================================
 services:
+  # AWS emulation (LocalStack)
+  aws:
+    image: localstack/localstack:s3-latest
+    environment:
+      DEBUG: 0
+    networks:
+      - isolated
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:4566/_localstack/health"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  # Initialize S3 bucket (LocalStack accepts unsigned requests)
+  aws-init:
+    image: curlimages/curl:latest
+    depends_on:
+      aws:
+        condition: service_healthy
+    entrypoint: ["sh", "-c", "curl -sf -X PUT 'http://aws:4566/nuthatch-test' || true"]
+    networks:
+      - isolated
+
   # fake-gcs-server for GCS emulation
   gcs:
     image: ghcr.io/rhiza-research/fake-gcs-server:latest
@@ -77,15 +106,18 @@ services:
       - ./tests:/app/tests:ro
       - ./tests/fixtures/fake_gcs_service_account.json:/root/fake_gcs_service_account.json:ro
       # Map docker config files over regular config files for emulator endpoints
+      - ./nuthatch.aws.docker.toml:/app/nuthatch.aws.toml:ro
       - ./nuthatch.gcp.docker.toml:/app/nuthatch.gcp.toml:ro
     depends_on:
+      aws-init:
+        condition: service_completed_successfully
       gcs-init:
         condition: service_completed_successfully
       postgres:
         condition: service_healthy
     environment:
       NUTHATCH_EMULATOR: "true"
-      <<: [*gcs-env, *postgres-env]
+      <<: [*aws-env, *gcs-env, *postgres-env]
     networks:
       - isolated
 

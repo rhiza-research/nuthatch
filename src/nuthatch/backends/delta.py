@@ -1,12 +1,29 @@
 import pandas as pd
 import dask.dataframe as dd
 import dask_deltatable as ddt
+import dask_deltatable.utils as _ddt_utils
 from deltalake import DeltaTable, write_deltalake
 from nuthatch.backend import FileBackend, register_backend
 import fsspec
 
 import logging
 logger = logging.getLogger(__name__)
+
+# Workaround for dask_deltatable bug: maybe_set_aws_credentials doesn't
+# recognize fsspec's key/secret format, causing it to fall through to a
+# boto3 import path that injects invalid kwargs into storage_options.
+# Related: https://github.com/dask-contrib/dask-deltatable/issues/88
+# TODO: file upstream issue and remove this patch once fixed.
+_original_maybe_set_aws_credentials = _ddt_utils.maybe_set_aws_credentials
+
+
+def _patched_maybe_set_aws_credentials(path, options):
+    if options and ('key' in options or 'secret' in options):
+        return options
+    return _original_maybe_set_aws_credentials(path, options)
+
+
+_ddt_utils.maybe_set_aws_credentials = _patched_maybe_set_aws_credentials
 
 def _remap_gcs_options(options):
     """Remap fsspec GCS options to deltalake format.
@@ -37,7 +54,48 @@ def _remap_gcs_options(options):
         remapped['GOOGLE_CLOUD_PROJECT'] = options['project']
 
     return remapped
+
+
+def _remap_s3_options(options):
+    """Remap fsspec S3 options to deltalake format."""
+    remapped = {}
+
+    # First pass through any keys already in deltalake format
+    aws_deltalake_keys = ['AWS_ACCESS_KEY_ID', 'AWS_SECRET_ACCESS_KEY', 'AWS_ENDPOINT_URL',
+                          'AWS_SESSION_TOKEN', 'AWS_REGION', 'AWS_DEFAULT_REGION',
+                          'allow_http', 'AWS_ALLOW_HTTP']
+    for key in aws_deltalake_keys:
+        if key in options:
+            remapped[key] = options[key]
+
+    # Map fsspec keys to deltalake AWS keys (only if not already present)
+    if 'AWS_ACCESS_KEY_ID' not in remapped and 'key' in options:
+        remapped['AWS_ACCESS_KEY_ID'] = options['key']
+    if 'AWS_SECRET_ACCESS_KEY' not in remapped and 'secret' in options:
+        remapped['AWS_SECRET_ACCESS_KEY'] = options['secret']
+
+    # Handle endpoint_url: check top-level first, then nested in client_kwargs
+    if 'AWS_ENDPOINT_URL' not in remapped:
+        if 'endpoint_url' in options:
+            remapped['AWS_ENDPOINT_URL'] = options['endpoint_url']
+        elif 'client_kwargs' in options and isinstance(options['client_kwargs'], dict):
+            if 'endpoint_url' in options['client_kwargs']:
+                remapped['AWS_ENDPOINT_URL'] = options['client_kwargs']['endpoint_url']
+
+    # Auto-enable HTTP for non-HTTPS endpoints (e.g., LocalStack)
+    endpoint_url = remapped.get('AWS_ENDPOINT_URL', '')
+    if endpoint_url.startswith('http://') and 'allow_http' not in remapped:
+        remapped['allow_http'] = 'true'
+
+    if 'AWS_SESSION_TOKEN' not in remapped and 'session_token' in options:
+        remapped['AWS_SESSION_TOKEN'] = options['session_token']
+
+    return remapped
+
+
 _PROTOCOL_REMAPPERS = {
+    's3': _remap_s3_options,
+    's3a': _remap_s3_options,
     'gs': _remap_gcs_options,
     'gcs': _remap_gcs_options,
 }
