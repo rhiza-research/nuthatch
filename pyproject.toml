@@ -23,11 +23,12 @@ dependencies = [
     "rioxarray",
     "gitpython",
     "psycopg2-binary",
-    "zarr",
+    "zarr<3",
     "click",
     "polars",
     "dateparser",
     "tomli-w",
+    "pydantic",
     "multiprocess",
     "humanfriendly",
 ]
@@ -45,6 +46,9 @@ dev = [
     "pytest-cov>=4.0.0",
     "pytest-mock>=3.10.0",
     "ruff>=0.1.0",
+    # Fake packages for config resolution tests
+    "fake-weather-lib",
+    "fake-ocean-lib",
 ]
 
 [project.scripts]
@@ -63,15 +67,16 @@ build-backend = "hatchling.build"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/nuthatch"]
-exclude = [
-    "src/nuthatch/test_secrets.py" # Exclude a specific file
-]
 
 [tool.hatch.metadata]
 allow-direct-references = true
 
 [tool.uv]
 managed = true
+
+[tool.uv.sources]
+fake-weather-lib = { path = "tests/fixtures/fake_weather_lib" }
+fake-ocean-lib = { path = "tests/fixtures/fake_ocean_lib" }
 
 [tool.pytest.ini_options]
 log_cli = true
@@ -97,34 +102,6 @@ exclude_lines = [
     "raise AssertionError",
     "raise NotImplementedError",
 ]
-
-
-[tool.nuthatch]
-filesystem = "gs://sheerwater-datalake/caches"
-host = "postgres.sheerwater.rhizaresearch.org"
-port = 5432
-database = "postgres"
-username = "sheerwater_write"
-driver = "postgresql"
-dynamic_config_path = "nuthatch.test_secrets"
-
-[tool.nuthatch.terracotta]
-filesystem = "gs://sheerwater-datalake/rasters"
-database = "terracotta"
-override_path = "/mnt/sheerwater-datalake"
-
-[tool.nuthatch.filesystem_options]
-cache_timeout=0
-
-[tool.nuthatch.local]
-filesystem = "~/.nuthatch/caches"
-
-[tool.nuthatch.mirror-public]
-filesystem = "gs://sheerwater-public-datalake/caches"
-
-[tool.nuthatch.mirror-public.filesystem_options]
-cache_timeout=0
-token = 'anon'
 
 [tool.autopep8]
 max_line_length = 120
