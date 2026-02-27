@@ -12,7 +12,6 @@ import sys
 from nuthatch.cache import Cache, NuthatchReadError
 from nuthatch.backend import get_default_backend
 from nuthatch.config import NuthatchConfig
-from nuthatch.config import set_global_skipped_filesystem
 from nuthatch.memoizer import save_to_memory, recall_from_memory
 
 logger = logging.getLogger(__name__)
@@ -30,12 +29,19 @@ global_cache_mode = None
 global_retry_null_cache = None
 global_fs_warning = []
 global_backend_kwargs = None
+_call_depth = 0
 
 
-def set_global_cache_variables(recompute=None, memoize=None, cache_mode=None, retry_null_cache=None, backend_kwargs=None):
+def set_global_cache_variables(recompute=None, memoize=None, cache_mode=None, retry_null_cache=None, backend_kwargs=None, _internal=False):
     """Reset all global variables to defaults and set the new values."""
     global global_recompute, global_memoize, global_cache_mode, \
         global_retry_null_cache, global_backend_kwargs
+
+    if not _internal:
+        logger.warning(
+            "set_global_cache_variables() is deprecated. "
+            "Pass cache_mode, recompute, etc. directly to cached function calls instead. "
+            "Global settings will be reset after the next top-level cached function returns.")
 
     # Simple logic for global variables
     global_retry_null_cache = retry_null_cache
@@ -61,20 +67,17 @@ def set_global_cache_variables(recompute=None, memoize=None, cache_mode=None, re
         global_memoize = memoize  # if memoize is false, '_all' or a list
 
 
+def _restore_global_cache_variables(saved):
+    """Restore global cache variables to a previously saved state."""
+    global global_recompute, global_memoize, global_cache_mode, \
+        global_retry_null_cache, global_backend_kwargs
+    global_recompute, global_memoize, global_cache_mode, \
+        global_retry_null_cache, global_backend_kwargs = saved
+
+
 def check_if_nested_fn():
     """Check if the current scope is downstream from another cached function."""
-    # Get the current frame
-    stack = inspect.stack()
-
-    # skip the first three frames (this function, check args, and the current cacheable function)
-    for frame_info in stack[3:]:
-        frame = frame_info.frame
-        func_name = frame.f_code.co_name
-        if func_name == "nuthatch_cacheable_wrapper":
-            # There is a cachable function upstream of this one
-            return True
-    # No cachable function upstream of this one
-    return False
+    return _call_depth > 1
 
 
 def get_cache_args(passed_kwargs, default_cache_kwargs, decorator_args, func_name):
@@ -109,33 +112,32 @@ def get_cache_args(passed_kwargs, default_cache_kwargs, decorator_args, func_nam
     elif 'storage_backend_kwargs' in cache_args and cache_args['storage_backend_kwargs'] is None:
         cache_args['storage_backend_kwargs'] = decorator_args['storage_backend_kwargs']
 
+    # Apply global overrides when the function doesn't explicitly set its own value
+    global global_recompute, global_memoize, global_cache_mode, global_retry_null_cache, global_backend_kwargs
+
+    if global_retry_null_cache is not None and cache_args['retry_null_cache'] is None:
+        cache_args['retry_null_cache'] = global_retry_null_cache
+    if global_cache_mode is not None and cache_args['cache_mode'] is None:
+        cache_args['cache_mode'] = global_cache_mode
+    if global_recompute:
+        if func_name in global_recompute or global_recompute == '_all':
+            cache_args['recompute'] = True
+    if global_memoize:
+        if func_name in global_memoize or global_memoize == '_all':
+            cache_args['memoize'] = True
+    if global_backend_kwargs and cache_args.get('backend_kwargs'):
+        cache_args['backend_kwargs'].update(global_backend_kwargs)
+
     # Check if this is a nested cacheable function
     if not check_if_nested_fn():
         # This is a top level cacheable function, reset global cache variables
         set_global_cache_variables(recompute=cache_args['recompute'], memoize=cache_args['memoize'],
                                    cache_mode=cache_args['cache_mode'], retry_null_cache=cache_args['retry_null_cache'],
-                                   backend_kwargs=passed_backend_kwargs)
+                                   backend_kwargs=passed_backend_kwargs, _internal=True)
         if isinstance(cache_args['recompute'], list) or isinstance(cache_args['recompute'], str) or cache_args['recompute'] == '_all':
             cache_args['recompute'] = True
         if isinstance(cache_args['memoize'], list) or isinstance(cache_args['memoize'], str) or cache_args['memoize'] == '_all':
             cache_args['memoize'] = True
-    else:
-        # Inherit global cache variables
-        global global_recompute, global_memoize, global_cache_mode, global_retry_null_cache, global_backend_kwargs
-
-        # Set all global variables
-        if global_retry_null_cache is not None:
-            cache_args['retry_null_cache'] = global_retry_null_cache
-        if global_cache_mode is not None:
-            cache_args['cache_mode'] = global_cache_mode
-        if global_recompute:
-            if func_name in global_recompute or global_recompute == '_all':
-                cache_args['recompute'] = True
-        if global_memoize:
-            if func_name in global_memoize or global_memoize == '_all':
-                cache_args['memoize'] = True
-        if global_backend_kwargs:
-            cache_args['backend_kwargs'].update(global_backend_kwargs)
 
     return cache_args
 
@@ -899,6 +901,24 @@ def cache(cache=True,
             return return_value
 
         # Set a custom attribute to mark this as a cacheable function
+        setattr(nuthatch_cacheable_wrapper, '__nuthatch_cacheable__', True)
+
+        # Wrap to save/restore global state around each call, preventing
+        # cache settings from leaking between independent call trees.
+        _unwrapped = nuthatch_cacheable_wrapper
+
+        @wraps(_unwrapped)
+        def nuthatch_cacheable_wrapper(*args, **kwargs):
+            global _call_depth
+            _saved_globals = (global_recompute, global_memoize, global_cache_mode,
+                              global_retry_null_cache, global_backend_kwargs)
+            _call_depth += 1
+            try:
+                return _unwrapped(*args, **kwargs)
+            finally:
+                _call_depth -= 1
+                _restore_global_cache_variables(_saved_globals)
+
         setattr(nuthatch_cacheable_wrapper, '__nuthatch_cacheable__', True)
         return nuthatch_cacheable_wrapper
 
