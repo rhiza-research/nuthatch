@@ -1,0 +1,11 @@
+#:schema https://raw.githubusercontent.com/rhiza-research/nuthatch/main/nuthatch.schema.json
+# Azure / Azurite configuration
+
+[root]
+filesystem = "az://nuthatch-test/cache"
+
+[root.filesystem_options]
+connection_string = "DefaultEndpointsProtocol=http;AccountName=devstoreaccount1;AccountKey=Eby8vdM02xNOcqFlqUwJPLlmEtlCDXJ1OUzFT50uSRZ6IFsuFq2UVErCz4I6tq/K1SZFPTOtr/KBHBeksoGMGw==;BlobEndpoint=http://azurite:10000/devstoreaccount1;"
+
+[local]
+filesystem = "~/.nuthatch/local-cache"

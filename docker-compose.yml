@@ -20,6 +20,13 @@ x-gcs-env: &gcs-env
   STORAGE_EMULATOR_HOST: http://gcs:4443
   GOOGLE_APPLICATION_CREDENTIALS: /root/fake_gcs_service_account.json
 
+x-azure-env: &azure-env
+  # Well-known Azurite credentials
+  # https://learn.microsoft.com/en-us/azure/storage/common/storage-connect-azurite
+  AZURE_STORAGE_ACCOUNT: devstoreaccount1
+  AZURE_STORAGE_KEY: Eby8vdM02xNOcqFlqUwJPLlmEtlCDXJ1OUzFT50uSRZ6IFsuFq2UVErCz4I6tq/K1SZFPTOtr/KBHBeksoGMGw==
+  AZURE_STORAGE_ENDPOINT: http://azurite:10000
+
 x-postgres-env: &postgres-env
   POSTGRES_HOST: postgres
   POSTGRES_PORT: 5432
@@ -53,6 +60,28 @@ services:
     networks:
       - isolated
 
+  # Azurite for Azure Blob Storage emulation
+  azurite:
+    image: mcr.microsoft.com/azure-storage/azurite:latest
+    command: azurite-blob --blobHost 0.0.0.0 --blobPort 10000 --skipApiVersionCheck
+    networks:
+      - isolated
+    healthcheck:
+      test: ["CMD-SHELL", "node -e \"require('http').get('http://127.0.0.1:10000/', (r) => process.exit(0)).on('error', () => process.exit(1))\""]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  # Initialize Azure container
+  azurite-init:
+    image: curlimages/curl:latest
+    depends_on:
+      azurite:
+        condition: service_healthy
+    entrypoint: ["sh", "-c", "curl -sf -X PUT 'http://azurite:10000/devstoreaccount1/nuthatch-test?restype=container&se=2100-01-01T00%3A00%3A00Z&sp=rwdlc&sv=2026-02-06&ss=b&srt=sco&sig=Djhz7VmKKdQQd9vNKMCdQlgE8DCqlqyBWpzS0KubRQs%3D' || true"]
+    networks:
+      - isolated
+
   # PostgreSQL for SQL backend testing
   postgres:
     image: postgres:15
@@ -78,14 +107,17 @@ services:
       - ./tests/fixtures/fake_gcs_service_account.json:/root/fake_gcs_service_account.json:ro
       # Map docker config files over regular config files for emulator endpoints
       - ./nuthatch.gcp.docker.toml:/app/nuthatch.gcp.toml:ro
+      - ./nuthatch.azure.docker.toml:/app/nuthatch.azure.toml:ro
     depends_on:
       gcs-init:
+        condition: service_completed_successfully
+      azurite-init:
         condition: service_completed_successfully
       postgres:
         condition: service_healthy
     environment:
       NUTHATCH_EMULATOR: "true"
-      <<: [*gcs-env, *postgres-env]
+      <<: [*gcs-env, *azure-env, *postgres-env]
     networks:
       - isolated
 
