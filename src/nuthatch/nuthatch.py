@@ -486,7 +486,7 @@ def get_cache_mode(cache_mode):
         read_global = True
         read_local = True
     elif cache_mode == 'read_only':  # read only from caches, no writing
-        force_overwrite = None
+        force_overwrite = False
         fail_if_no_cache = False
         write_global = False
         write_local = False
@@ -647,7 +647,7 @@ def cache(cache=True,
             if cache_mode is None and root_cache_is_valid(config):
                 cache_mode = 'write'
             elif cache_mode is None:
-                cache_mode = 'local_api'
+                cache_mode = 'read_only_strict'
 
             write_global, write_local, read_global, read_local, \
                 force_overwrite, strict_read = get_cache_mode(cache_mode)
