@@ -243,7 +243,7 @@ def get_cache_key(func, cache_arg_values):
 
     cache_key = func.__name__ + '/' + '_'.join(flat_values)
     cache_print = func.__name__ + '/' + '/'.join([f'{x[0]}_{x[1]}' for x in zip(imkeys, imvalues)])
-    return cache_key, cache_print, cacheable
+    return cache_key, cache_print
 
 
 def root_cache_is_valid(config):
