@@ -255,9 +255,10 @@ def get_cache_key(func, cache_arg_values):
     sorted_values = [cache_arg_values[i] for i in imkeys]
     flat_values = []
     imvalues = []
+    cacheable = True
 
     for val in sorted_values:
-        if isinstance(val, list):
+        if isinstance(val, (list, set, tuple)):
             sub_vals = [str(v) for v in val]
             sub_vals.sort()
             flat_values += sub_vals
@@ -267,13 +268,16 @@ def get_cache_key(func, cache_arg_values):
             sub_vals.sort()
             flat_values += sub_vals
             imvalues.append(sub_vals)
-        else:
+        elif isinstance(val, (int, float, str, bool, type(None))):
             flat_values.append(str(val))
             imvalues.append(str(val))
+        else:
+            cacheable=False
+
 
     cache_key = func.__name__ + '/' + '_'.join(flat_values)
     cache_print = func.__name__ + '/' + '/'.join([f'{x[0]}_{x[1]}' for x in zip(imkeys, imvalues)])
-    return cache_key, cache_print
+    return cache_key, cache_print, cacheable
 
 
 def root_cache_is_valid(config):
@@ -622,7 +626,7 @@ def cache(cache=True,
             params = signature(func).parameters
             # Calculate our unique cache key from the params and values
             cache_arg_values = extract_cache_arg_values(cache_args, args, params, passed_kwargs)
-            cache_key, cache_print = get_cache_key(func, cache_arg_values)
+            cache_key, cache_print, cacheable = get_cache_key(func, cache_arg_values)
             try:
                 all_arg_values = extract_all_arg_values(args, params, passed_kwargs)
                 memoizer_cache_key, memoizer_cache_print = get_cache_key(func, all_arg_values)
@@ -639,6 +643,12 @@ def cache(cache=True,
             # Disable the cache if it's enabled and the function params/values match the disable statement
             if cache:
                 cache = check_cache_disable_if(cache_disable_if, cache_arg_values)
+
+            # Disable the cache if it's enabled and we have been passed values that the key cannot be computed for
+            if cache and not cacheable:
+                cache = False
+                logger.info(f"Cacheable arguments passed for a type that cannot be turned into a cache key. Caching disabled.")
+
 
             # Get the configuration information need for cache operations (e.g., cache locations, permissions, etc.)
             config = NuthatchConfig(wrapped_module=inspect.getmodule(func))
