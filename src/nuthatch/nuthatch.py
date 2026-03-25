@@ -205,7 +205,7 @@ def extract_cache_arg_values(cache_args, args, params, kwargs):
 
     cache_arg_values = {}
     for a in cache_args:
-        if a not in all_arg_values
+        if a not in all_arg_values:
             raise RuntimeError(f"Specified cacheable argument {a} "
                                "not discovered as passed argument or default argument.")
         else:
