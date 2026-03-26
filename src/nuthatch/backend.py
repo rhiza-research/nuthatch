@@ -243,12 +243,15 @@ class FileBackend(NuthatchBackend):
         if 'filesystem_options' not in self.config:
             self.config['filesystem_options'] = {}
 
+        # Get filesystem_options as a plain dict for external library consumption
+        self.filesystem_options = self.config['filesystem_options'].as_dict()
+
         # This instantiates an fsspec filesystem
         if fsspec.utils.get_protocol(self.path) == 'file':
             # If the protocol is a local filesystem, we need to create the directory if it doesn't exist
-            self.fs = fsspec.core.url_to_fs(self.path, auto_mkdir=True, **self.config['filesystem_options'])[0]
+            self.fs = fsspec.core.url_to_fs(self.path, auto_mkdir=True, **self.filesystem_options)[0]
         else:
-            self.fs = fsspec.core.url_to_fs(self.path, **self.config['filesystem_options'])[0]
+            self.fs = fsspec.core.url_to_fs(self.path, **self.filesystem_options)[0]
 
     def exists(self):
         return (self.fs.exists(self.path))

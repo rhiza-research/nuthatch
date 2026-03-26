@@ -1,3 +1,4 @@
+import pytest
 from nuthatch import cache
 from nuthatch.backends.zarr import is_single_chunk
 import xarray as xr
@@ -6,8 +7,11 @@ import pandas as pd
 import logging
 from nuthatch.backends.zarr import get_chunk_size
 
-from dask.distributed import Client
 import dask.array as da
+
+
+pytestmark = [pytest.mark.s3, pytest.mark.gcs, pytest.mark.azure]
+
 
 @cache(cache_args=['name', 'species', 'stride'])
 def simple_array(start_time="2021-01-01", end_time="2021-02-01", name='test', species='coraciidae', stride='day'):
@@ -55,18 +59,18 @@ def chunked_array(start_time="2021-01-01", end_time="2021-02-01", name='test', s
 @cache(cache_args=[],
        backend_kwargs={
            'chunking': {
-               'time': 100,
-               'lat': 100,
-               'lon': 100
+               'time': 30,
+               'lat': 30,
+               'lon': 30
            },
 })
-def large_chunked_array(start_time="2000-01-01", end_time="2002-01-01"):
+def large_chunked_array(start_time="2000-01-01", end_time="2000-04-01"):
     """Generate a simple timeseries dataset for testing."""
-
+    # Use smaller array for faster tests while still having multiple chunks
     times = pd.date_range(start_time, end_time, freq='1d')
-    lons = np.arange(-180, 180, 0.5)
-    lats = np.arange(-90, 90, 0.5)
-    data = da.random.normal(0, 1, size=(len(times), len(lats), len(lons)), chunks=(100, 100, 100))
+    lons = np.arange(-180, 180, 2.0)  # 180 values
+    lats = np.arange(-90, 90, 2.0)    # 90 values
+    data = da.random.normal(0, 1, size=(len(times), len(lats), len(lons)), chunks=(30, 30, 30))
 
     ds = xr.Dataset(
         data_vars={
@@ -86,7 +90,7 @@ def nested_large_chunk():
     return large_chunked_array()
 
 
-def test_zarr():
+def test_zarr(cloud_storage):
     """Test the tabular function."""
     data = simple_array(name='josh', recompute=True, cache_mode='overwrite')
     data2 = simple_array(name='josh')
@@ -107,7 +111,7 @@ def test_zarr():
     assert data3.equals(data4)
 
 
-def test_chunking():
+def test_chunking(cloud_storage):
     chunked_array(name='josh', recompute=True, cache_mode='overwrite')
     data2 = chunked_array(name='josh')
     assert data2.chunks['time'][0] == 5
@@ -151,7 +155,7 @@ def single_chunk_array(name='test'):
     return ds
 
 
-def test_single_chunk_no_warning(caplog):
+def test_single_chunk_no_warning(cloud_storage, caplog):
     """Test that single chunk datasets don't trigger warnings when below lower limit."""
     with caplog.at_level(logging.WARNING):
         single_chunk_array(name='single_chunk_test', recompute=True, cache_mode='overwrite')
@@ -169,24 +173,39 @@ def test_single_chunk_no_warning(caplog):
     assert len(data.time) == 10
 
 
-def test_read_chunk_resize():
-    # Cache the large array
-    Client()
-    ds = large_chunked_array()
-    assert ds.chunksizes['time'][0] == 100
-    assert ds.chunksizes['lat'][0] == 100
-    assert ds.chunksizes['lon'][0] == 100
+def test_read_chunk_resize(cloud_storage):
+    # Use synchronous scheduler to avoid distributed issues in Docker
+    import dask
+    with dask.config.set(scheduler='synchronous'):
+        # Write to cache
+        large_chunked_array()
 
-    ds = large_chunked_array(backend_kwargs={'target_read_chunk_size_mb': 100})
-    size, _  = get_chunk_size(ds)
-    assert size > 50 and size < 200
+        # Read back from cache and verify zarr chunk sizes match decorator config
+        ds = large_chunked_array()
+        assert ds.chunksizes['time'][0] == 30
+        assert ds.chunksizes['lat'][0] == 30
+        assert ds.chunksizes['lon'][0] == 30
 
-    ds = large_chunked_array(backend_kwargs={'target_read_chunk_size_mb': 300})
-    size, _  = get_chunk_size(ds)
-    assert size > 100 and size < 400
+        # Read with target_read_chunk_size_mb to trigger rechunking
+        # Data is ~12MB total, 30x30x30 chunks are ~0.2MB each
+        ds = large_chunked_array(backend_kwargs={'target_read_chunk_size_mb': 1})
+        size, _ = get_chunk_size(ds)
+        assert size > 0.3 and size < 3
+
+        ds = large_chunked_array(backend_kwargs={'target_read_chunk_size_mb': 5})
+        size, _ = get_chunk_size(ds)
+        assert size > 1 and size < 10
 
 
-def test_backend_passthrough():
-    ds = nested_large_chunk(backend_kwargs={'target_read_chunk_size_mb': 300})
-    size, _  = get_chunk_size(ds)
-    assert size > 100 and size < 400
+def test_backend_passthrough(cloud_storage):
+    # Test that backend_kwargs propagate through nested @cache functions
+    import dask
+    with dask.config.set(scheduler='synchronous'):
+        # Ensure large_chunked_array is cached
+        large_chunked_array()
+
+        # Call nested_large_chunk which wraps large_chunked_array with cache=False
+        # backend_kwargs should propagate to the inner large_chunked_array call
+        ds = nested_large_chunk(backend_kwargs={'target_read_chunk_size_mb': 5})
+        size, _ = get_chunk_size(ds)
+        assert size > 1 and size < 10

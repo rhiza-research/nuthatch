@@ -1,14 +1,40 @@
 import numpy as np
+import pytest
 from nuthatch import cache
 from nuthatch import config_parameter
+import nuthatch.config
 
-@config_parameter('filesystem', location='root')
-def set_filesystem():
-    return './.cache'
 
-@config_parameter('filesystem', location='local')
-def set_filesystem2():
-    return './.cache2'
+@pytest.fixture(autouse=True)
+def setup_config_parameters(tmp_path):
+    """Set up config parameters for cache_args tests.
+
+    These tests don't use cloud storage - they use local filesystem caching
+    to test cache argument behavior.
+    """
+    # Clear any existing dynamic parameters to start fresh
+    nuthatch.config.dynamic_parameters.clear()
+
+    # Create temp directories for caching
+    root_cache = tmp_path / "cache"
+    local_cache = tmp_path / "local_cache"
+    root_cache.mkdir()
+    local_cache.mkdir()
+
+    # Register config parameters for this test module
+    @config_parameter('filesystem', location='root')
+    def set_filesystem():
+        return str(root_cache)
+
+    @config_parameter('filesystem', location='local')
+    def set_filesystem2():
+        return str(local_cache)
+
+    yield
+
+    # Clean up after test
+    nuthatch.config.dynamic_parameters.clear()
+
 
 def test_far_nesting():
 
@@ -170,6 +196,23 @@ def test_deep_cache():
     first = deep_cached_func3()
     second = deep_cached_func3(recompute=["deep_cached_func3", "deep_cached_func1"], cache_mode='overwrite')
     assert first == second
+
+def test_unknown_kwargs_rejected():
+    """Test that unknown kwargs raise TypeError instead of being silently ignored."""
+    @cache(cache_args=['x'])
+    def simple_func(x=1):
+        return x
+
+    # Valid cache kwargs should work
+    simple_func(x=1, cache_mode='off')
+
+    # Unknown kwargs should raise TypeError
+    with pytest.raises(TypeError, match="unexpected keyword arguments"):
+        simple_func(x=1, cache_local=True)
+
+    with pytest.raises(TypeError, match="unexpected keyword arguments"):
+        simple_func(x=1, nonexistent_kwarg=42)
+
 
 def test_force_overwrite():
     # Test force overwrite here

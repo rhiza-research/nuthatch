@@ -6,6 +6,7 @@ for lower latency caching or a number of `mirror` locations, and you can
 set specific parameters for specific backends (i.e. terracotta and zarr
 could leverage different filesystems if specified)
 """
+
 from pathlib import Path
 import os
 import tomllib
@@ -13,31 +14,144 @@ import tomli_w
 import inspect
 import copy
 
+from pydantic import BaseModel, ConfigDict, Field, ValidationError
+
 import logging
 import nuthatch
+
 logger = logging.getLogger(__name__)
 
 
 dynamic_parameters = {}
 
-def set_global_skipped_filesystem(filesystem):
-    config_file = os.path.expanduser('~/.nuthatch.toml')
+# Environment variables for config file locations
+NUTHATCH_GLOBAL_CONFIG_ENV = "NUTHATCH_GLOBAL_CONFIG"
+NUTHATCH_PROJECT_CONFIG_ENV = "NUTHATCH_PROJECT_CONFIG"
 
-    config_data = {}
-    if os.path.exists(config_file):
-        with open(config_file, 'rb') as f:
-            config_data = tomllib.load(f)
 
-    tool_data = config_data.setdefault('tool', {})
-    nuthatch_data = tool_data.setdefault('nuthatch', {})
-    skip_list = nuthatch_data.setdefault('skipped_filesystems', [])
-    if filesystem in skip_list:
-        return
-    else:
-        skip_list.append(filesystem)
+class GlobalConfigSchema(BaseModel):
+    """Schema for global nuthatch config (~/.nuthatch.toml).
 
-    with open(config_file, "wb") as f:
-        tomli_w.dump(config_data, f)
+    Global config is restricted to only skipped_filesystems.
+    All other configuration must go in project-specific nuthatch.toml files.
+    """
+    model_config = ConfigDict(extra='forbid')
+
+    skipped_filesystems: list[str] = Field(default=[], description="List of filesystem URIs to skip globally")
+
+
+class FileBackendConfigSchema(BaseModel):
+    """Schema for file-based backend configuration (basic, zarr, delta, parquet).
+
+    File backends store cached data on a filesystem (local, GCS, S3, etc.).
+    Used by: basic.py, zarr.py, delta.py, parquet.py (all inherit from FileBackend)
+    """
+    model_config = ConfigDict(extra='forbid', title="file_backend_config", json_schema_extra={"description": "Configuration for file-based backends (basic, zarr, delta, parquet). Source: backend.py FileBackend class."})
+
+    filesystem: str | None = Field(default=None, description="Filesystem URI (e.g., gs://bucket/path, s3://bucket/path, ~/local/path). From backend.py:231")
+    filesystem_options: dict = Field(default={}, description="Options passed to fsspec filesystem (credentials, cache settings, etc.). From backend.py:243-256")
+
+
+class DatabaseBackendConfigSchema(BaseModel):
+    """Schema for database backend configuration (sql).
+
+    Database backends store cached data in a SQL database.
+    Used by: sql.py (inherits from DatabaseBackend)
+    """
+    model_config = ConfigDict(extra='forbid', title="database_backend_config", json_schema_extra={"description": "Configuration for database backends (sql). Source: backend.py DatabaseBackend class."})
+
+    driver: str | None = Field(default=None, description="SQLAlchemy database driver (e.g., 'postgresql', 'mysql+pymysql'). From backend.py:283")
+    host: str | None = Field(default=None, description="Database server hostname. From backend.py:285")
+    port: int | None = Field(default=None, description="Database server port. From backend.py:286")
+    database: str | None = Field(default=None, description="Database name. From backend.py:287")
+    username: str | None = Field(default=None, description="Database username for read access. From backend.py:284")
+    password: str | None = Field(default=None, description="Database password for read access. From backend.py:285")
+    write_username: str | None = Field(default=None, description="Optional separate username for write operations. From backend.py:294")
+    write_password: str | None = Field(default=None, description="Optional separate password for write operations. From backend.py:295")
+
+
+class TerracottaBackendConfigSchema(BaseModel):
+    """Schema for terracotta backend configuration.
+
+    Terracotta inherits from BOTH DatabaseBackend AND FileBackend.
+    Used by: terracotta.py
+    """
+    model_config = ConfigDict(extra='forbid', title="terracotta_backend_config", json_schema_extra={"description": "Configuration for terracotta backend. Inherits from both FileBackend and DatabaseBackend. Source: terracotta.py"})
+
+    filesystem: str | None = Field(default=None, description="Filesystem URI for storing raster files. From FileBackend (backend.py:231)")
+    filesystem_options: dict = Field(default={}, description="fsspec filesystem options. From FileBackend (backend.py:243-256)")
+    driver: str | None = Field(default=None, description="SQLAlchemy driver for terracotta metastore. From DatabaseBackend (backend.py:283)")
+    host: str | None = Field(default=None, description="Database host. From DatabaseBackend (backend.py:285)")
+    port: int | None = Field(default=None, description="Database port. From DatabaseBackend (backend.py:286)")
+    database: str | None = Field(default=None, description="Database name. From DatabaseBackend (backend.py:287)")
+    username: str | None = Field(default=None, description="Database username. From DatabaseBackend (backend.py:284)")
+    password: str | None = Field(default=None, description="Database password. From DatabaseBackend (backend.py:285)")
+    write_username: str | None = Field(default=None, description="Username for writing to terracotta metastore. From terracotta.py:116")
+    write_password: str | None = Field(default=None, description="Password for writing to terracotta metastore. From terracotta.py:116")
+    override_path: str | None = Field(default=None, description="Base path override for registering tifs with terracotta. Defaults to filesystem. From terracotta.py:133")
+    resampling_method: str | None = Field(default=None, description="Resampling method for reprojection. One of: nearest, average, bilinear, cubic. From terracotta.py:148")
+
+
+class LocationConfigSchema(BaseModel):
+    """Schema for a cache location (root, local, or mirrors.<name>).
+
+    Location-level settings are inherited by all backends.
+    Backend subsections can override these settings.
+    """
+    model_config = ConfigDict(extra='forbid', title="location", json_schema_extra={"description": "Cache location configuration. Location-level settings are inherited by all backends."})
+
+    # File backend settings (from backend.py FileBackend)
+    filesystem: str | None = Field(default=None, description="Filesystem URI (e.g., gs://bucket/path, s3://bucket/path, ~/local/path)")
+    filesystem_options: dict = Field(default={}, description="Options passed to fsspec filesystem (credentials, cache settings, etc.)")
+
+    # Database backend settings (from backend.py DatabaseBackend)
+    driver: str | None = Field(default=None, description="SQLAlchemy database driver (for database backends)")
+    host: str | None = Field(default=None, description="Database server hostname (for database backends)")
+    port: int | None = Field(default=None, description="Database server port (for database backends)")
+    database: str | None = Field(default=None, description="Database name (for database backends)")
+    username: str | None = Field(default=None, description="Database username (for database backends)")
+    password: str | None = Field(default=None, description="Database password (for database backends)")
+    write_username: str | None = Field(default=None, description="Optional separate write username (for database backends)")
+    write_password: str | None = Field(default=None, description="Optional separate write password (for database backends)")
+
+    # Memoizer settings
+    local_cache_size: str | None = Field(default=None, description="Max size of in-memory cache for local (non-dask) objects. Human-readable string (e.g. '2GB'). From memoizer.py")
+    remote_cache_size: str | None = Field(default=None, description="Max size of in-memory cache for remote (dask/xarray) objects. Human-readable string (e.g. '32GB'). From memoizer.py")
+
+    # Backend-specific overrides
+    sql: DatabaseBackendConfigSchema | None = Field(default=None, description="SQL backend configuration overrides")
+    delta: FileBackendConfigSchema | None = Field(default=None, description="Delta Lake backend configuration overrides")
+    basic: FileBackendConfigSchema | None = Field(default=None, description="Basic (pickle) backend configuration overrides")
+    zarr: FileBackendConfigSchema | None = Field(default=None, description="Zarr backend configuration overrides")
+    terracotta: TerracottaBackendConfigSchema | None = Field(default=None, description="Terracotta backend configuration overrides")
+    parquet: FileBackendConfigSchema | None = Field(default=None, description="Parquet backend configuration overrides")
+
+
+class ProjectConfigSchema(GlobalConfigSchema):
+    """Schema for project nuthatch config (nuthatch.toml).
+
+    Project config format:
+
+    ```toml
+    [root]
+    filesystem = "gs://my-bucket/caches"
+
+    [local]
+    filesystem = "~/.nuthatch/caches"
+
+    [mirrors.public]
+    filesystem = "gs://public-bucket/caches"
+    ```
+    """
+    model_config = ConfigDict(extra='forbid')
+
+    skipped_filesystems: list[str] = Field(default=[], description="List of filesystem URIs to skip")
+    dynamic_config_path: str | None = Field(default=None, description="Python module path for dynamic configuration")
+    root: LocationConfigSchema | None = Field(default=None, description="Primary cache location")
+    cache_mode: str | None = Field(default=None, description="Default cache mode for all cacheable functions. One of: write, overwrite, local, local_overwrite, local_sync, local_strict, local_api, read_only, read_only_strict, off")
+    local: LocationConfigSchema | None = Field(default=None, description="Local cache location for faster access")
+    mirrors: dict[str, LocationConfigSchema] | None = Field(default=None, description="Read-only mirror locations")
+
 
 
 def set_parameter(parameter_value, parameter_name=None, location='root', backend=None):
@@ -104,7 +218,12 @@ def config_parameter(parameter_name, location='root', backend=None, secret=False
         # Get the module object associated with the caller's frame
         caller_frame = inspect.stack()[1]
         module = inspect.getmodule(caller_frame.frame)
-        if hasattr(module, '__name__'):
+        if module is None:
+            # Fallback to frame's globals when inspect.getmodule returns None
+            # (can happen with mounted files in Docker, dynamically executed code, etc.)
+            module_name = caller_frame.frame.f_globals.get('__name__', '')
+            module = module_name.partition('.')[0] if module_name else None
+        elif hasattr(module, '__name__'):
             module = module.__name__.partition('.')[0]
         if module not in dynamic_parameters:
             dynamic_parameters[module] = {}
@@ -125,73 +244,254 @@ def config_parameter(parameter_name, location='root', backend=None, secret=False
 
 class NuthatchConfig:
 
+    # Defaults that can be overridden
+    CONFIG_FILE_NAME = 'nuthatch.toml'
+    DEFAULT_GLOBAL_CONFIG_PATH = '~/.nuthatch.toml'
+
     def _is_fs_root(self, p):
         """Check if a path is the root of a filesystem."""
         return os.path.splitdrive(str(p))[1] == os.sep
 
-    def _find_nuthatch_config(self, start_dir):
-        if isinstance(start_dir, str) and start_dir.endswith('nuthatch.toml') and os.path.exists(start_dir):
+    def _get_global_config_path(self):
+        """Get the path to the global config file.
+
+        Checks NUTHATCH_GLOBAL_CONFIG env var first, falls back to default.
+        """
+        env_path = os.environ.get(NUTHATCH_GLOBAL_CONFIG_ENV)
+        if env_path:
+            return os.path.expanduser(env_path)
+        return os.path.expanduser(self.DEFAULT_GLOBAL_CONFIG_PATH)
+
+    def _find_project_config(self, start_dir=None):
+        """Find config file starting from start_dir and searching upward.
+
+        Args:
+            start_dir: Directory to start searching from. Defaults to cwd.
+                       Can also be a direct path to the config file.
+
+        Returns:
+            Path to config file or None if not found.
+        """
+        if start_dir is None:
+            start_dir = Path.cwd()
+
+        if isinstance(start_dir, str) and start_dir.endswith(self.CONFIG_FILE_NAME) and os.path.exists(start_dir):
             return start_dir
         if isinstance(start_dir, str):
             start_dir = Path(start_dir)
 
         current_directory = start_dir
 
-        config_file = None
         while not self._is_fs_root(current_directory):
-            if current_directory.joinpath('pyproject.toml').exists() :
-                config_file = current_directory.joinpath('pyproject.toml')
-                break
-
-            if current_directory.joinpath('nuthatch.toml').exists() :
-                config_file = current_directory.joinpath('nuthatch.toml')
-                break
+            if current_directory.joinpath(self.CONFIG_FILE_NAME).exists():
+                return current_directory.joinpath(self.CONFIG_FILE_NAME)
 
             current_directory = current_directory.parent
 
-        return config_file
+        return None
+
+    def _get_project_config_path(self):
+        """Get the path to the project config file.
+
+        Checks NUTHATCH_PROJECT_CONFIG env var first, falls back to searching
+        upward from cwd for the config file.
+
+        Returns:
+            Path to config file or None if not found
+        """
+        env_path = os.environ.get(NUTHATCH_PROJECT_CONFIG_ENV)
+        if env_path:
+            expanded = os.path.expanduser(env_path)
+            if os.path.exists(expanded):
+                return expanded
+            raise FileNotFoundError(f"{NUTHATCH_PROJECT_CONFIG_ENV} set to '{env_path}' but file does not exist")
+        return self._find_project_config(Path.cwd())
+
+    def set_global_skipped_filesystem(self, filesystem):
+        """Add a filesystem to the global skip list."""
+        config_file = self._get_global_config_path()
+
+        config_data = {}
+        if os.path.exists(config_file):
+            with open(config_file, 'rb') as f:
+                config_data = tomllib.load(f)
+
+        skip_list = config_data.setdefault('skipped_filesystems', [])
+        if filesystem in skip_list:
+            return
+        else:
+            skip_list.append(filesystem)
+
+        with open(config_file, "wb") as f:
+            tomli_w.dump(config_data, f)
 
     def _get_config_file(self, path):
-        config_file = self._find_nuthatch_config(path)
+        """Load config from a config file.
+
+        Args:
+            path: Either a direct path to config file or a directory to search from
+
+        Returns:
+            Configuration dictionary or empty dict if not found
+
+        Supports two formats:
+            - Top-level keys: filesystem = "...", [local], etc.
+            - Under [nuthatch] section (for backwards compatibility)
+        """
+        config_file = self._find_project_config(path)
         logger.debug(f"Config file path is: {config_file}")
         if config_file:
             with open(config_file, "rb") as f:
                 config = tomllib.load(f)
+                # Support [nuthatch] section for backwards compatibility
                 if 'nuthatch' in config:
                     return config['nuthatch']
-                elif 'tool' in config and 'nuthatch' in config['tool']:
-                    return config['tool']['nuthatch']
+                # Otherwise return top-level config
+                return config
 
         return {}
 
+    def _validate_global_config(self, config):
+        """Validate that global config only contains allowed keys.
+
+        Raises:
+            ValueError: If config contains keys other than allowed keys
+        """
+        try:
+            GlobalConfigSchema(**config)
+        except ValidationError as e:
+            config_path = self._get_global_config_path()
+            allowed_keys = set(GlobalConfigSchema.model_fields.keys())
+            raise ValueError(
+                f"Global nuthatch config at '{config_path}' is invalid: {e}. "
+                f"Global config can ONLY contain: {allowed_keys}. "
+                f"Move other configuration to your project's nuthatch.toml file."
+            ) from e
+        return config
+
+    def _load_global_config(self):
+        """Load and validate the global configuration file.
+
+        The global config can ONLY contain skipped_filesystems.
+        """
+        config_path = self._get_global_config_path()
+
+        if not os.path.exists(config_path):
+            return {}
+
+        with open(config_path, "rb") as f:
+            config = tomllib.load(f)
+
+        # Handle [nuthatch] section format
+        if 'nuthatch' in config:
+            config = config['nuthatch']
+
+        return self._validate_global_config(config)
+
+    def _validate_project_config(self, config):
+        """Validate project config against ProjectConfigSchema.
+
+        Raises:
+            ValueError: If config contains invalid keys or values
+        """
+        try:
+            ProjectConfigSchema(**config)
+        except ValidationError as e:
+            config_path = self._get_project_config_path()
+            raise ValueError(
+                f"Project nuthatch config at '{config_path}' is invalid: {e}."
+            ) from e
+        return config
+
+    def _load_project_config(self):
+        """Load the project configuration file.
+
+        Checks NUTHATCH_PROJECT_CONFIG env var first, then searches for config file.
+        """
+        config_path = self._get_project_config_path()
+
+        if not config_path or not os.path.exists(config_path):
+            return {}
+
+        with open(config_path, "rb") as f:
+            config = tomllib.load(f)
+
+        # Handle [nuthatch] section format
+        if 'nuthatch' in config:
+            return self._validate_project_config(config['nuthatch'])
+        return self._validate_project_config(config)
+
     def _get_environ_config(self):
+        """Parse nuthatch configuration from environment variables.
+
+        Supports formats:
+        - NUTHATCH_ROOT_<PARAM> - root location parameter
+        - NUTHATCH_ROOT_FILESYSTEM_OPTIONS_<KEY> - nested filesystem_options
+        - NUTHATCH_LOCAL_<PARAM> - local location parameter
+        - NUTHATCH_MIRRORS_<NAME>_<PARAM> - mirror parameter
+        """
         config = {}
+
         for key, value in os.environ.items():
             if key.startswith('NUTHATCH'):
                 parts = key.split('_')
-                if len(parts) == 1:
-                    pass
-                if len(parts) == 2:
-                    config[parts[1]] = value
-                if len(parts) > 2:
-                    if parts[1] in ['ROOT', 'LOCAL', 'MIRROR'] or parts[1].startswith('MIRROR'):
-                        if self._is_backend(parts[2].lower()):
-                            if len(parts) == 3:
-                                logger.warn(f"Found nuthatch environment variable {key} with location and backend but not parameter name. Skipping.")
-                            else:
-                                location_config = config.setdefault(parts[1].lower(), {})
-                                backend_config = location_config.setdefault(parts[2].lower(), {})
-                                backend_config['_'.join(parts[3:]).lower()] = value
+                if len(parts) <= 2:
+                    continue
+                # NUTHATCH_MIRRORS_<name>_<param>
+                if parts[1] == 'MIRRORS' and len(parts) >= 4:
+                    mirror_name = parts[2].lower()
+                    mirrors = config.setdefault('mirrors', {})
+                    mirror_config = mirrors.setdefault(mirror_name, {})
+                    if self._is_backend(parts[3].lower()):
+                        if len(parts) == 4:
+                            logger.warning(f"Found nuthatch environment variable {key} with mirror, backend but no parameter. Skipping.")
+                        else:
+                            backend_config = mirror_config.setdefault(parts[3].lower(), {})
+                            self._set_nested_param(backend_config, parts[4:], value)
+                    else:
+                        self._set_nested_param(mirror_config, parts[3:], value)
+                # Standard locations: ROOT, LOCAL
+                elif parts[1] in ['ROOT', 'LOCAL']:
+                    if self._is_backend(parts[2].lower()):
+                        if len(parts) == 3:
+                            logger.warning(f"Found nuthatch environment variable {key} with location and backend but not parameter name. Skipping.")
                         else:
                             location_config = config.setdefault(parts[1].lower(), {})
-                            location_config['_'.join(parts[2:]).lower()] = value
-                    elif self._is_backend(parts[1].lower()):
-                        backend_config = config.setdefault(parts[1].lower(), {})
-                        backend_config['_'.join(parts[2:]).lower()] = value
+                            backend_config = location_config.setdefault(parts[2].lower(), {})
+                            self._set_nested_param(backend_config, parts[3:], value)
                     else:
-                        config['_'.join(parts[1:]).lower()] = value
+                        location_config = config.setdefault(parts[1].lower(), {})
+                        self._set_nested_param(location_config, parts[2:], value)
 
         return config
+
+    def _set_nested_param(self, config_dict, parts, value):
+        """Set a parameter value, handling nested dicts like filesystem_options.
+
+        Supports:
+        - ['FILESYSTEM'] -> config_dict['filesystem'] = value
+        - ['FILESYSTEM_OPTIONS', 'KEY'] -> config_dict['filesystem_options']['key'] = value
+        - ['FILESYSTEM_OPTIONS_KEY'] -> config_dict['filesystem_options']['key'] = value
+        """
+        # Known dict fields that can have nested keys
+        dict_fields = {'filesystem_options'}
+
+        # Join parts to form potential param name
+        param_parts = [p.lower() for p in parts]
+
+        # Check if this is a nested dict field (e.g., FILESYSTEM_OPTIONS_KEY)
+        for i in range(len(param_parts)):
+            potential_dict_field = '_'.join(param_parts[:i+1])
+            if potential_dict_field in dict_fields and i + 1 < len(param_parts):
+                # This is a nested dict field with a key after it
+                nested_dict = config_dict.setdefault(potential_dict_field, {})
+                nested_key = '_'.join(param_parts[i+1:])
+                nested_dict[nested_key] = value
+                return
+
+        # Not a nested field, just set the value directly
+        param_name = '_'.join(param_parts)
+        config_dict[param_name] = value
 
     def _get_dynamic_config(self, wrapped_module):
         root_module_name = None
@@ -209,75 +509,74 @@ class NuthatchConfig:
         return {}
 
     def _is_location(self, key):
-        if key in ['root', 'local', 'mirro'] or key.startswith('mirror'):
-            return True
-        else:
-            return False
+        """Check if a config key represents a cache location.
+
+        Recognizes: 'root', 'local', 'mirrors'
+        """
+        return key in ['root', 'local', 'mirrors']
 
     def _is_backend(self, key):
         return key in nuthatch.backend.registered_backends.keys()
 
     def _expand_config(self, config):
-        # Expand config so that all config parameters fall in [location][backend] format
-
-        # Start by moving things that are not location-scoped into root
-        root_config = {}
-        keys_to_delete = []
-        for key, value in config.items():
-            if not self._is_location(key):
-                root_config[key] = value
-                keys_to_delete.append(key)
-
-
-        root_ref = config.setdefault('root', {})
-        for key, value in root_config.items():
-            if key not in root_ref:
-                root_ref[key] = value
-        for key in keys_to_delete:
-            if key in config:
-                del config[key]
-
-        # Now copy parameters to all registered backends softly so that if a backend has parameters
-        # they aren't overwritten but filled out
+        """Expand config so that all config parameters fall in [location][backend] format."""
+        # Expand backend config for all locations
+        # Copy generic location parameters to all registered backends
         for location, location_values in config.items():
-            generic_config = {}
+            if not isinstance(location_values, dict):
+                continue
 
-            # Get everything that's not for a specific backend and put it in the generic section
-            for backend_or_key, value in location_values.items():
-                if not self._is_backend(backend_or_key):
-                    generic_config[backend_or_key] = value
-
-            # For all registered backends, update the values with the generics
-            for backend in nuthatch.backend.registered_backends.keys():
-                backend_config = location_values.setdefault(backend, {})
-                for key, value in generic_config.items():
-                    if key not in backend_config:
-                        backend_config[key] = value
+            # Handle mirrors dict specially
+            if location == 'mirrors':
+                for mirror_config in location_values.values():
+                    if isinstance(mirror_config, dict):
+                        self._expand_location_backends(mirror_config)
+            else:
+                self._expand_location_backends(location_values)
 
         return config
+
+    def _expand_location_backends(self, location_values):
+        """Expand backend config for a single location."""
+        generic_config = {}
+        for backend_or_key, value in location_values.items():
+            if not self._is_backend(backend_or_key):
+                generic_config[backend_or_key] = value
+
+        for backend in nuthatch.backend.registered_backends.keys():
+            backend_config = location_values.setdefault(backend, {})
+            for key, value in generic_config.items():
+                if key not in backend_config:
+                    backend_config[key] = value
 
     def __init__(self, wrapped_module, mask_secrets=False, sub_config=None):
         self.mask_secrets = mask_secrets
         self.default_local = False
         self.wrapped_module = wrapped_module
-        if sub_config:
+        if sub_config is not None:
             self.config = sub_config
             return
+
 
         logger.debug("Constructing top level config")
         final_config = {}
 
-        # These configurations come from out current environment - they are always safe
-        global_config = self._get_config_file(os.path.expanduser('~/.nuthatch.toml'))
-        current_config = self._get_config_file(Path.cwd())
+        # These configurations come from our current environment - they are always safe
+        # Global config: ~/.nuthatch.toml or NUTHATCH_GLOBAL_CONFIG env var
+        # Can ONLY contain filesystem_options and skipped_filesystems
+        global_config = self._load_global_config()
+        # Project config: nuthatch.toml in project or NUTHATCH_PROJECT_CONFIG env var
+        # Can contain all configuration options
+        current_config = self._load_project_config()
         environ_config = self._get_environ_config()
 
         # These configurations are scoped to the environment of the wrapped function
         # If the wrapped function is in our package that's fine - they should be merged in
         # But if it's in another package we don't always want them to overwrite our root settings (very rarely)
-        # And we often want to add them as additional mirros to our current environment
+        # And we often want to add them as additional mirrors to our current environment
+        # Skip filesystem search if project config is explicitly set via env var
         wrapped_config = {}
-        if hasattr(wrapped_module, '__file__'):
+        if not os.environ.get(NUTHATCH_PROJECT_CONFIG_ENV) and hasattr(wrapped_module, '__file__'):
             wrapped_config = self._get_config_file(wrapped_module.__file__)
 
         dynamic_config = self._get_dynamic_config(wrapped_module)
@@ -298,7 +597,7 @@ class NuthatchConfig:
             logger.debug(final_config)
         elif hasattr(wrapped_module, '__file__') and ('site-packages' in wrapped_module.__file__ or 'dist-packages' in wrapped_module.__file__):
             if os.getenv("NUTHATCH_ALLOW_INSTALLED_PACKAGE_CONFIGURATION", 'False').lower() in ('true', '1', 't'):
-                # We are in an installed package, but we have a specific overwride to enable the installed package to set root parameters
+                # We are in an installed package, but we have a specific override to enable the installed package to set root parameters
                 final_config |= global_config
                 final_config |= current_config
                 final_config |= environ_config
@@ -319,19 +618,22 @@ class NuthatchConfig:
                 external_name = 'external'
                 if hasattr(wrapped_module, '__name__'):
                     external_name = wrapped_module.__name__.partition('.')[0]
-                final_config['mirror-' + external_name + '-root'] = external_config['root']
-                for key, value in external_config.items():
-                    if key == 'mirror':
-                        final_config['mirror-' + external_name] = external_config[key]
-                    elif key.startswith('mirror'):
-                        final_config['mirror-' + external_name + '-' + key.replace('mirror', '')] = external_config[key]
+
+                # Use new mirrors dict structure (will be flattened by _expand_config)
+                mirrors = final_config.setdefault('mirrors', {})
+                mirrors[f'{external_name}-root'] = external_config['root']
+
+                # Handle mirrors from external config (already in dict form after _expand_config)
+                if 'mirrors' in external_config:
+                    for mirror_name, mirror_config in external_config['mirrors'].items():
+                        mirrors[f'{external_name}-{mirror_name}'] = mirror_config
         else:
             # wrapped module is for some reason not set. Don't allow dynamic parameters (they shouldn't work anyway due to wrapped module not being set)
             final_config |= global_config
             final_config |= current_config
             final_config |= environ_config
 
-        if 'local' not in final_config or 'fileysstem' not in final_config['local']:
+        if 'local' not in final_config or 'filesystem' not in final_config['local']:
             local = final_config.setdefault('local', {})
             local['filesystem'] = "~/.nuthatch/caches"
             self.default_local = True
@@ -411,6 +713,27 @@ class NuthatchConfig:
 
     def keys(self):
         return self.config.keys()
+
+    def get(self, key, default=None):
+        try:
+            return self[key]
+        except KeyError:
+            return default
+
+    def as_dict(self):
+        """Recursively convert to a plain dict.
+
+        Nested NuthatchConfig values are also converted so that
+        isinstance(..., dict) checks work downstream.
+        """
+        def _to_plain_dict(obj):
+            if hasattr(obj, 'items'):
+                return {k: _to_plain_dict(v) for k, v in obj.items()}
+            return obj
+        return _to_plain_dict(self)
+
+    def copy(self):
+        return self.config.copy()
 
     def __str__(self):
         return str(self.config)

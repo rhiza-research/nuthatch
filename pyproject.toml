@@ -23,11 +23,14 @@ dependencies = [
     "rioxarray",
     "gitpython",
     "psycopg2-binary",
-    "zarr",
+    "zarr<3",
     "click",
     "polars",
     "dateparser",
     "tomli-w",
+    "s3fs",
+    "adlfs",
+    "pydantic",
     "multiprocess",
     "humanfriendly",
 ]
@@ -36,19 +39,27 @@ dependencies = [
 # dependencies can be installed independently
 [dependency-groups]
 dev = [
-    "pooch",
-    "google-cloud-secret-manager",
+    # Testing framework and plugins
+    "pytest>=7.0.0",           # Test runner
+    "pytest-cov>=4.0.0",       # Code coverage reporting
+    "pytest-mock>=3.10.0",     # Mock object support for tests
+    # Cloud storage filesystem interfaces (for testing with emulators)
+    "gcsfs",                   # Google Cloud Storage filesystem
+    "s3fs",                    # AWS S3 filesystem
+    "adlfs",                   # Azure Data Lake Storage filesystem
+    "azure-storage-blob",      # Azure Blob Storage SDK
+    # Utilities
+    "pooch",                   # Download and cache test data files
+    "google-cloud-secret-manager",  # Access secrets from GCP Secret Manager
     "dask[distributed]",
     "bokeh>=3.1.0",
-    "gcsfs",
-    "pytest>=7.0.0",
-    "pytest-cov>=4.0.0",
-    "pytest-mock>=3.10.0",
-    "ruff>=0.1.0",
+    "requests",                # HTTP client for API calls
+    "ruff>=0.1.0",             # Linter and code formatter
 ]
 
 [project.scripts]
 nuthatch = "nuthatch.cli:main"
+nuthatch-export-schema = "nuthatch.export_schema:main"
 
 
 [project.optional-dependencies]
@@ -63,9 +74,6 @@ build-backend = "hatchling.build"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/nuthatch"]
-exclude = [
-    "src/nuthatch/test_secrets.py" # Exclude a specific file
-]
 
 [tool.hatch.metadata]
 allow-direct-references = true
@@ -74,7 +82,7 @@ allow-direct-references = true
 managed = true
 
 [tool.pytest.ini_options]
-log_cli = true
+log_cli = false
 log_cli_level = "INFO"
 log_cli_format = "%(asctime)s.%(msecs)03d %(levelname)s %(filename)s:%(lineno)s %(message)s"
 addopts = [
@@ -83,6 +91,13 @@ addopts = [
     "--cov-report=term-missing",
     "--cov-report=html",
     "--cov-report=xml",
+]
+filterwarnings = [
+]
+markers = [
+    "s3: test uses S3/LocalStack",
+    "gcs: test uses GCS/fake-gcs-server",
+    "azure: test uses Azure/Azurite",
 ]
 
 [tool.coverage.run]
@@ -97,34 +112,6 @@ exclude_lines = [
     "raise AssertionError",
     "raise NotImplementedError",
 ]
-
-
-[tool.nuthatch]
-filesystem = "gs://sheerwater-datalake/caches"
-host = "postgres.sheerwater.rhizaresearch.org"
-port = 5432
-database = "postgres"
-username = "sheerwater_write"
-driver = "postgresql"
-dynamic_config_path = "nuthatch.test_secrets"
-
-[tool.nuthatch.terracotta]
-filesystem = "gs://sheerwater-datalake/rasters"
-database = "terracotta"
-override_path = "/mnt/sheerwater-datalake"
-
-[tool.nuthatch.filesystem_options]
-cache_timeout=0
-
-[tool.nuthatch.local]
-filesystem = "~/.nuthatch/caches"
-
-[tool.nuthatch.mirror-public]
-filesystem = "gs://sheerwater-public-datalake/caches"
-
-[tool.nuthatch.mirror-public.filesystem_options]
-cache_timeout=0
-token = 'anon'
 
 [tool.autopep8]
 max_line_length = 120

@@ -1,0 +1,16 @@
+#:schema https://raw.githubusercontent.com/rhiza-research/nuthatch/main/nuthatch.schema.json
+# GCP / fake-gcs-server configuration
+# NOTE: gcsfs uses STORAGE_EMULATOR_HOST env var for emulator endpoint
+# Set: export STORAGE_EMULATOR_HOST=http://localhost:4443
+
+[root]
+filesystem = "gs://nuthatch-test/cache"
+
+[root.filesystem_options]
+# gcsfs uses STORAGE_EMULATOR_HOST env var with anonymous auth
+token = "anon"
+# delta-rs reads gcs_base_url from this service account file for emulator support
+google_service_account = "/root/fake_gcs_service_account.json"
+
+[local]
+filesystem = "~/.nuthatch/local-cache"

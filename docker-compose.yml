@@ -1,0 +1,159 @@
+# Docker Compose for running tests in network isolation
+#
+# All services run on an internal network with no internet access.
+# This prevents tests from accidentally connecting to production cloud services.
+#
+# Usage:
+#   docker compose up -d aws gcs azurite postgres
+#   docker compose run --rm test
+#
+#   # Run specific tests:
+#   docker compose run --rm test tests/test_cli.py -v -m gcs
+#
+#   # Clean up:
+#   docker compose down -v
+
+# =============================================================================
+# Shared environment variables (YAML anchors)
+# =============================================================================
+x-aws-env: &aws-env
+  AWS_ENDPOINT_URL: http://aws:4566
+  AWS_ACCESS_KEY_ID: test
+  AWS_SECRET_ACCESS_KEY: test
+  AWS_DEFAULT_REGION: us-east-1
+
+x-gcs-env: &gcs-env
+  STORAGE_EMULATOR_HOST: http://gcs:4443
+  GOOGLE_APPLICATION_CREDENTIALS: /root/fake_gcs_service_account.json
+
+x-azure-env: &azure-env
+  # Well-known Azurite credentials
+  # https://learn.microsoft.com/en-us/azure/storage/common/storage-connect-azurite
+  AZURE_STORAGE_ACCOUNT: devstoreaccount1
+  AZURE_STORAGE_KEY: Eby8vdM02xNOcqFlqUwJPLlmEtlCDXJ1OUzFT50uSRZ6IFsuFq2UVErCz4I6tq/K1SZFPTOtr/KBHBeksoGMGw==
+  AZURE_STORAGE_ENDPOINT: http://azurite:10000
+
+x-postgres-env: &postgres-env
+  POSTGRES_HOST: postgres
+  POSTGRES_PORT: 5432
+  POSTGRES_USER: test
+  POSTGRES_PASSWORD: test
+  POSTGRES_DB: nuthatch_test
+
+# =============================================================================
+# Services
+# =============================================================================
+services:
+  # AWS emulation (LocalStack)
+  aws:
+    image: localstack/localstack:s3-latest
+    environment:
+      DEBUG: 0
+    networks:
+      - isolated
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:4566/_localstack/health"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  # Initialize S3 bucket (LocalStack accepts unsigned requests)
+  aws-init:
+    image: curlimages/curl:latest
+    depends_on:
+      aws:
+        condition: service_healthy
+    entrypoint: ["sh", "-c", "curl -sf -X PUT 'http://aws:4566/nuthatch-test' || true"]
+    networks:
+      - isolated
+
+  # fake-gcs-server for GCS emulation
+  gcs:
+    image: ghcr.io/rhiza-research/fake-gcs-server:latest
+    command: -scheme http -backend memory -public-host gcs -external-url http://gcs:4443 -port 4443
+    networks:
+      - isolated
+    healthcheck:
+      test: ["CMD", "wget", "-q", "--spider", "http://localhost:4443/storage/v1/b"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  # Initialize GCS bucket
+  gcs-init:
+    image: curlimages/curl:latest
+    depends_on:
+      gcs:
+        condition: service_healthy
+    entrypoint: ["sh", "-c", "curl -s -X POST 'http://gcs:4443/storage/v1/b?project=test' -H 'Content-Type: application/json' -d '{\"name\": \"nuthatch-test\"}' || true"]
+    networks:
+      - isolated
+
+  # Azurite for Azure Blob Storage emulation
+  azurite:
+    image: mcr.microsoft.com/azure-storage/azurite:latest
+    command: azurite-blob --blobHost 0.0.0.0 --blobPort 10000 --skipApiVersionCheck
+    networks:
+      - isolated
+    healthcheck:
+      test: ["CMD-SHELL", "node -e \"require('http').get('http://127.0.0.1:10000/', (r) => process.exit(0)).on('error', () => process.exit(1))\""]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  # Initialize Azure container (SAS token pre-computed for Azurite's well-known credentials, expires 2100)
+  azurite-init:
+    image: curlimages/curl:latest
+    depends_on:
+      azurite:
+        condition: service_healthy
+    entrypoint: ["sh", "-c", "curl -sf -X PUT 'http://azurite:10000/devstoreaccount1/nuthatch-test?restype=container&se=2100-01-01T00%3A00%3A00Z&sp=rwdlc&sv=2026-02-06&ss=b&srt=sco&sig=Djhz7VmKKdQQd9vNKMCdQlgE8DCqlqyBWpzS0KubRQs%3D' || true"]
+    networks:
+      - isolated
+
+  # PostgreSQL for SQL backend testing
+  postgres:
+    image: postgres:15
+    environment:
+      <<: *postgres-env
+    networks:
+      - isolated
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U test -d nuthatch_test"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  # Test runner
+  test:
+    image: ghcr.io/rhiza-research/nuthatch-test:latest
+    build:
+      context: .
+      dockerfile: Dockerfile.test
+    volumes:
+      - ./src:/app/src:ro
+      - ./tests:/app/tests:ro
+      - ./tests/fixtures/fake_gcs_service_account.json:/root/fake_gcs_service_account.json:ro
+      # Map docker config files over regular config files for emulator endpoints
+      - ./nuthatch.aws.docker.toml:/app/nuthatch.aws.toml:ro
+      - ./nuthatch.gcp.docker.toml:/app/nuthatch.gcp.toml:ro
+      - ./nuthatch.azure.docker.toml:/app/nuthatch.azure.toml:ro
+    depends_on:
+      aws-init:
+        condition: service_completed_successfully
+      gcs-init:
+        condition: service_completed_successfully
+      azurite-init:
+        condition: service_completed_successfully
+      postgres:
+        condition: service_healthy
+    environment:
+      NUTHATCH_EMULATOR: "true"
+      <<: [*aws-env, *gcs-env, *azure-env, *postgres-env]
+    networks:
+      - isolated
+
+networks:
+  isolated:
+    # Internal network - no external gateway, cannot reach the internet
+    internal: true
