@@ -53,7 +53,8 @@ def _make_test_backend(tmp_path: Path, cache_key: str):
     backend.override_path = backend.path
     backend.fs = fsspec.filesystem("file")
     Path(backend.path).mkdir(parents=True, exist_ok=True)
-    backend.driver = get_driver(str(tmp_path / "terracotta_scope.sqlite"))
+    sqlite_url = f"sqlite:///{(tmp_path / 'terracotta_scope.sqlite').as_posix()}"
+    backend.driver = get_driver(sqlite_url)
     try:
         backend.driver.get_keys()
     except Exception:
