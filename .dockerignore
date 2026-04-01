@@ -1,0 +1,28 @@
+# Large directories
+test_infrastructure/
+htmlcov/
+.git/
+.cache/
+.cache2/
+.coverage
+
+# Python caches
+__pycache__/
+*.pyc
+*.pyo
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+*.egg-info/
+
+# Virtual environments
+.venv/
+.uv/
+
+# IDE
+.idea/
+.vscode/
+
+# Build artifacts
+dist/
+build/

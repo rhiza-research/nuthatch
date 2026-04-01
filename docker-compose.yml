@@ -1,0 +1,95 @@
+# Docker Compose for running tests in network isolation
+#
+# All services run on an internal network with no internet access.
+# This prevents tests from accidentally connecting to production cloud services.
+#
+# Usage:
+#   docker compose up -d gcs postgres
+#   docker compose run --rm test
+#
+#   # Run specific tests:
+#   docker compose run --rm test tests/test_cli.py -v -m gcs
+#
+#   # Clean up:
+#   docker compose down -v
+
+# =============================================================================
+# Shared environment variables (YAML anchors)
+# =============================================================================
+x-gcs-env: &gcs-env
+  STORAGE_EMULATOR_HOST: http://gcs:4443
+  GOOGLE_APPLICATION_CREDENTIALS: /root/fake_gcs_service_account.json
+
+x-postgres-env: &postgres-env
+  POSTGRES_HOST: postgres
+  POSTGRES_PORT: 5432
+  POSTGRES_USER: test
+  POSTGRES_PASSWORD: test
+  POSTGRES_DB: nuthatch_test
+
+# =============================================================================
+# Services
+# =============================================================================
+services:
+  # fake-gcs-server for GCS emulation
+  gcs:
+    image: ghcr.io/rhiza-research/fake-gcs-server:latest
+    command: -scheme http -backend memory -public-host gcs -external-url http://gcs:4443 -port 4443
+    networks:
+      - isolated
+    healthcheck:
+      test: ["CMD", "wget", "-q", "--spider", "http://localhost:4443/storage/v1/b"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  # Initialize GCS bucket
+  gcs-init:
+    image: curlimages/curl:latest
+    depends_on:
+      gcs:
+        condition: service_healthy
+    entrypoint: ["sh", "-c", "curl -s -X POST 'http://gcs:4443/storage/v1/b?project=test' -H 'Content-Type: application/json' -d '{\"name\": \"nuthatch-test-bucket\"}' || true"]
+    networks:
+      - isolated
+
+  # PostgreSQL for SQL backend testing
+  postgres:
+    image: postgres:15
+    environment:
+      <<: *postgres-env
+    networks:
+      - isolated
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U test -d nuthatch_test"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  # Test runner
+  test:
+    image: ghcr.io/rhiza-research/nuthatch-test:latest
+    build:
+      context: .
+      dockerfile: Dockerfile.test
+    volumes:
+      - ./src:/app/src:ro
+      - ./tests:/app/tests:ro
+      - ./tests/fixtures/fake_gcs_service_account.json:/root/fake_gcs_service_account.json:ro
+      # Map docker config files over regular config files for emulator endpoints
+      - ./nuthatch.gcp.docker.toml:/app/nuthatch.gcp.toml:ro
+    depends_on:
+      gcs-init:
+        condition: service_completed_successfully
+      postgres:
+        condition: service_healthy
+    environment:
+      NUTHATCH_EMULATOR: "true"
+      <<: [*gcs-env, *postgres-env]
+    networks:
+      - isolated
+
+networks:
+  isolated:
+    # Internal network - no external gateway, cannot reach the internet
+    internal: true

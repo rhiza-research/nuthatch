@@ -12,7 +12,6 @@ import sys
 from nuthatch.cache import Cache, NuthatchReadError
 from nuthatch.backend import get_default_backend
 from nuthatch.config import NuthatchConfig
-from nuthatch.config import set_global_skipped_filesystem
 from nuthatch.memoizer import save_to_memory, recall_from_memory
 
 logger = logging.getLogger(__name__)
@@ -30,9 +29,10 @@ global_cache_mode = None
 global_retry_null_cache = None
 global_fs_warning = []
 global_backend_kwargs = None
+_call_depth = 0
 
 
-def set_global_cache_variables(recompute=None, memoize=None, cache_mode=None, retry_null_cache=None, backend_kwargs=None):
+def _set_global_cache_variables(recompute=None, memoize=None, cache_mode=None, retry_null_cache=None, backend_kwargs=None):
     """Reset all global variables to defaults and set the new values."""
     global global_recompute, global_memoize, global_cache_mode, \
         global_retry_null_cache, global_backend_kwargs
@@ -61,20 +61,17 @@ def set_global_cache_variables(recompute=None, memoize=None, cache_mode=None, re
         global_memoize = memoize  # if memoize is false, '_all' or a list
 
 
+def _restore_global_cache_variables(saved):
+    """Restore global cache variables to a previously saved state."""
+    global global_recompute, global_memoize, global_cache_mode, \
+        global_retry_null_cache, global_backend_kwargs
+    global_recompute, global_memoize, global_cache_mode, \
+        global_retry_null_cache, global_backend_kwargs = saved
+
+
 def check_if_nested_fn():
     """Check if the current scope is downstream from another cached function."""
-    # Get the current frame
-    stack = inspect.stack()
-
-    # skip the first three frames (this function, check args, and the current cacheable function)
-    for frame_info in stack[3:]:
-        frame = frame_info.frame
-        func_name = frame.f_code.co_name
-        if func_name == "nuthatch_cacheable_wrapper":
-            # There is a cachable function upstream of this one
-            return True
-    # No cachable function upstream of this one
-    return False
+    return _call_depth > 1
 
 
 def get_cache_args(passed_kwargs, default_cache_kwargs, decorator_args, func_name):
@@ -109,33 +106,32 @@ def get_cache_args(passed_kwargs, default_cache_kwargs, decorator_args, func_nam
     elif 'storage_backend_kwargs' in cache_args and cache_args['storage_backend_kwargs'] is None:
         cache_args['storage_backend_kwargs'] = decorator_args['storage_backend_kwargs']
 
+    # Apply global overrides when the function doesn't explicitly set its own value
+    global global_recompute, global_memoize, global_cache_mode, global_retry_null_cache, global_backend_kwargs
+
+    if global_retry_null_cache is not None and cache_args['retry_null_cache'] is None:
+        cache_args['retry_null_cache'] = global_retry_null_cache
+    if global_cache_mode is not None and cache_args['cache_mode'] is None:
+        cache_args['cache_mode'] = global_cache_mode
+    if global_recompute:
+        if func_name in global_recompute or global_recompute == '_all':
+            cache_args['recompute'] = True
+    if global_memoize:
+        if func_name in global_memoize or global_memoize == '_all':
+            cache_args['memoize'] = True
+    if global_backend_kwargs and cache_args.get('backend_kwargs'):
+        cache_args['backend_kwargs'].update(global_backend_kwargs)
+
     # Check if this is a nested cacheable function
     if not check_if_nested_fn():
         # This is a top level cacheable function, reset global cache variables
-        set_global_cache_variables(recompute=cache_args['recompute'], memoize=cache_args['memoize'],
-                                   cache_mode=cache_args['cache_mode'], retry_null_cache=cache_args['retry_null_cache'],
-                                   backend_kwargs=passed_backend_kwargs)
+        _set_global_cache_variables(recompute=cache_args['recompute'], memoize=cache_args['memoize'],
+                                    cache_mode=cache_args['cache_mode'], retry_null_cache=cache_args['retry_null_cache'],
+                                    backend_kwargs=passed_backend_kwargs)
         if isinstance(cache_args['recompute'], list) or isinstance(cache_args['recompute'], str) or cache_args['recompute'] == '_all':
             cache_args['recompute'] = True
         if isinstance(cache_args['memoize'], list) or isinstance(cache_args['memoize'], str) or cache_args['memoize'] == '_all':
             cache_args['memoize'] = True
-    else:
-        # Inherit global cache variables
-        global global_recompute, global_memoize, global_cache_mode, global_retry_null_cache, global_backend_kwargs
-
-        # Set all global variables
-        if global_retry_null_cache is not None:
-            cache_args['retry_null_cache'] = global_retry_null_cache
-        if global_cache_mode is not None:
-            cache_args['cache_mode'] = global_cache_mode
-        if global_recompute:
-            if func_name in global_recompute or global_recompute == '_all':
-                cache_args['recompute'] = True
-        if global_memoize:
-            if func_name in global_memoize or global_memoize == '_all':
-                cache_args['memoize'] = True
-        if global_backend_kwargs:
-            cache_args['backend_kwargs'].update(global_backend_kwargs)
 
     return cache_args
 
@@ -319,51 +315,58 @@ def instantiate_read_caches(config, cache_key, namespace, version, cache_arg_val
 
     cache_exception = None
     global global_fs_warning
-    for location, location_values in config.items():
-        # If the cache is local, we don't need to instantiate it
-        if location == 'local':
-            continue
 
-        cache = None
-        # First, try to set up a mirror (read-only) cache
-        if 'filesystem' in location_values:
-            # Check if this filesystem is listed to be skipped in the cache configuration
-            if 'skipped_filesystems' in config['root'] and location_values['filesystem'] in config['root']['skipped_filesystems']:
-                if location_values['filesystem'] not in global_fs_warning:
-                    logger.warning(
-                        f"Skipping filesystem {location_values['filesystem']} because it has been added to the excluded filesystems list in ~/.nuthatch.toml. Please remove it if you now have access.")
-                    global_fs_warning.append(location_values['filesystem'])
-                continue
+    def try_instantiate_cache(location_name, location_values):
+        """Try to instantiate a cache for a location, handling errors gracefully."""
+        nonlocal found_cache, cache_exception
 
-            try:
-                # If this is not a skipped filesystem, try to instantiate the cache
-                cache = Cache(location_values, cache_key, namespace, version,
-                              cache_arg_values, requested_backend, backend_kwargs, readonly=True)
-                caches[f"{location}"] = cache
-                found_cache = True
-            except NuthatchReadError as e:  # noqa
-                inp = input(f"""Failed to read from the cache at {location_values['filesystem']}.
-                                Would you like to add it to the excluded filesystems
-                                list at ~/.nuthatch.toml so future runs are faster? (y/n).""")
-                if inp == 'y' or inp == 'Y':
-                    # Set the filesystem to be skipped in the global config
-                    set_global_skipped_filesystem(location_values['filesystem'])
-                    logger.warning(
-                        f"""Added {location_values['filesystem']} to excluded filesystems list at ~/.nuthatch.toml so future runs are faster.
-                           You will have to manually remove it if you gain access to this cache in the future.""")
-                else:
-                    pass
+        if 'filesystem' not in location_values:
+            return
+
+        # Check if this filesystem is listed to be skipped in the cache configuration
+        if 'skipped_filesystems' in config['root'] and location_values['filesystem'] in config['root']['skipped_filesystems']:
+            if location_values['filesystem'] not in global_fs_warning:
+                logger.warning(
+                    f"Skipping filesystem {location_values['filesystem']} because it has been added to the excluded filesystems list in ~/.nuthatch.toml. Please remove it if you now have access.")
                 global_fs_warning.append(location_values['filesystem'])
-                cache_exception = f'Failed to access configured nuthatch cache "{location}" with error "{type(e).__name__}: {e}". If you couldn`t access the expected data, this could be the reason.'
-            except Exception as e:
-                # If we have a general exception, we should just log the error and continue.
-                global_fs_warning.append(location_values['filesystem'])
-                cache_exception = f'Failed to access configured nuthatch cache "{location}" with error "{type(e).__name__}: {e}". If you couldn`t access the expected data, this could be the reason.'
-                logger.warning(cache_exception)
+            return
+
+        try:
+            # If this is not a skipped filesystem, try to instantiate the cache
+            cache = Cache(location_values, cache_key, namespace, version,
+                          cache_arg_values, requested_backend, backend_kwargs, readonly=True)
+            caches[location_name] = cache
+            found_cache = True
+        except NuthatchReadError as e:  # noqa
+            inp = input(f"""Failed to read from the cache at {location_values['filesystem']}.
+                            Would you like to add it to the excluded filesystems
+                            list at ~/.nuthatch.toml so future runs are faster? (y/n).""")
+            if inp == 'y' or inp == 'Y':
+                # Set the filesystem to be skipped in the global config
+                config.set_global_skipped_filesystem(location_values['filesystem'])
+                logger.warning(
+                    f"""Added {location_values['filesystem']} to excluded filesystems list at ~/.nuthatch.toml so future runs are faster.
+                       You will have to manually remove it if you gain access to this cache in the future.""")
+            global_fs_warning.append(location_values['filesystem'])
+            cache_exception = f'Failed to access configured nuthatch cache "{location_name}" with error "{type(e).__name__}: {e}". If you couldn`t access the expected data, this could be the reason.'
+        except Exception as e:
+            # If we have a general exception, we should just log the error and continue.
+            global_fs_warning.append(location_values['filesystem'])
+            cache_exception = f'Failed to access configured nuthatch cache "{location_name}" with error "{type(e).__name__}: {e}". If you couldn`t access the expected data, this could be the reason.'
+            logger.warning(cache_exception)
+
+    # Try to instantiate the root cache
+    if 'root' in config:
+        try_instantiate_cache('root', config['root'])
+
+    # Try to instantiate any mirror caches
+    if 'mirrors' in config:
+        for mirror_name, mirror_values in config['mirrors'].items():
+            try_instantiate_cache(f'mirror-{mirror_name}', mirror_values)
 
     if not found_cache:
-        raise RuntimeError("No accessible nuthatch cache has been found.\n"
-                           "-> If you are developing a Nuthatch project, please configure nuthatch in your pyproject.toml\n"
+        raise RuntimeError("No Nuthatch configuration has been found.\n"
+                           "-> If you are developing a Nuthatch project, please configure nuthatch in a nuthatch.toml file in your project root\n"
                            "-> If you are calling a project that uses nuthatch, it should just work! Please contact the project's maintainer."
                            f"-> There was a logged exception {cache_exception} that could be related to this error.")
 
@@ -558,8 +561,6 @@ def cache(cache=True,
             to match backend. Useful for pulling from one backend and writing to another.
         storage_backend_kwargs(dict): A dictionary of backend-specific arguments that will be passed to
             and used back the backend for writing
-        cache_local (bool): If True, will mirror the result locally, at the location
-            specified by the LOCAL_CACHE_ROOT_DIR variable. Default is False.
         memoize(bool): Whether to memoize the result in memory. Default is False.
         upsert_keys (list(str)): Column names of the primary keys to user for upsert.
     """
@@ -593,6 +594,17 @@ def cache(cache=True,
             ###############################################################
             final_cache_config = get_cache_args(
                 passed_kwargs, default_cache_kwargs, nonlocals, func.__name__)
+
+            # Validate that remaining kwargs are actual function parameters
+            # (prevents removed cache kwargs from being silently ignored)
+            sig = signature(func)
+            has_var_keyword = any(
+                p.kind == Parameter.VAR_KEYWORD for p in sig.parameters.values())
+            if not has_var_keyword:
+                func_params = set(sig.parameters.keys())
+                unknown = set(passed_kwargs.keys()) - func_params
+                if unknown:
+                    raise TypeError(f"{func.__name__}() got unexpected keyword arguments: {unknown}")
 
             # Set all the final cache config variables
             cache = final_cache_config['cache']
@@ -643,8 +655,10 @@ def cache(cache=True,
             # Get the configuration information need for cache operations (e.g., cache locations, permissions, etc.)
             config = NuthatchConfig(wrapped_module=inspect.getmodule(func))
 
-            # If the cache mode is not set, figure out a reasonable default
-            if cache_mode is None and root_cache_is_valid(config):
+            # If the cache mode is not set, check config then figure out a reasonable default
+            if cache_mode is None and 'cache_mode' in config:
+                cache_mode = config['cache_mode']
+            elif cache_mode is None and root_cache_is_valid(config):
                 cache_mode = 'write'
             elif cache_mode is None:
                 cache_mode = 'read_only_strict'
@@ -662,30 +676,30 @@ def cache(cache=True,
 
             # Initialize the read caches dictionary
             read_caches = {}
+            cache_exception = None
 
-            cache_exception = None  # a boolean to track if we have failed to access a mirror cache
-            if cache and read_global:
-                # If the cache is enabled, we will need to read from the caches (and the mirrors, if configured.)
-                # if the memoizer and local cache fail to hit
-                try:
-                    caches, cache_exception = instantiate_read_caches(
-                        config, cache_key, namespace, version, cache_arg_values, backend, backend_kwargs)
-                except RuntimeError as e:
-                    if read_global == True or write_global == True:  # noqa: E712, must check the boolean
-                        raise e
-                    else:
-                        # If we're not writing to the global cache, we can continue
-                        # This is useful for pipelines that don't need to read from the global cache
-                        pass
-                read_caches |= caches
-
+            # Instantiate local cache first (no network required)
             if read_local:
-                # Instantiate the local cache for reading
                 local_cache = instantiate_local_read_cache(
                     config, memoizer_cache_key, namespace, version, cache_arg_values, backend, backend_kwargs)
                 read_caches['local'] = local_cache
 
-                # Ensure that the local cache is the first in the ordered dictionary
+            # Only instantiate global caches if local cache doesn't already have the data.
+            # This avoids slow/hanging network connections when data is available locally.
+            local_has_data = (read_local and read_caches.get('local') and
+                              (read_caches['local'].is_null() or read_caches['local'].exists()))
+            if cache and read_global and not local_has_data:
+                try:
+                    caches, cache_exception = instantiate_read_caches(
+                        config, cache_key, namespace, version, cache_arg_values, backend, backend_kwargs)
+                    read_caches |= caches
+                except RuntimeError as e:
+                    if write_global or not read_local:
+                        raise e
+                    # If we have a local cache to fall back to, continue without global caches
+
+            # Ensure that the local cache is the first in the ordered dictionary
+            if 'local' in read_caches:
                 local_cache = read_caches.pop('local')
                 read_caches = {'local': local_cache, **read_caches}
 
@@ -899,6 +913,24 @@ def cache(cache=True,
             return return_value
 
         # Set a custom attribute to mark this as a cacheable function
+        setattr(nuthatch_cacheable_wrapper, '__nuthatch_cacheable__', True)
+
+        # Wrap to save/restore global state around each call, preventing
+        # cache settings from leaking between independent call trees.
+        _unwrapped = nuthatch_cacheable_wrapper
+
+        @wraps(_unwrapped)
+        def nuthatch_cacheable_wrapper(*args, **kwargs):
+            global _call_depth
+            _saved_globals = (global_recompute, global_memoize, global_cache_mode,
+                              global_retry_null_cache, global_backend_kwargs)
+            _call_depth += 1
+            try:
+                return _unwrapped(*args, **kwargs)
+            finally:
+                _call_depth -= 1
+                _restore_global_cache_variables(_saved_globals)
+
         setattr(nuthatch_cacheable_wrapper, '__nuthatch_cacheable__', True)
         return nuthatch_cacheable_wrapper
 

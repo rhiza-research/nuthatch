@@ -1,0 +1,2 @@
+# Empty global config - tests set their own project config via env vars
+# Global config can ONLY contain: filesystem_options, skipped_filesystems

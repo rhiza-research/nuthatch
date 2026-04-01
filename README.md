@@ -156,77 +156,31 @@ Nuthatch supports multiple backends for writing, and multiple engines (datatypes
 
 ## Nuthatch configuration
 
-If you are developing a Nuthatch-based project you should configure its root filestore, and possible its mirrors
-and your preferred local caching location. The root store most likely a remote cloud bucket (like gcs, s3, etc). Configuration can be done in three places: (1) in your pyproject.toml, (2) in a special nuthatch.toml built into your package
-or (3) in your code - useful if you need to access secrets dynamical or configure nuthatch on distributed workers.
-
-Nuthatch itself and most storage backends only need access to a filesystem. Some storage backends, like databases,
-may need additional parameters.
-
-### TOML Configuration
-
-In either pyproject.toml or src/nuthatch.toml:
+Create a `nuthatch.toml` file in your project root:
 
 ```toml
-[tool.nuthatch]
-filesystem = "s3://my-bucket/caches"
+[root]
+filesystem = "gs://my-bucket/caches"
 
-[tool.nuthatch.filesystem_options]
-key = "your_key_id" 
-secret= "your_secret_key" #do NOT put your secret in your toml file. Use dynamic secrets below.
+[local]
+filesystem = "~/.nuthatch/local-cache"
 ```
 
-pyproject.toml cannot be easily packaged. If you would like your caches to be accessible
-when your package is installed and imported by others, you must use either a nuthatch.toml
-file or dynamic configuration. Make sure your nuthatch.toml is packaged with your project!
-
-### Dynamic configuration - decorators
-
-You *should not* save secrets in files. To solve this problem nuthatch enables a method of fetching
-secrets dynamically, from a cloud secret store, or from another location like an environment variable or
-file. Just make sure this file is imported before you run your code
-
-```python
-from nuthatch import config_parameter
-
-@config_parameter('filesystem_options', secret=True)
-def fetch_key():
-    # Fetch from secret store, environment, etc
-    filesystem_options = {
-        'key': os.environ['S3_KEY'],
-        'secret': os.environ['S3_SECRET']
-    }
-
-    return filesystem_options
-```
-
-### Dynamic configuration - direct setting
-
-You can also simply set configuration parameters in code, which is sometimes necessary
-for distributed environments
+Or set configuration in code:
 
 ```python
 from nuthatch import set_parameter
 set_parameter({'filesystem': "gs://my-datalake"})
 ```
 
-### Backend-specific configuration
+Nuthatch also supports environment variable overrides, dynamic credential
+fetching via `@config_parameter`, backend-specific configuration,
+multi-project config merging, and more.
 
-Nuthatch backends can be individually configured - for instance if all of your Zarr's are too big for
-the datalake and need cheaper storage you can set the zarr backend to have a different fileysystem location:
-
-```toml
-[tool.nuthatch.root.zarr]
-filesystem = "s3://my-zarr-bucket/"
-```
-
-### Environment variables
-
-You can configure nuthatch with environment variables in the form NUTHATCH_<LOCATION>_<PARAMETER_NAME> or NUTHATCH_<LOCATION>_<BACKEND>_<PARAMETER_NAME> or NUTHATCH_<PARAMETER_NAME> (where location defalts to root.)
-
-There is a special environment varialbe 'NUTHATCH_ALLOW_INSTALLED_PACKAGE_CONFIGURATION' that enables dynamic
-parameters to set the root parameters even when Nuthatch is an installed package. This is useful for running
-on clusters where your package is installed for execution even though it is the primary project.
+If you plan to distribute your project as a package (e.g. on PyPI), additional
+build configuration is needed so that `nuthatch.toml` is included in the
+installed package. See the [full configuration guide](docs/CONFIG.md) for
+packaging instructions and advanced usage.
 
 
 ## Nuthatch Limitations
@@ -234,4 +188,3 @@ on clusters where your package is installed for execution even though it is the 
 Current limitations:
  - Arguments must be basic types, not objects to key caches
  - There is currently no mechanism to detect cache "staleness". Automatically tracking and detecting changes is planned for future work.
- - We have **not** tested Nuthatch on S3 and Azure blob storage, only on google cloud, but that is ongoing and hopefully an update will be released soon.
