@@ -42,6 +42,10 @@ def _clip_source_to_pseudo_africa(ds):
     )
 
 
+def _sqlite_database_path(path: Path) -> str:
+    return str(path)
+
+
 def _make_test_backend(tmp_path: Path, cache_key: str):
     backend = TerracottaBackend.__new__(TerracottaBackend)
     backend.lat_dim = "lat"
@@ -53,7 +57,10 @@ def _make_test_backend(tmp_path: Path, cache_key: str):
     backend.override_path = backend.path
     backend.fs = fsspec.filesystem("file")
     Path(backend.path).mkdir(parents=True, exist_ok=True)
-    backend.driver = get_driver(tmp_path / "terracotta_scope.sqlite", provider="sqlite")
+    backend.driver = get_driver(
+        _sqlite_database_path(tmp_path / "terracotta_scope.sqlite"),
+        provider="sqlite",
+    )
     try:
         backend.driver.get_keys()
     except Exception:
