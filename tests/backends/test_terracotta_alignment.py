@@ -43,7 +43,7 @@ def _clip_source_to_pseudo_africa(ds):
 
 
 def _sqlite_database_path(path: Path) -> str:
-    return str(path)
+    return os.path.relpath(path, Path.cwd())
 
 
 def _make_test_backend(tmp_path: Path, cache_key: str):
