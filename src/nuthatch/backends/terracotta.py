@@ -5,8 +5,11 @@ import sqlalchemy
 import xarray as xr
 import rioxarray # Must import for .rio to work # noqa: F401
 import numpy as np
+from pyproj import CRS
 from rasterio.io import MemoryFile
 from rasterio.enums import Resampling
+from rasterio.transform import Affine
+from rasterio.warp import aligned_target, calculate_default_transform, transform
 from nuthatch.backend import DatabaseBackend, FileBackend, register_backend
 
 import logging
@@ -91,6 +94,92 @@ def lon_base_change(ds, to_base="base180", lon_dim='lon'):
     if not wrapped:
         ds = ds.sortby('lon')
     return ds
+
+
+def _get_regular_resolution(coords, dim_name):
+    """Infer the resolution of a regularly spaced coordinate axis."""
+    values = np.asarray(coords.values, dtype=float)
+    if values.size < 2:
+        raise ValueError(f"Need at least two coordinates along {dim_name} to infer resolution.")
+
+    diffs = np.diff(values)
+    resolution = float(np.abs(diffs[0]))
+    if resolution == 0.0:
+        raise ValueError(f"Coordinate spacing along {dim_name} must be non-zero.")
+    if not np.allclose(np.abs(diffs), resolution):
+        raise ValueError(f"Coordinates along {dim_name} must be regularly spaced.")
+    return resolution
+
+
+def _get_aligned_mercator_target(ds):
+    """Build a scope-independent Web Mercator target for this raster resolution."""
+    # Convert the source cell spacing to an approximate target spacing in Web Mercator meters.
+    projected_x, projected_y = transform(
+        "EPSG:4326",
+        "EPSG:3857",
+        [0.0, _get_regular_resolution(ds.x, "x")],
+        [0.0, _get_regular_resolution(ds.y, "y")],
+    )
+    target_resolution = (
+        abs(float(projected_x[1] - projected_x[0])),
+        abs(float(projected_y[1] - projected_y[0])),
+    )
+
+    # Ask rasterio for a projected target grid at that resolution, then snap it to aligned pixel edges.
+    target_transform, width, height = calculate_default_transform(
+        "EPSG:4326",
+        "EPSG:3857",
+        ds.sizes["x"],
+        ds.sizes["y"],
+        *ds.rio.bounds(),
+        resolution=target_resolution,
+    )
+    target_transform, width, height = aligned_target(
+        target_transform,
+        width,
+        height,
+        target_resolution,
+    )
+    # Derive the valid projected extent directly from the CRS area of use.
+    area_of_use = CRS.from_epsg(3857).area_of_use
+    valid_x, valid_y = transform(
+        "EPSG:4326",
+        "EPSG:3857",
+        [area_of_use.west, area_of_use.east],
+        [area_of_use.south, area_of_use.north],
+    )
+    x_resolution, y_resolution = target_resolution
+    left = target_transform.c
+    top = target_transform.f
+    valid_left, valid_right = min(valid_x), max(valid_x)
+    valid_bottom, valid_top = min(valid_y), max(valid_y)
+    right = left + width * x_resolution
+    bottom = top - height * y_resolution
+
+    # aligned_target can expand the raster past Web Mercator's valid extent, so trim whole rows/columns back.
+    if left < valid_left:
+        trim = int(np.ceil((valid_left - left) / x_resolution))
+        left += trim * x_resolution
+        width -= trim
+
+    if right > valid_right:
+        trim = int(np.ceil((right - valid_right) / x_resolution))
+        width -= trim
+
+    if top > valid_top:
+        trim = int(np.ceil((top - valid_top) / y_resolution))
+        top -= trim * y_resolution
+        height -= trim
+
+    if bottom < valid_bottom:
+        trim = int(np.ceil((valid_bottom - bottom) / y_resolution))
+        height -= trim
+
+    if width <= 0 or height <= 0:
+        raise ValueError("Aligned raster window fell outside the valid extent for EPSG:3857.")
+
+    # Return a rasterio affine and shape that can be passed straight into rio.reproject(...).
+    return Affine(x_resolution, 0.0, left, 0.0, -y_resolution, top), width, height
 
 
 @register_backend
@@ -188,9 +277,17 @@ class TerracottaBackend(DatabaseBackend, FileBackend):
         else:
             ds = ds.transpose('y', 'x')
 
-        # Adapt the CRS
+        # Adapt the CRS to Web Mercator.
         ds.rio.write_crs("epsg:4326", inplace=True)
-        ds = ds.rio.reproject('EPSG:3857', resampling=self.resampling, nodata=np.nan)
+        ds.rio.set_spatial_dims("x", "y", inplace=True)
+        mercator_transform, width, height = _get_aligned_mercator_target(ds)
+        ds = ds.rio.reproject(
+            "EPSG:3857",
+            transform=mercator_transform,
+            shape=(height, width),
+            resampling=self.resampling,
+            nodata=np.nan,
+        )
         ds.rio.write_crs("epsg:3857", inplace=True)
 
         # Insert the parameters.
@@ -268,4 +365,3 @@ class TerracottaBackend(DatabaseBackend, FileBackend):
         for dataset in datasets:
             logger.info(f"Deleting datasets {datasets} from terracotta.")
             self.driver.delete({'key': dataset})
-
