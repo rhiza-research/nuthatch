@@ -140,46 +140,7 @@ def _get_aligned_mercator_target(ds):
         height,
         target_resolution,
     )
-    # Derive the valid projected extent directly from the CRS area of use.
-    area_of_use = CRS.from_epsg(3857).area_of_use
-    valid_x, valid_y = transform(
-        "EPSG:4326",
-        "EPSG:3857",
-        [area_of_use.west, area_of_use.east],
-        [area_of_use.south, area_of_use.north],
-    )
-    x_resolution, y_resolution = target_resolution
-    left = target_transform.c
-    top = target_transform.f
-    valid_left, valid_right = min(valid_x), max(valid_x)
-    valid_bottom, valid_top = min(valid_y), max(valid_y)
-    right = left + width * x_resolution
-    bottom = top - height * y_resolution
-
-    # aligned_target can expand the raster past Web Mercator's valid extent, so trim whole rows/columns back.
-    if left < valid_left:
-        trim = int(np.ceil((valid_left - left) / x_resolution))
-        left += trim * x_resolution
-        width -= trim
-
-    if right > valid_right:
-        trim = int(np.ceil((right - valid_right) / x_resolution))
-        width -= trim
-
-    if top > valid_top:
-        trim = int(np.ceil((top - valid_top) / y_resolution))
-        top -= trim * y_resolution
-        height -= trim
-
-    if bottom < valid_bottom:
-        trim = int(np.ceil((valid_bottom - bottom) / y_resolution))
-        height -= trim
-
-    if width <= 0 or height <= 0:
-        raise ValueError("Aligned raster window fell outside the valid extent for EPSG:3857.")
-
-    # Return a rasterio affine and shape that can be passed straight into rio.reproject(...).
-    return Affine(x_resolution, 0.0, left, 0.0, -y_resolution, top), width, height
+    return target_transform, width, height
 
 
 @register_backend
