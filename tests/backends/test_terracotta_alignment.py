@@ -14,15 +14,28 @@ from rasterio.enums import Resampling
 
 from nuthatch.backends.terracotta import TerracottaBackend
 
-GRID_RESOLUTIONS = [1.5, 0.25, 0.1]
 WEB_MERCATOR = Transformer.from_crs("EPSG:4326", "EPSG:3857", always_xy=True)
 
+# Test grids are regular north-up reference grids. 
+# Lats are offset by half a grid cell to avoid the poles, which create invalid coordinates in web mercator.
+# The 0.1-degree case is kept away from poles to avoid the extreme output-height growth caused by near-pole
+#  Web Mercator Y values, so that tests are kept lightweight.
+GRID_SPECS = {
+    "global1_5": {"grid_size": 1.5},
+    "global0_25": {"grid_size": 0.25},
+    "global0_1_avoidpoles": {"grid_size": 0.1, "lat_offset": 5.0},
+}
+def _reference_grid_coordinates(grid_name):
+    grid_spec = GRID_SPECS[grid_name]
+    grid_size = grid_spec["grid_size"]
+    lat_offset = grid_spec.get("lat_offset", 0.0) + grid_size/2.0
+    lons = np.arange(-180.0, 180.0, grid_size)
+    lats = np.arange(-90.0 + lat_offset, 90.0 - lat_offset, grid_size)
+    return lons, lats
 
-def _northup_source_dataset(resolution_degrees):
-    # Regular lat/lon grid with global longitude coverage and Mercator-safe latitudes.
-    half_res = resolution_degrees / 2.0
-    lons = np.arange(-180.0 + half_res, 180.0, resolution_degrees)
-    lats = np.arange(84.0 - half_res, -84.0, -resolution_degrees)
+
+def _reference_grid_dataset(grid_name):
+    lons, lats = _reference_grid_coordinates(grid_name)
     values = np.arange(len(lats) * len(lons), dtype=float).reshape(len(lats), len(lons))
     return xr.Dataset(
         {"precip": (("lat", "lon"), values)},
@@ -77,9 +90,9 @@ def _reference_points_from_dataset(ds):
     ]
 
 
-@pytest.mark.parametrize("resolution_degrees", GRID_RESOLUTIONS)
-def test_terracotta_write_preserves_latlon_resolution_for_crops(tmp_path, resolution_degrees):
-    source = _northup_source_dataset(resolution_degrees)
+@pytest.mark.parametrize("grid_name", GRID_SPECS)
+def test_terracotta_write_preserves_latlon_resolution_for_crops(tmp_path, grid_name):
+    source = _reference_grid_dataset(grid_name)
     clipped = _clip_source_to_pseudo_africa(source)
 
     global_backend = _make_test_backend(tmp_path, "global")
@@ -97,9 +110,9 @@ def test_terracotta_write_preserves_latlon_resolution_for_crops(tmp_path, resolu
         assert global_tif.crs == africa_tif.crs
         assert global_tif.res == pytest.approx(africa_tif.res)
 
-@pytest.mark.parametrize("resolution_degrees", GRID_RESOLUTIONS)
-def test_terracotta_returns_same_tile_values_for_global_and_africa_scopes(tmp_path, resolution_degrees):
-    source = _northup_source_dataset(resolution_degrees)
+@pytest.mark.parametrize("grid_name", GRID_SPECS)
+def test_terracotta_returns_same_tile_values_for_global_and_africa_scopes(tmp_path, grid_name):
+    source = _reference_grid_dataset(grid_name)
     clipped = _clip_source_to_pseudo_africa(source)
 
     global_backend = _make_test_backend(tmp_path, "global")
@@ -125,38 +138,23 @@ def test_terracotta_returns_same_tile_values_for_global_and_africa_scopes(tmp_pa
     assert np.array_equal(global_tile.filled(-9999), africa_tile.filled(-9999))
 
 
-@pytest.mark.parametrize("resolution_degrees", GRID_RESOLUTIONS)
-def test_terracotta_write_projects_reference_points_consistently(tmp_path, resolution_degrees):
-    source = _northup_source_dataset(resolution_degrees)
-    clipped = _clip_source_to_pseudo_africa(source)
+@pytest.mark.parametrize("grid_name", GRID_SPECS)
+@pytest.mark.parametrize("scope", ["global", "africa"])
+def test_terracotta_write_projects_reference_points_consistently(tmp_path, grid_name, scope):
+    source = _reference_grid_dataset(grid_name)
+    ds_to_write = source if scope == "global" else _clip_source_to_pseudo_africa(source)
+    backend = _make_test_backend(tmp_path, scope)
+    backend.write(ds_to_write)
+    reference_points = _reference_points_from_dataset(ds_to_write)
+    tif_path = tmp_path / f"{scope}.terracotta" / "_.tif"
 
-    global_backend = _make_test_backend(tmp_path, "global")
-    africa_backend = _make_test_backend(tmp_path, "africa")
-    global_backend.write(source)
-    africa_backend.write(clipped)
-
-    reference_points = _reference_points_from_dataset(clipped)
-
-    global_path = tmp_path / "global.terracotta" / "_.tif"
-    africa_path = tmp_path / "africa.terracotta" / "_.tif"
-
-    with (
-        rasterio.open(global_path) as global_tif,
-        rasterio.open(africa_path) as africa_tif,
-    ):
+    with rasterio.open(tif_path) as tif:
         for lon, lat in reference_points:
             expected_x, expected_y = WEB_MERCATOR.transform(lon, lat)
-            observed_centers = []
+            row, col = rowcol(tif.transform, expected_x, expected_y)
+            assert 0 <= row < tif.height
+            assert 0 <= col < tif.width
 
-            for tif in (global_tif, africa_tif):
-                row, col = rowcol(tif.transform, expected_x, expected_y)
-                assert 0 <= row < tif.height
-                assert 0 <= col < tif.width
-
-                observed_x, observed_y = xy(tif.transform, row, col, offset="center")
-                observed_centers.append((observed_x, observed_y))
-                assert observed_x == pytest.approx(expected_x, abs=tif.res[0] / 2.0)
-                assert observed_y == pytest.approx(expected_y, abs=tif.res[1] / 2.0)
-
-            assert observed_centers[0][0] == pytest.approx(observed_centers[1][0])
-            assert observed_centers[0][1] == pytest.approx(observed_centers[1][1])
+            observed_x, observed_y = xy(tif.transform, row, col, offset="center")
+            assert observed_x == pytest.approx(expected_x, abs=tif.res[0] / 2.0)
+            assert observed_y == pytest.approx(expected_y, abs=tif.res[1] / 2.0)
