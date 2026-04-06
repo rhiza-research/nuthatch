@@ -805,7 +805,7 @@ def cache(cache=True,
             #   we read it from the cache (so it must not exist in local)
             # 2. We need to store it in a new backend
             # Note that we do not include the cache here: all functions are cachable when writing locally
-            write_to_local_cache = (write_local and memoizer_cache_key
+            write_to_local_cache = (write_local and memoizer_cache_key and
                                     (compute_result or
                                      (used_read_location != 'local' and used_read_location is not None) or
                                         (storage_backend != used_read_backend)
