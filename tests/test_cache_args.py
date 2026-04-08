@@ -1,4 +1,5 @@
 import numpy as np
+import xarray as xr
 from nuthatch import cache
 from nuthatch import config_parameter
 
@@ -171,6 +172,36 @@ def test_deep_cache():
     second = deep_cached_func3(recompute=["deep_cached_func3", "deep_cached_func1"], cache_mode='overwrite')
     assert first == second
 
+
 def test_force_overwrite():
     # Test force overwrite here
     pass
+
+
+def test_passing_uncacheables():
+    @cache(cache_args=['data'])
+    def takes_complex(data=7):
+        if isinstance(data, int):
+            return data
+        else:
+            return np.random.randint(10000)
+
+    i = takes_complex(7)
+    i2 = takes_complex(7)
+    i3 = takes_complex(8)
+
+    assert i == i2
+    assert i2 != i3
+
+    times = range(1000)
+    obs = np.random.randint(0, 10, size=(len(times),))
+    ds = xr.Dataset({'obs': ('time', obs)}, coords={'time': times})
+    ds.attrs['name'] = "name"
+    ds.attrs['species'] = "species"
+
+    r = takes_complex(ds)
+    r2 = takes_complex(ds)
+
+    assert r != r2
+
+

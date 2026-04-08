@@ -185,50 +185,9 @@ def check_cache_disable_if(cache_disable_if, cache_arg_values):
 def extract_cache_arg_values(cache_args, args, params, kwargs):
     """Extract the cache arguments from the kwargs and return them."""
     # Handle keying based on cache arguments
-    cache_arg_values = {}
-
-    for a in cache_args:
-        # If it's in kwargs, great
-        if a in kwargs:
-            cache_arg_values[a] = kwargs[a]
-            continue
-
-        # If it's not in kwargs it must either be (1) in args or (2) passed as default
-        found = False
-        for i, p in enumerate(params):
-            if (a == p and len(args) > i and
-                    (params[p].kind == Parameter.VAR_POSITIONAL or
-                     params[p].kind == Parameter.POSITIONAL_OR_KEYWORD)):
-                cache_arg_values[a] = args[i]
-                found = True
-                break
-            elif a == p and params[p].default != Parameter.empty:
-                cache_arg_values[a] = params[p].default
-                found = True
-                break
-
-        if not found:
-            raise RuntimeError(f"Specified cacheable argument {a} "
-                               "not discovered as passed argument or default argument.")
-
-    return cache_arg_values
-
-
-def extract_all_arg_values(args, params, kwargs):
-    """Extract the cache arguments from the kwargs and return them."""
-    # Handle keying based on cache arguments
     all_arg_values = {}
 
-    def add_arg(a):
-        # Prevent the memoizer from adding objects to the cache key that would result
-        # in a cache key that is too long
-        return (isinstance(a, int) or isinstance(a, float) or
-                isinstance(a, str) or isinstance(a, bool) or
-                len(str(a)) < 500)
-
     for a in kwargs:
-        if not add_arg(kwargs[a]):
-            raise RuntimeError(f"Argument {a} is too long to memoize. Please shorten the argument value.")
         all_arg_values[a] = kwargs[a]
 
     # If it's not in kwargs it must either be (1) in args or (2) passed as default
@@ -239,13 +198,20 @@ def extract_all_arg_values(args, params, kwargs):
         if (len(args) > i and
            (params[p].kind == Parameter.VAR_POSITIONAL or
            params[p].kind == Parameter.POSITIONAL_OR_KEYWORD)):
-            if add_arg(args[i]):
-                all_arg_values[p] = args[i]
+            all_arg_values[p] = args[i]
         elif params[p].default != Parameter.empty:
-            if add_arg(params[p].default):
-                all_arg_values[p] = params[p].default
+            all_arg_values[p] = params[p].default
 
-    return all_arg_values
+
+    cache_arg_values = {}
+    for a in cache_args:
+        if a not in all_arg_values:
+            raise RuntimeError(f"Specified cacheable argument {a} "
+                               "not discovered as passed argument or default argument.")
+        else:
+            cache_arg_values[a] = all_arg_values[a]
+
+    return cache_arg_values, all_arg_values
 
 
 def get_cache_key(func, cache_arg_values):
@@ -257,7 +223,7 @@ def get_cache_key(func, cache_arg_values):
     imvalues = []
 
     for val in sorted_values:
-        if isinstance(val, list):
+        if isinstance(val, (list, set, tuple)):
             sub_vals = [str(v) for v in val]
             sub_vals.sort()
             flat_values += sub_vals
@@ -270,6 +236,10 @@ def get_cache_key(func, cache_arg_values):
         else:
             flat_values.append(str(val))
             imvalues.append(str(val))
+
+    for v in flat_values:
+        if len(v) > 200:
+            raise ValueError("Stringified version of cache argument is too large.")
 
     cache_key = func.__name__ + '/' + '_'.join(flat_values)
     cache_print = func.__name__ + '/' + '/'.join([f'{x[0]}_{x[1]}' for x in zip(imkeys, imvalues)])
@@ -621,12 +591,25 @@ def cache(cache=True,
             # The function parameters and their values
             params = signature(func).parameters
             # Calculate our unique cache key from the params and values
-            cache_arg_values = extract_cache_arg_values(cache_args, args, params, passed_kwargs)
-            cache_key, cache_print = get_cache_key(func, cache_arg_values)
+            cache_arg_values, all_arg_values = extract_cache_arg_values(cache_args, args, params, passed_kwargs)
+
             try:
-                all_arg_values = extract_all_arg_values(args, params, passed_kwargs)
+                cache_key, cache_print = get_cache_key(func, cache_arg_values)
+            except ValueError:
+                if cache:
+                    logger.warning(f"""Unable to compute cache key for {func.__name__} likely because the
+                                     passed arguments are not easily strigified. Disabling caching.""")
+                cache = False
+                cache_key = None
+                cache_print = None
+
+
+            try:
                 memoizer_cache_key, memoizer_cache_print = get_cache_key(func, all_arg_values)
-            except RuntimeError:
+            except ValueError:
+                if memoize:
+                    logger.warning(f"""Unable to compute memoizer cache key for {func.__name__} likely because the
+                                     passed arguments are not easily stringified. Disabling memoization.""")
                 memoize = False
                 memoizer_cache_key = None
                 memoizer_cache_print = None
@@ -639,6 +622,7 @@ def cache(cache=True,
             # Disable the cache if it's enabled and the function params/values match the disable statement
             if cache:
                 cache = check_cache_disable_if(cache_disable_if, cache_arg_values)
+
 
             # Get the configuration information need for cache operations (e.g., cache locations, permissions, etc.)
             config = NuthatchConfig(wrapped_module=inspect.getmodule(func))
@@ -679,7 +663,7 @@ def cache(cache=True,
                         pass
                 read_caches |= caches
 
-            if read_local:
+            if read_local and memoizer_cache_key:
                 # Instantiate the local cache for reading
                 local_cache = instantiate_local_read_cache(
                     config, memoizer_cache_key, namespace, version, cache_arg_values, backend, backend_kwargs)
@@ -821,7 +805,7 @@ def cache(cache=True,
             #   we read it from the cache (so it must not exist in local)
             # 2. We need to store it in a new backend
             # Note that we do not include the cache here: all functions are cachable when writing locally
-            write_to_local_cache = (write_local and
+            write_to_local_cache = (write_local and memoizer_cache_key and
                                     (compute_result or
                                      (used_read_location != 'local' and used_read_location is not None) or
                                         (storage_backend != used_read_backend)
