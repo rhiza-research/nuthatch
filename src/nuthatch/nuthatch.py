@@ -238,7 +238,7 @@ def get_cache_key(func, cache_arg_values):
             imvalues.append(str(val))
 
     for v in flat_values:
-        if len(v) > 200:
+        if len(v) > 500:
             raise ValueError("Stringified version of cache argument is too large.")
 
     cache_key = func.__name__ + '/' + '_'.join(flat_values)
