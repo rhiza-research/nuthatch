@@ -654,6 +654,10 @@ def cache(cache=True,
             # If strict read is set, overwrite fail if no cache. Otherwise, use the value from the decorator
             if strict_read:
                 fail_if_no_cache = True
+            # If we have failed to get a memoizer / local cache key, set local modes to false; we can't key these
+            if memoizer_cache_key is None:
+                write_local = False
+                read_local = False
 
             if write_local and config.default_local and not check_if_nested_fn():
                 # If we're using the default local cache location, warn the user in case that's unexpected
