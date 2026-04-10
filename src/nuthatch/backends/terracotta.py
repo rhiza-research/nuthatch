@@ -5,11 +5,8 @@ import sqlalchemy
 import xarray as xr
 import rioxarray # Must import for .rio to work # noqa: F401
 import numpy as np
-from pyproj import CRS
 from rasterio.io import MemoryFile
 from rasterio.enums import Resampling
-from rasterio.transform import Affine
-from rasterio.warp import aligned_target, calculate_default_transform, transform
 from nuthatch.backend import DatabaseBackend, FileBackend, register_backend
 
 import logging
@@ -94,54 +91,6 @@ def lon_base_change(ds, to_base="base180", lon_dim='lon'):
     if not wrapped:
         ds = ds.sortby('lon')
     return ds
-
-
-def _get_regular_resolution(coords, dim_name):
-    """Infer the resolution of a regularly spaced coordinate axis."""
-    values = np.asarray(coords.values, dtype=float)
-    if values.size < 2:
-        raise ValueError(f"Need at least two coordinates along {dim_name} to infer resolution.")
-
-    diffs = np.diff(values)
-    resolution = float(np.abs(diffs[0]))
-    if resolution == 0.0:
-        raise ValueError(f"Coordinate spacing along {dim_name} must be non-zero.")
-    if not np.allclose(np.abs(diffs), resolution):
-        raise ValueError(f"Coordinates along {dim_name} must be regularly spaced.")
-    return resolution
-
-
-def _get_aligned_mercator_target(ds):
-    """Build a scope-independent Web Mercator target for this raster resolution."""
-    # Convert the source cell spacing to an approximate target spacing in Web Mercator meters.
-    projected_x, projected_y = transform(
-        "EPSG:4326",
-        "EPSG:3857",
-        [0.0, _get_regular_resolution(ds.x, "x")],
-        [0.0, _get_regular_resolution(ds.y, "y")],
-    )
-    target_resolution = (
-        abs(float(projected_x[1] - projected_x[0])),
-        abs(float(projected_y[1] - projected_y[0])),
-    )
-
-    # Ask rasterio for a projected target grid at that resolution, then snap it to aligned pixel edges.
-    target_transform, width, height = calculate_default_transform(
-        "EPSG:4326",
-        "EPSG:3857",
-        ds.sizes["x"],
-        ds.sizes["y"],
-        *ds.rio.bounds(),
-        resolution=target_resolution,
-    )
-    target_transform, width, height = aligned_target(
-        target_transform,
-        width,
-        height,
-        target_resolution,
-    )
-    return target_transform, width, height
-
 
 @register_backend
 class TerracottaBackend(DatabaseBackend, FileBackend):
@@ -240,16 +189,7 @@ class TerracottaBackend(DatabaseBackend, FileBackend):
 
         # Adapt the CRS to Web Mercator.
         ds.rio.write_crs("epsg:4326", inplace=True)
-        ds.rio.set_spatial_dims("x", "y", inplace=True)
-        mercator_transform, width, height = _get_aligned_mercator_target(ds)
-        ds = ds.rio.reproject(
-            "EPSG:3857",
-            transform=mercator_transform,
-            shape=(height, width),
-            resampling=self.resampling,
-            nodata=np.nan,
-        )
-        ds.rio.write_crs("epsg:3857", inplace=True)
+        ds = ds.sortby("y", ascending=False)
 
         # Insert the parameters.
         with self.driver.connect(verify=False):

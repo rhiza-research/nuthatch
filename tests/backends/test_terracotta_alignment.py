@@ -6,7 +6,6 @@ import numpy as np
 import pytest
 import rasterio
 import xarray as xr
-from pyproj import Transformer
 from rasterio.transform import rowcol, xy
 from shapely.geometry import box, mapping
 from terracotta import get_driver
@@ -14,12 +13,7 @@ from rasterio.enums import Resampling
 
 from nuthatch.backends.terracotta import TerracottaBackend
 
-WEB_MERCATOR = Transformer.from_crs("EPSG:4326", "EPSG:3857", always_xy=True)
-
-# Test grids are regular north-up reference grids. 
-# Lats are offset by half a grid cell to avoid the poles, which create invalid coordinates in web mercator.
-# The 0.1-degree case is kept away from poles to avoid the extreme output-height growth caused by near-pole
-#  Web Mercator Y values, so that tests are kept lightweight.
+# Test grids are regular north-up reference grids.
 GRID_SPECS = {
     "global1_5": {"grid_size": 1.5},
     "global0_25": {"grid_size": 0.25},
@@ -140,7 +134,9 @@ def test_terracotta_returns_same_tile_values_for_global_and_africa_scopes(tmp_pa
 
 @pytest.mark.parametrize("grid_name", GRID_SPECS)
 @pytest.mark.parametrize("scope", ["global", "africa"])
-def test_terracotta_write_projects_reference_points_consistently(tmp_path, grid_name, scope):
+def test_terracotta_write_preserves_reference_points_in_native_crs(
+    tmp_path, grid_name, scope
+):
     source = _reference_grid_dataset(grid_name)
     ds_to_write = source if scope == "global" else _clip_source_to_pseudo_africa(source)
     backend = _make_test_backend(tmp_path, scope)
@@ -149,12 +145,13 @@ def test_terracotta_write_projects_reference_points_consistently(tmp_path, grid_
     tif_path = tmp_path / f"{scope}.terracotta" / "_.tif"
 
     with rasterio.open(tif_path) as tif:
+        assert tif.crs.to_epsg() == 4326
+
         for lon, lat in reference_points:
-            expected_x, expected_y = WEB_MERCATOR.transform(lon, lat)
-            row, col = rowcol(tif.transform, expected_x, expected_y)
+            row, col = rowcol(tif.transform, lon, lat)
             assert 0 <= row < tif.height
             assert 0 <= col < tif.width
 
             observed_x, observed_y = xy(tif.transform, row, col, offset="center")
-            assert observed_x == pytest.approx(expected_x, abs=tif.res[0] / 2.0)
-            assert observed_y == pytest.approx(expected_y, abs=tif.res[1] / 2.0)
+            assert observed_x == pytest.approx(lon, abs=tif.res[0] / 2.0)
+            assert observed_y == pytest.approx(lat, abs=abs(tif.res[1]) / 2.0)
