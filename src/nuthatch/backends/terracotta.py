@@ -92,7 +92,6 @@ def lon_base_change(ds, to_base="base180", lon_dim='lon'):
         ds = ds.sortby('lon')
     return ds
 
-
 @register_backend
 class TerracottaBackend(DatabaseBackend, FileBackend):
     """
@@ -188,10 +187,11 @@ class TerracottaBackend(DatabaseBackend, FileBackend):
         else:
             ds = ds.transpose('y', 'x')
 
-        # Adapt the CRS
+        # Label the dataset as WGS84.
+        # TODO: If the dataset already has a different CRS, we should reproject it to WGS84.
         ds.rio.write_crs("epsg:4326", inplace=True)
-        ds = ds.rio.reproject('EPSG:3857', resampling=self.resampling, nodata=np.nan)
-        ds.rio.write_crs("epsg:3857", inplace=True)
+        # Write rows north-to-south, as expected by terracotta
+        ds = ds.sortby("y", ascending=False)
 
         # Insert the parameters.
         with self.driver.connect(verify=False):
@@ -268,4 +268,3 @@ class TerracottaBackend(DatabaseBackend, FileBackend):
         for dataset in datasets:
             logger.info(f"Deleting datasets {datasets} from terracotta.")
             self.driver.delete({'key': dataset})
-
