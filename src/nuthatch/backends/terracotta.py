@@ -187,8 +187,10 @@ class TerracottaBackend(DatabaseBackend, FileBackend):
         else:
             ds = ds.transpose('y', 'x')
 
-        # Adapt the CRS to Web Mercator.
+        # Label the dataset as WGS84.
+        # TODO: If the dataset already has a different CRS, we should reproject it to WGS84.
         ds.rio.write_crs("epsg:4326", inplace=True)
+        # Write rows north-to-south, as expected by terracotta
         ds = ds.sortby("y", ascending=False)
 
         # Insert the parameters.
