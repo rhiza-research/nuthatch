@@ -683,7 +683,7 @@ def cache(cache=True,
             compute_result = True
 
             # If we're not recomputing and not upserting and we have memoization enabled, try to recall from memory
-            if not recompute and not upsert and memoize:
+            if not recompute and not upsert and memoize and False:
                 ds = recall_from_memory(memoizer_cache_key)
                 if ds is not None:
                     logger.info(f"Found cache for {memoizer_cache_print} in memory.")
@@ -779,12 +779,14 @@ def cache(cache=True,
             ########################################################################################
             # 5. Save the computed result to memory and any other write caches
             #######################################################################################
+            filtered_ds = ds
+            filtered = False
             if memoize:
                 logger.info(f"Memoizing {memoizer_cache_print} in your local memory for fast recall.")
                 # Apply any post-processors to the dataset, so the filtered data is saved to memory
-                filtered_ds = ds
                 for processor in post_processors:
                     filtered_ds = processor(filtered_ds)
+                filtered = True
                 # Save the filtered dataset to memory
                 save_to_memory(memoizer_cache_key, filtered_ds, config['root'])
 
@@ -829,10 +831,13 @@ def cache(cache=True,
             for location, write_cache in write_caches.items():
                 # If we're writing to the local cache, apply any post-processors to the dataset
                 if location == 'local':
-                    filtered_ds = ds
-                    for processor in post_processors:
-                        filtered_ds = processor(filtered_ds)
-                    write_ds = filtered_ds
+                    if filtered:
+                        write_ds = filtered_ds
+                    else:
+                        for processor in post_processors:
+                            filtered_ds = processor(filtered_ds)
+                        filtered = True
+                        write_ds = filtered_ds
                 else:
                     write_ds = ds
 
@@ -878,8 +883,11 @@ def cache(cache=True,
                     # If we only need to return the filepath, return it
                     return write_cache.get_uri()
 
-            for processor in post_processors:
-                return_value = processor(return_value)
+                if filtered and not write:
+                    return_value = filtered_ds
+                else:
+                    for processor in post_processors:
+                        return_value = processor(return_value)
             return return_value
 
         # Set a custom attribute to mark this as a cacheable function
