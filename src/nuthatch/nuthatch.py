@@ -98,7 +98,7 @@ def get_cache_args(passed_kwargs, default_cache_kwargs, decorator_args, func_nam
         cache_args['backend'] = decorator_args['backend']
 
     # Now allow cache to be overwritten by passed_kwargs
-    if cache_args['cache'] is None:
+    if 'cache' not in cache_args or cache_args['cache'] is None:
         cache_args['cache'] = decorator_args['cache']
 
     if 'backend_kwargs' in cache_args and isinstance(cache_args['backend_kwargs'], dict):
