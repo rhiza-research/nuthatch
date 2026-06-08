@@ -93,6 +93,9 @@ def save_to_memory(cache_key, data, config):
 
     cache_key_lru.append(cache_key)
 
+    # Return the persisted data for efficiency
+    return data
+
 
 def recall_from_memory(cache_key):
     """Recall data from memory.
