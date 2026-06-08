@@ -898,7 +898,7 @@ def cache(cache=True,
             ds_to_post_process = ds
             if memoized_ds is not None:
                 return memoized_ds
-            elif written_ds:
+            elif written_ds is not None:
                 if written_post_processed:
                     return written_ds
                 else:
