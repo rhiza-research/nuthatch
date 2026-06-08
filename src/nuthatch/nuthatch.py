@@ -96,8 +96,10 @@ def get_cache_args(passed_kwargs, default_cache_kwargs, decorator_args, func_nam
         cache_args['memoize'] = decorator_args['memoize']
     if cache_args['backend'] is None:
         cache_args['backend'] = decorator_args['backend']
-    # Cache can only be passed into the cacheable decorator, not at runtime
-    cache_args['cache'] = decorator_args['cache']
+
+    # Now allow cache to be overwritten by passed_kwargs
+    if cache_args['cache'] is None:
+        cache_args['cache'] = decorator_args['cache']
 
     if 'backend_kwargs' in cache_args and isinstance(cache_args['backend_kwargs'], dict):
         cache_args['backend_kwargs'].update(decorator_args['backend_kwargs'])
@@ -535,6 +537,7 @@ def cache(cache=True,
     """
     # Valid configuration kwargs for the cacheable decorator
     default_cache_kwargs = {
+        "cache": None,
         "namespace": None,
         "engine": None,
         "backend": None,
@@ -779,14 +782,17 @@ def cache(cache=True,
             ########################################################################################
             # 5. Save the computed result to memory and any other write caches
             #######################################################################################
+            memoized_ds = None
             if memoize:
                 logger.info(f"Memoizing {memoizer_cache_print} in your local memory for fast recall.")
                 # Apply any post-processors to the dataset, so the filtered data is saved to memory
-                filtered_ds = ds
+                memoized_ds = ds
                 for processor in post_processors:
-                    filtered_ds = processor(filtered_ds)
+                    memoized_ds = processor(memoized_ds)
+
                 # Save the filtered dataset to memory
-                save_to_memory(memoizer_cache_key, filtered_ds, config['root'])
+                memoized_ds = save_to_memory(memoizer_cache_key, memoized_ds, config['root'])
+
 
             # Get the appropriate storage backend for the dataset
             storage_backend, storage_backend_kwargs = get_storage_backend(
@@ -825,15 +831,25 @@ def cache(cache=True,
 
             # Ensure that the result is written to the proper write cache(s)
             # Need to set outside of the loop in case you don't have a write cache
-            return_value = ds
+            written_ds = None
+            written_post_processed = False
             for location, write_cache in write_caches.items():
                 # If we're writing to the local cache, apply any post-processors to the dataset
                 if location == 'local':
-                    filtered_ds = ds
-                    for processor in post_processors:
-                        filtered_ds = processor(filtered_ds)
-                    write_ds = filtered_ds
+                    written_post_processed = True
+                    if memoized_ds:
+                        # If we are local and a memoized ds exists
+                        # use that
+                        write_ds = memoized_ds
+                    else:
+                        # If nto create a filetered ds to write
+                        filtered_ds = ds
+                        for processor in post_processors:
+                            filtered_ds = processor(filtered_ds)
+
+                        write_ds = filtered_ds
                 else:
+                    written_post_processed = False
                     write_ds = ds
 
                 if write_ds is None:
@@ -865,22 +881,34 @@ def cache(cache=True,
 
                 # If we have read value, return that rather
                 # This will get set to the last cache written, which is by default the local cache
-                return_value = write_ds
                 if write:
                     logger.info(
                         f"Caching result for {pretty_print(location)} in {write_cache.get_backend()} with namespace {namespace if namespace else 'default'} in {location} cache.")
                     if upsert:
-                        return_value = write_cache.upsert(write_ds, upsert_keys=upsert_keys)
+                        written_ds = write_cache.upsert(write_ds, upsert_keys=upsert_keys)
                     else:
-                        return_value = write_cache.write(write_ds)
+                        written_ds = write_cache.write(write_ds)
 
                 if filepath_only:
                     # If we only need to return the filepath, return it
                     return write_cache.get_uri()
 
+            # In priority order: memoized_ds (in memory)
+            # written_ds: possibly truncate by writing processes
+            # run post processors on ds
+            ds_to_post_process = ds
+            if memoized_ds is not None:
+                return memoized_ds
+            elif written_ds is not None:
+                if written_post_processed:
+                    return written_ds
+                else:
+                    ds_to_post_process = written_ds
+
             for processor in post_processors:
-                return_value = processor(return_value)
-            return return_value
+                ds_to_post_process = processor(ds_to_post_process)
+
+            return ds_to_post_process
 
         # Set a custom attribute to mark this as a cacheable function
         setattr(nuthatch_cacheable_wrapper, '__nuthatch_cacheable__', True)
