@@ -193,7 +193,6 @@ class TerracottaBackend(DatabaseBackend, FileBackend):
         ds = ds.rio.reproject('EPSG:3857', resampling=self.resampling, nodata=np.nan)
         ds.rio.write_crs("epsg:3857", inplace=True)
 
-        # Insert the parameters.
         with self.driver.connect(verify=False):
             if self.time_dim in ds.dims:
                 for t in ds.time:
@@ -201,13 +200,24 @@ class TerracottaBackend(DatabaseBackend, FileBackend):
                     sub_ds = ds.sel(time=t)
                     sub_ds = sub_ds.reset_coords('time', drop=True)
 
-                    # Assume the cache_key is now a folder and make sub tifs under it
+                    # Skip time slices with no valid data - terracotta can't
+                    # compute metadata for an all-nodata raster
+                    if not any(bool(sub_ds[v].notnull().any()) for v in sub_ds.data_vars):
+                        logger.warning(f"Skipping {self.cache_key}_{t.values}: no valid (non-NaN) data.")
+                        continue
+
                     sub_cache_key = self.cache_key + '_' + str(t.values)
                     sub_path = os.path.join(self.path, str(t.values) + '.tif')
-                    sub_override_path = os.path.join(self.override_path,  str(t.values) + '.tif')
-
-                    self.write_individual_raster(self.driver, sub_ds, sub_path, sub_cache_key, sub_override_path)
+                    sub_override_path = os.path.join(self.override_path, str(t.values) + '.tif')
+                    try:
+                        self.write_individual_raster(self.driver, sub_ds, sub_path, sub_cache_key, sub_override_path)
+                    except Exception:
+                        logger.exception(f"Failed to write raster {sub_cache_key}; continuing with remaining times.")
+                        continue
             else:
+                if not any(bool(ds[v].notnull().any()) for v in ds.data_vars):
+                    logger.warning(f"Skipping {self.cache_key}: no valid (non-NaN) data.")
+                    return ds
                 path = os.path.join(self.path, '_.tif')
                 override_path = os.path.join(self.override_path, '_.tif')
                 self.write_individual_raster(self.driver, ds, path, self.cache_key, override_path)
