@@ -187,12 +187,6 @@ class TerracottaBackend(DatabaseBackend, FileBackend):
             ds = ds.transpose(self.time_dim, 'y', 'x')
         else:
             ds = ds.transpose('y', 'x')
-            if not any(bool(ds[v].notnull().any()) for v in ds.data_vars):
-                logger.warning(f"Skipping {self.cache_key}: no valid (non-NaN) data.")
-                self.fs.makedirs(self.path, exist_ok=True)
-                with self.fs.open(os.path.join(self.path, '.null'), 'wb') as f:
-                    f.write(b'')
-                return ds
 
         # Adapt the CRS
         ds.rio.write_crs("epsg:4326", inplace=True)
@@ -221,6 +215,12 @@ class TerracottaBackend(DatabaseBackend, FileBackend):
                         logger.exception(f"Failed to write raster {sub_cache_key}; continuing with remaining times.")
                         continue
             else:
+                if not any(bool(ds[v].notnull().any()) for v in ds.data_vars):
+                    logger.warning(f"Skipping {self.cache_key}: no valid (non-NaN) data.")
+                    # Marker file so FileBackend.exists() sees this cache (see test_terracotta_all_null_no_time).
+                    with self.fs.open(os.path.join(self.path, '.null'), 'wb') as f:
+                        f.write(b'')
+                    return ds
                 path = os.path.join(self.path, '_.tif')
                 override_path = os.path.join(self.override_path, '_.tif')
                 self.write_individual_raster(self.driver, ds, path, self.cache_key, override_path)
@@ -243,24 +243,10 @@ class TerracottaBackend(DatabaseBackend, FileBackend):
     def upsert(self, data, upsert_keys=None):
         raise NotImplementedError("Terracotta does not support upsert.")
 
-    def _matches_cache_key(self, dataset_key):
-        # Terracotta keys are either the 2D base key or a time slice:
-        #   time_latlon_array_              (from cache_key "time_latlon_array/")
-        #   time_latlon_array__2001-01-01   (base key + "_" + timestamp)
-        #
-        # A broad SQL LIKE on base_key + "%" also matches unrelated caches whose
-        # names share a prefix (e.g. time_latlon_array_with_null_chunks__...).
-        # We can't fix that in SQL with LIKE alone because "_" is a wildcard there.
-        base_key = self.cache_key.replace('/', '_')
-        if dataset_key == base_key:
-            return True
-        return dataset_key.startswith(base_key + '_')
-
     def read(self, engine):
         datasets_table = sqlalchemy.Table("datasets", self.driver.meta_store.sqla_metadata,
                                           autoload_with=self.driver.meta_store.sqla_engine)
         base_key = self.cache_key.replace('/', '_')
-        # Broad SQL filter, then exact prefix check in _matches_cache_key.
         stmt = (
             datasets_table.select()
             .where(datasets_table.c['key'].like(base_key + '%'))
@@ -269,11 +255,15 @@ class TerracottaBackend(DatabaseBackend, FileBackend):
         with self.driver.meta_store.connect() as conn:
             result = conn.execute(stmt).all()
 
+        # LIKE also matches longer cache keys with the same prefix; filter in Python
+        # because "_" is a wildcard in SQL LIKE.
+        time_slice_prefix = base_key + '_'
         ret = []
         for row in result:
-            if not self._matches_cache_key(row[0]):
+            key = row[0]
+            if key != base_key and not key.startswith(time_slice_prefix):
                 continue
-            ret.append({row[0]: self.driver.get_metadata({'key': row[0]})})
+            ret.append({key: self.driver.get_metadata({'key': key})})
 
         return ret
 
@@ -283,16 +273,15 @@ class TerracottaBackend(DatabaseBackend, FileBackend):
 
         datasets_table = sqlalchemy.Table("datasets", self.driver.meta_store.sqla_metadata,
                                           autoload_with=self.driver.meta_store.sqla_engine)
-        base_key = self.cache_key.replace('/', '_')
         stmt = (
             datasets_table.select()
-            .where(datasets_table.c['key'].like(base_key + '%'))
+            .where(datasets_table.c['key'].like(self.cache_key.replace('/', '_') + '%'))
         )
 
         with self.driver.meta_store.connect() as conn:
             result = conn.execute(stmt).all()
 
-        datasets = [row[0] for row in result if self._matches_cache_key(row[0])]
+        datasets = [row[0] for row in result]
         for dataset in datasets:
             logger.info(f"Deleting datasets {datasets} from terracotta.")
             self.driver.delete({'key': dataset})
