@@ -80,6 +80,22 @@ def time_latlon_array_with_null_chunks():
     return ds
 
 
+@cache(cache_args=[])
+def all_null_latlon_array():
+    """Generate a 2D lat/lon dataset with no valid data."""
+    lats = np.arange(-90, 90, 0.25)
+    lons = np.arange(-180, 180, 0.25)
+
+    ds = xr.Dataset(
+        data_vars= {
+            'data': (['lat', 'lon'], np.full((len(lats), len(lons)), np.nan)),
+        },
+        coords={"lat": lats, "lon": lons},
+    )
+
+    return ds
+
+
 def test_terracotta():
     # cache the array
     ds = simple_latlon_array(backend='zarr')
@@ -89,11 +105,21 @@ def test_terracotta():
     assert len(ds) == 1
 
     # cache the array
+    time_latlon_array_with_null_chunks(backend='zarr')
+    time_latlon_array_with_null_chunks(backend='zarr', storage_backend='terracotta', cache_mode='overwrite')
+
     ds = time_latlon_array(backend='zarr')
     # Verify that write?
     ds = time_latlon_array(backend='zarr', storage_backend='terracotta', cache_mode='overwrite')
     ds = time_latlon_array(backend='terracotta')
     assert len(ds) == 5
+
+
+def test_terracotta_all_null_no_time():
+    all_null_latlon_array(backend='zarr')
+    all_null_latlon_array(backend='zarr', storage_backend='terracotta', cache_mode='overwrite')
+    ds = all_null_latlon_array(backend='terracotta')
+    assert len(ds) == 0
 
 
 def test_terracotta_all_null_time_chunks():
