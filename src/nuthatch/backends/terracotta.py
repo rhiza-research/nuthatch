@@ -217,7 +217,7 @@ class TerracottaBackend(DatabaseBackend, FileBackend):
             else:
                 if not any(bool(ds[v].notnull().any()) for v in ds.data_vars):
                     logger.warning(f"Skipping {self.cache_key}: no valid (non-NaN) data.")
-                    # Marker file so FileBackend.exists() sees this cache (see test_terracotta_all_null_no_time).
+                    # Marker file so FileBackend.exists() sees this cache
                     with self.fs.open(os.path.join(self.path, '.null'), 'wb') as f:
                         f.write(b'')
                     return ds
