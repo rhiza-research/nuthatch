@@ -215,12 +215,6 @@ class TerracottaBackend(DatabaseBackend, FileBackend):
                         logger.exception(f"Failed to write raster {sub_cache_key}; continuing with remaining times.")
                         continue
             else:
-                if not any(bool(ds[v].notnull().any()) for v in ds.data_vars):
-                    logger.warning(f"Skipping {self.cache_key}: no valid (non-NaN) data.")
-                    # Marker file so FileBackend.exists() sees this cache
-                    with self.fs.open(os.path.join(self.path, '.null'), 'wb') as f:
-                        f.write(b'')
-                    return ds
                 path = os.path.join(self.path, '_.tif')
                 override_path = os.path.join(self.override_path, '_.tif')
                 self.write_individual_raster(self.driver, ds, path, self.cache_key, override_path)
