@@ -14,3 +14,18 @@ wheels/
 
 .coverage
 coverage.xml 
+
+# gcs integration test service account
+nuthatch-test-sa-key.json
+test_infrastructure/nuthatch-test-sa-key.json
+
+# terraform-generated config files (contain secrets)
+nuthatch.aws.toml
+nuthatch.gcp.toml
+nuthatch.azure.toml
+
+# terraform files
+.terraform
+*.tfstate
+*.tfstate.backup
+*.tfvars
