@@ -125,7 +125,7 @@ class TerracottaBackend(DatabaseBackend, FileBackend):
 
         try:
             self.driver.get_keys()
-        except sqlalchemy.exc.DatabaseError:
+        except (sqlalchemy.exc.DatabaseError, tc.exceptions.InvalidDatabaseError):
             # Create a metastore
             logger.info("Creating new terracotta metastore")
             self.driver.create(['key'])
