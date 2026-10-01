@@ -29,6 +29,14 @@ def test_config_backend_reg():
     assert config['root']['sql']['password2'] == 'test_password'
 
 
+def test_configured_local_filesystem_is_kept(monkeypatch):
+    # A module name with no registered config_parameter, so only the env var sets the local path.
+    monkeypatch.setenv('NUTHATCH_LOCAL_FILESYSTEM', '/tmp/nuthatch_test_local_cache')
+    config = NuthatchConfig(wrapped_module='local_filesystem_env_test')
+    assert config['local']['filesystem'] == '/tmp/nuthatch_test_local_cache'
+    assert not config.default_local
+
+
 if __name__ == '__main__':
     test_get_config()
     test_config_reg()
